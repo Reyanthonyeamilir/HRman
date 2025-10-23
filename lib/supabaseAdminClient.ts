@@ -1,0 +1,19 @@
+import { createClient } from '@supabase/supabase-js'
+
+export const supabaseAdmin = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.NEXT_SERVICE_ROLE_KEY!, // Make sure this is valid
+  {
+    auth: {
+      autoRefreshToken: false,
+      persistSession: false,
+      detectSessionInUrl: false,
+      debug: false
+    },
+    global: {
+      headers: {
+        'Content-Type': 'application/json',
+      }
+    }
+  }
+)
