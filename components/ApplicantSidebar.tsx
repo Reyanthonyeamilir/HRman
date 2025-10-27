@@ -4,7 +4,7 @@ import * as React from 'react'
 import Link from 'next/link'
 import Image from 'next/image'
 import { usePathname } from 'next/navigation'
-import { Menu, LayoutDashboard, Briefcase, ClipboardList, Compass } from 'lucide-react'
+import { Menu, LayoutDashboard, Briefcase, ClipboardList, Compass, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Sheet, SheetContent, SheetTrigger } from '@/components/ui/sheet'
 import { cn } from '@/lib/utils'
@@ -30,7 +30,7 @@ function useApplicantName() {
 function NavList({ onNavigate }: { onNavigate?: () => void }) {
   const pathname = usePathname()
   return (
-    <nav className="p-2">
+    <nav className="p-3">
       <ul className="space-y-1">
         {links.map(({ label, href, icon: Icon }) => {
           const active = pathname === href || pathname.startsWith(href + '/')
@@ -40,8 +40,9 @@ function NavList({ onNavigate }: { onNavigate?: () => void }) {
                 href={href}
                 onClick={onNavigate}
                 className={cn(
-                  'flex items-center gap-3 rounded-xl px-3 py-2 text-sm transition-colors',
-                  active ? 'bg-blue-600 text-white' : 'text-slate-700 hover:bg-blue-50 hover:text-blue-700'
+                  'flex items-center gap-3 rounded-xl px-3 py-2 text-sm transition-all duration-200',
+                  'hover:bg-blue-700 hover:text-white',
+                  active ? 'bg-blue-600 text-white' : 'text-gray-200'
                 )}
               >
                 <Icon className="size-4" />
@@ -57,70 +58,90 @@ function NavList({ onNavigate }: { onNavigate?: () => void }) {
 
 export function ApplicantMobileTopbar() {
   const name = useApplicantName()
+  const [mobileMenuOpen, setMobileMenuOpen] = React.useState(false)
+
   return (
-    <div className="sticky top-0 z-30 flex items-center gap-3 border-b bg-white/90 px-4 py-3 backdrop-blur md:hidden">
-      <Sheet>
-        <SheetTrigger asChild>
-          <Button variant="outline" size="icon" className="shrink-0" aria-label="Open menu">
-            <Menu className="size-5" />
-          </Button>
-        </SheetTrigger>
-        <SheetContent side="left" className="w-80 p-0">
-          {/* Mobile drawer header with logo + greeting */}
-          <div className="border-b bg-white/90 px-4 py-3">
-            <div className="flex items-center gap-3">
-              <Image
-                src="/norsu.png"
-                width={36}
-                height={36}
-                alt="NORSU Logo"
-                className="rounded-md border border-blue-100"
-                priority
-              />
-              <div className="leading-tight">
-                <div className="text-sm font-semibold text-slate-900">Welcome, {name}!</div>
-                <div className="text-xs text-slate-500">NORSU • Applicant</div>
-              </div>
-            </div>
-          </div>
-          <NavList
-            onNavigate={() =>
-              (document.querySelector('[data-state="open"][data-scope="sheet-content"]') as HTMLElement)?.click()
-            }
+    <>
+      <div className="sticky top-0 z-30 flex items-center gap-3 border-b border-blue-800 bg-[#0b1b3b] px-4 py-3 text-white md:hidden">
+        <Button
+          variant="ghost"
+          size="icon"
+          className="shrink-0 bg-[#11214a] border border-blue-700 hover:bg-blue-700"
+          aria-label="Open menu"
+          onClick={() => setMobileMenuOpen(true)}
+        >
+          <Menu className="size-5 text-white" />
+        </Button>
+        <div className="flex items-center gap-2">
+          <Image 
+            src="/images/norsu.png" 
+            width={24} 
+            height={24} 
+            alt="NORSU Logo" 
+            className="rounded-sm border border-blue-600" 
           />
-        </SheetContent>
-      </Sheet>
-      <div className="flex items-center gap-2">
-        <Image src="/norsu.png" width={24} height={24} alt="NORSU Logo" className="rounded-sm border border-blue-100" />
-        <h1 className="text-sm font-semibold text-slate-800">Welcome, {name}!</h1>
+          <h1 className="text-sm font-semibold text-white">Welcome, {name}!</h1>
+        </div>
       </div>
-    </div>
+
+      {/* Mobile Sidebar */}
+      <div className={cn(
+        'fixed inset-0 z-40 bg-black/50 transition-opacity md:hidden',
+        mobileMenuOpen ? 'opacity-100' : 'pointer-events-none opacity-0'
+      )}>
+        <div className={cn(
+          'fixed inset-y-0 left-0 z-50 w-80 transform bg-[#0b1b3b] border-r border-blue-800 transition-transform',
+          mobileMenuOpen ? 'translate-x-0' : '-translate-x-full'
+        )}>
+          {/* Mobile header */}
+          <div className="flex flex-col items-center justify-center border-b border-blue-800 bg-[#11214a] py-5 px-4">
+            <Image
+              src="/images/norsu.png"
+              alt="NORSU HR Logo"
+              width={70}
+              height={70}
+              className="rounded-xl mb-2"
+            />
+            <h1 className="text-base font-semibold text-center mb-1">NORSU HR Applicant</h1>
+            <p className="text-xs text-gray-300 text-center">Welcome, {name}!</p>
+          </div>
+
+          {/* Navigation */}
+          <NavList onNavigate={() => setMobileMenuOpen(false)} />
+
+          {/* Close button */}
+          <div className="absolute top-4 right-4">
+            <Button
+              variant="ghost"
+              size="icon"
+              className="bg-[#11214a] border border-blue-700 hover:bg-blue-700"
+              onClick={() => setMobileMenuOpen(false)}
+            >
+              <X className="size-4 text-white" />
+            </Button>
+          </div>
+        </div>
+      </div>
+    </>
   )
 }
 
 export default function ApplicantSidebar() {
   const name = useApplicantName()
+
   return (
-    <aside
-      className="hidden h-full min-h-screen w-72 border-r bg-white/80 backdrop-blur md:block"
-      style={{ ['--bg-url' as any]: 'var(--applicant-bg, none)' }}
-    >
+    <aside className="hidden h-full min-h-screen w-72 border-r border-blue-800 bg-[#0b1b3b] text-white md:block">
       {/* Desktop sidebar header with logo + greeting */}
-      <div className="border-b bg-white/80 px-4 py-4">
-        <div className="flex items-center gap-3">
-          <Image
-            src="/norsu.png"
-            width={40}
-            height={40}
-            alt="NORSU Logo"
-            className="rounded-md border border-blue-100"
-            priority
-          />
-          <div className="leading-tight">
-            <div className="text-sm font-semibold text-slate-900">Welcome, {name}!</div>
-            <div className="text-xs text-slate-500">NORSU • Applicant</div>
-          </div>
-        </div>
+      <div className="flex flex-col items-center justify-center border-b border-blue-800 bg-[#11214a] py-5 px-4">
+        <Image
+          src="/images/norsu.png"
+          alt="NORSU HR Logo"
+          width={70}
+          height={70}
+          className="rounded-xl mb-2"
+        />
+        <h1 className="text-base font-semibold text-center mb-1">NORSU HR Applicant</h1>
+        <p className="text-xs text-gray-300 text-center">Welcome, {name}!</p>
       </div>
 
       <NavList />

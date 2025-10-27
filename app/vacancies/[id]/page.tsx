@@ -94,7 +94,7 @@ export default function VacanciesPage() {
 
   return (
     <>
-      {/* HEADER */}
+      {/* HEADER - Using the same navigation as About page */}
       <header className="sticky top-0 z-50 bg-white shadow-[0_1px_0_rgba(2,8,23,0.06)]">
         <div className="mx-auto flex w-full max-w-6xl items-center gap-4 px-4 py-3">
           <Link className="inline-flex items-center gap-2 font-extrabold" href="/" aria-label="NORSU Home">
@@ -123,22 +123,21 @@ export default function VacanciesPage() {
           >
             <ul className="mx-auto flex w-full max-w-6xl flex-col gap-0 px-4 py-2 md:flex-row md:items-center md:gap-4 md:py-0">
               <li className="w-full md:w-auto">
-                <Link href="/" className={`${linkBase} ${isActive("/")}`} onClick={() => setOpen(false)}>Home</Link>
+                <Link href="/" className={`${linkBase} ${isActive("/")}`}>Home</Link>
               </li>
               <li className="w-full md:w-auto">
-                <Link href="/about" className={`${linkBase} ${isActive("/about")}`} onClick={() => setOpen(false)}>About</Link>
+                <Link href="/about" className={`${linkBase} ${isActive("/about")}`}>About</Link>
               </li>
               <li className="w-full md:w-auto">
-                <Link href="/vacancies" className={`${linkBase} ${isActive("/vacancies")}`} onClick={() => setOpen(false)}>Vacancies</Link>
+                <Link href="/vacancies" className={`${linkBase} ${isActive("/vacancies")}`}>Vacancies</Link>
               </li>
               <li className="ml-auto w-full md:w-auto">
-                <Link href="/login" className={`${linkBase} ${isActive("/login")}`} onClick={() => setOpen(false)}>Login</Link>
+                <Link href="/login" className={`${linkBase} ${isActive("/login")}`}>Login</Link>
               </li>
               <li className="w-full md:w-auto">
                 <Link
                   href="/signup"
                   className="inline-flex h-10 items-center justify-center rounded-full bg-[#2f67ff] px-4 font-bold text-white transition hover:-translate-y-[1px] hover:bg-[#2553cc]"
-                  onClick={() => setOpen(false)}
                 >
                   Signup
                 </Link>
@@ -148,132 +147,60 @@ export default function VacanciesPage() {
         </div>
       </header>
 
-      {/* ENHANCED BACKGROUND IMAGE SECTION */}
-      <div className="relative w-full overflow-hidden bg-gradient-to-br from-[#0b1b3b] via-[#1e3a8a] to-[#2563eb]">
-        {/* Background Image with Responsive Sizing */}
-        <div className="absolute inset-0">
-          <Image
-            src="/images/norsu-campus.jpg"
-            alt="NORSU Campus"
-            fill
-            className="object-cover"
-            priority
-            sizes="100vw"
-            quality={80}
-            style={{
-              objectPosition: 'center 30%'
-            }}
-          />
-          {/* Enhanced Gradient Overlay */}
-          <div className="absolute inset-0 bg-gradient-to-r from-[#0b1b3b]/90 via-[#0b1b3b]/70 to-[#0b1b3b]/90 md:from-[#0b1b3b]/80 md:via-[#0b1b3b]/50 md:to-transparent"></div>
-          <div className="absolute inset-0 bg-gradient-to-t from-[#0b1b3b] via-transparent to-transparent"></div>
-          {/* Subtle Pattern Overlay */}
-          <div className="absolute inset-0 bg-[url('data:image/svg+xml,%3Csvg%20width%3D%2220%22%20height%3D%2220%22%20viewBox%3D%220%200%2020%2020%22%20xmlns%3D%22http%3A//www.w3.org/2000/svg%22%3E%3Cg%20fill%3D%22%23ffffff%22%20fill-opacity%3D%220.05%22%3E%3Ccircle%20cx%3D%223%22%20cy%3D%223%22%20r%3D%221%22/%3E%3Ccircle%20cx%3D%2210%22%20cy%3D%2210%22%20r%3D%221%22/%3E%3C/g%3E%3C/svg%3E')]"></div>
-        </div>
+      {/* BACKGROUND IMAGE SECTION - Between header and main content */}
+      <div className="relative h-64 md:h-80 w-full overflow-hidden">
+        <div 
+          className="absolute inset-0 bg-cover bg-center bg-no-repeat"
+          style={{
+            backgroundImage: "url('/images/norsu-campus.jpg')",
+          }}
+        />
+        <div className="absolute inset-0 bg-gradient-to-r from-[#0b1b3b]/80 via-[#0b1b3b]/60 to-transparent"></div>
+        <div className="absolute inset-0 bg-gradient-to-t from-[#0b1b3b] via-transparent to-transparent"></div>
         
-        {/* Content */}
-        <div className="relative z-10 mx-auto max-w-6xl px-4">
-          <div className="flex min-h-[50vh] items-center py-16 md:min-h-[60vh] md:py-24">
-            <div className="w-full max-w-2xl">
-              {/* Badge */}
-              <div className="mb-6 inline-flex items-center gap-2 rounded-full bg-white/10 backdrop-blur-md px-4 py-2 border border-white/20">
-                <div className="h-2 w-2 rounded-full bg-[#2563eb] animate-pulse"></div>
-                <span className="text-sm font-semibold uppercase tracking-widest text-white">
-                  Career Opportunities
-                </span>
+        {/* Overlay Content */}
+        <div className="relative z-10 h-full flex items-center justify-start">
+          <div className="max-w-6xl mx-auto px-4 w-full">
+            <div className="max-w-2xl">
+              <div className="inline-flex items-center gap-2 bg-white/10 backdrop-blur-md rounded-full px-6 py-2 border border-white/20 mb-4">
+                <div className="w-2 h-2 bg-[#2563eb] rounded-full animate-pulse"></div>
+                <p className="text-sm font-semibold uppercase tracking-widest text-[#c7d7ff]">Career Opportunities</p>
               </div>
-
-              {/* Main Heading */}
-              <h1 className="mb-4 text-4xl font-bold leading-tight text-white md:text-5xl lg:text-6xl">
-                Join The
-                <span className="block bg-gradient-to-r from-white to-[#c7d7ff] bg-clip-text text-transparent">
-                  NORSU Family
-                </span>
+              <h1 className="text-4xl md:text-5xl font-bold text-white mb-4 bg-gradient-to-r from-white to-[#c7d7ff] bg-clip-text text-transparent">
+                Join NORSU Family
               </h1>
-
-              {/* Description */}
-              <p className="mb-8 text-lg leading-relaxed text-[#c7d7ff] md:text-xl md:max-w-xl">
-                Build your career with Negros Oriental State University. Discover rewarding opportunities that shape futures and transform communities through education and innovation.
+              <p className="text-lg text-[#c7d7ff] max-w-xl leading-relaxed">
+                Build your career with Negros Oriental State University. Discover opportunities that shape futures and transform communities.
               </p>
-
-              {/* Stats */}
-              <div className="flex flex-wrap gap-6">
-                <div className="text-center">
-                  <div className="text-2xl font-bold text-white md:text-3xl">50+</div>
-                  <div className="text-sm text-[#c7d7ff]">Team Members</div>
-                </div>
-                <div className="text-center">
-                  <div className="text-2xl font-bold text-white md:text-3xl">10+</div>
-                  <div className="text-sm text-[#c7d7ff]">Departments</div>
-                </div>
-                <div className="text-center">
-                  <div className="text-2xl font-bold text-white md:text-3xl">5+</div>
-                  <div className="text-sm text-[#c7d7ff]">Campuses</div>
-                </div>
-              </div>
             </div>
           </div>
-        </div>
-
-        {/* Wave Separator */}
-        <div className="absolute bottom-0 left-0 right-0">
-          <svg 
-            viewBox="0 0 1200 120" 
-            preserveAspectRatio="none" 
-            className="w-full h-12 md:h-20 text-[#0b1b3b]"
-          >
-            <path 
-              d="M0,0V46.29c47.79,22.2,103.59,32.17,158,28,70.36-5.37,136.33-33.31,206.8-37.5C438.64,32.43,512.34,53.67,583,72.05c69.27,18,138.3,24.88,209.4,13.08,36.15-6,69.85-17.84,104.45-29.34C989.49,25,1113-14.29,1200,52.47V0Z" 
-              opacity=".25" 
-              fill="currentColor"
-            ></path>
-            <path 
-              d="M0,0V15.81C13,36.92,27.64,56.86,47.69,72.05,99.41,111.27,165,111,224.58,91.58c31.15-10.15,60.09-26.07,89.67-39.8,40.92-19,84.73-46,130.83-49.67,36.26-2.85,70.9,9.42,98.6,31.56,31.77,25.39,62.32,62,103.63,73,40.44,10.79,81.35-6.69,119.13-24.28s75.16-39,116.92-43.05c59.73-5.85,113.28,22.88,168.9,38.84,30.2,8.66,59,6.17,87.09-7.5,22.43-10.89,48-26.93,60.65-49.24V0Z" 
-              opacity=".5" 
-              fill="currentColor"
-            ></path>
-            <path 
-              d="M0,0V5.63C149.93,59,314.09,71.32,475.83,42.57c43-7.64,84.23-20.12,127.61-26.46,59-8.63,112.48,12.24,165.56,35.4C827.93,77.22,886,95.24,951.2,90c86.53-7,172.46-45.71,248.8-84.81V0Z" 
-              fill="currentColor"
-            ></path>
-          </svg>
         </div>
       </div>
 
       {/* MAIN CONTENT */}
-      <section className="relative bg-[#0b1b3b] py-16 md:py-20">
+      <section className="relative bg-[#0b1b3b] py-16">
         {/* Subtle background pattern */}
-        <div className="absolute inset-0 opacity-[0.03]">
+        <div className="absolute inset-0 opacity-5">
           <div className="absolute inset-0 bg-gradient-to-br from-[#2563eb] to-[#1e3a8a]"></div>
         </div>
         
         <div className="relative z-10">
           <div className="mx-auto w-full max-w-6xl px-4">
-            {/* Section Header */}
-            <div className="mb-12 text-center md:mb-16">
-              <h2 className="mb-4 text-3xl font-bold text-white md:text-4xl">
-                Current Open Positions
-              </h2>
-              <p className="mx-auto max-w-2xl text-lg text-[#c7d7ff]">
-                Explore our latest career opportunities and find the perfect role to match your skills and aspirations.
-              </p>
-            </div>
-
             {/* Content Section */}
             {loading ? (
               <div className="flex justify-center py-20">
                 <div className="text-center">
-                  <div className="mx-auto mb-4 h-16 w-16 animate-spin rounded-full border-4 border-[#2563eb]/30 border-t-[#2563eb]"></div>
-                  <p className="font-medium text-[#c7d7ff]">Loading opportunities...</p>
+                  <div className="h-16 w-16 border-4 border-[#2563eb]/30 border-t-[#2563eb] rounded-full animate-spin mx-auto mb-4"></div>
+                  <p className="text-[#c7d7ff] font-medium">Loading opportunities...</p>
                 </div>
               </div>
             ) : error ? (
               <div className="text-center py-12">
-                <div className="mx-auto max-w-md rounded-2xl border border-red-500/20 bg-red-500/10 p-8 backdrop-blur-md">
-                  <p className="mb-4 text-red-200">{error}</p>
+                <div className="bg-red-500/10 backdrop-blur-md rounded-2xl border border-red-500/20 p-8 max-w-md mx-auto">
+                  <p className="text-red-200 mb-4">{error}</p>
                   <Button 
                     onClick={fetchJobs} 
-                    className="rounded-full bg-[#2563eb] px-6 text-white shadow-lg transition-all duration-200 hover:bg-[#1d4ed8]"
+                    className="bg-[#2563eb] hover:bg-[#1d4ed8] rounded-full text-white px-6 shadow-lg transition-all duration-200"
                   >
                     Try Again
                   </Button>
@@ -281,37 +208,37 @@ export default function VacanciesPage() {
               </div>
             ) : jobs.length === 0 ? (
               <div className="text-center py-16">
-                <div className="mx-auto max-w-md rounded-2xl border border-white/10 bg-white/5 p-12 shadow-2xl backdrop-blur-md">
-                  <div className="mb-4 inline-flex rounded-2xl bg-white/10 p-4">
+                <div className="bg-white/5 backdrop-blur-md rounded-2xl border border-white/10 p-12 max-w-md mx-auto shadow-2xl">
+                  <div className="bg-white/10 p-4 rounded-2xl inline-flex mb-4">
                     <Building2 className="h-12 w-12 text-[#c7d7ff]" />
                   </div>
-                  <h3 className="mb-3 text-xl font-semibold text-white">No Current Vacancies</h3>
-                  <p className="mb-6 text-[#c7d7ff]">We're always looking for talented individuals. Please check back later for new opportunities.</p>
+                  <h3 className="text-xl font-semibold text-white mb-3">No Current Vacancies</h3>
+                  <p className="text-[#c7d7ff] mb-6">We're always looking for talented individuals. Please check back later for new opportunities.</p>
                   <Button 
                     onClick={fetchJobs}
-                    className="rounded-full border border-white/20 bg-white/10 px-6 text-white transition-all duration-200 hover:bg-white/20"
+                    className="bg-white/10 hover:bg-white/20 border border-white/20 text-white rounded-full px-6 transition-all duration-200"
                   >
                     Refresh
                   </Button>
                 </div>
               </div>
             ) : (
-              <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
                 {jobs.map((job) => (
                   <article
                     key={job.id}
-                    className="group overflow-hidden rounded-2xl border border-white/10 bg-white/5 backdrop-blur-md transition-all duration-500 hover:-translate-y-2 hover:border-white/20 hover:bg-white/10 hover:shadow-2xl"
+                    className="group bg-white/5 backdrop-blur-md rounded-2xl border border-white/10 overflow-hidden transition-all duration-500 hover:bg-white/10 hover:border-white/20 hover:shadow-2xl hover:-translate-y-2"
                   >
                     {/* Image Section */}
-                    <div className="relative h-48 overflow-hidden bg-gradient-to-br from-[#0b1b3b] via-[#1e3a8a] to-[#2563eb]">
+                    <div className="relative w-full h-48 bg-gradient-to-br from-[#0b1b3b] via-[#1e3a8a] to-[#2563eb] overflow-hidden">
                       {job.image_path ? (
-                        <div className="relative h-full w-full">
+                        <div className="relative w-full h-full">
                           <Image
                             src={job.image_path}
                             alt={job.job_title}
                             fill
                             className="object-cover transition-transform duration-700 group-hover:scale-105"
-                            sizes="(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 33vw"
+                            sizes="(max-width: 768px) 100vw, (max-width: 1200px) 50vw, 33vw"
                             onError={(e) => {
                               e.currentTarget.style.display = 'none'
                               const container = e.currentTarget.parentElement
@@ -324,25 +251,25 @@ export default function VacanciesPage() {
                             }}
                           />
                           <div 
-                            className="image-fallback hidden absolute inset-0 flex items-center justify-center bg-gradient-to-br from-[#0b1b3b] to-[#1e3a8a]"
+                            className="image-fallback hidden absolute inset-0 w-full h-full items-center justify-center bg-gradient-to-br from-[#0b1b3b] to-[#1e3a8a]"
                             style={{ display: 'none' }}
                           >
                             <div className="text-center">
-                              <Building2 className="mx-auto mb-3 h-12 w-12 text-[#2563eb]" />
-                              <p className="text-lg font-bold text-[#2563eb]">NORSU HRM</p>
+                              <Building2 className="h-12 w-12 text-[#2563eb] mx-auto mb-3" />
+                              <p className="text-[#2563eb] font-bold text-lg">NORSU HRM</p>
                             </div>
                           </div>
                         </div>
                       ) : (
                         <div className="flex h-full w-full items-center justify-center">
                           <div className="text-center">
-                            <Building2 className="mx-auto mb-3 h-12 w-12 text-[#2563eb]" />
-                            <p className="text-lg font-bold text-[#2563eb]">NORSU HRM</p>
+                            <Building2 className="h-12 w-12 text-[#2563eb] mx-auto mb-3" />
+                            <p className="text-[#2563eb] font-bold text-lg">NORSU HRM</p>
                           </div>
                         </div>
                       )}
-                      <div className="absolute left-4 top-4">
-                        <span className={`inline-flex items-center rounded-full px-3 py-1 text-xs font-semibold backdrop-blur-sm ${getJobTypeColor(getJobType(job.department))}`}>
+                      <div className="absolute top-4 left-4">
+                        <span className={`inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold backdrop-blur-sm ${getJobTypeColor(getJobType(job.department))}`}>
                           {getJobType(job.department)}
                         </span>
                       </div>
@@ -351,12 +278,12 @@ export default function VacanciesPage() {
 
                     {/* Details Section */}
                     <div className="p-6">
-                      <h3 className="mb-4 line-clamp-2 text-xl font-bold text-white transition-colors duration-300 group-hover:text-[#c7d7ff]">
+                      <h3 className="text-xl font-bold text-white line-clamp-2 mb-4 group-hover:text-[#c7d7ff] transition-colors duration-300">
                         {job.job_title}
                       </h3>
                       
                       {/* Job Meta Information */}
-                      <div className="mb-5 space-y-3">
+                      <div className="space-y-3 mb-5">
                         {job.department && (
                           <div className="flex items-center gap-3 text-[#c7d7ff]">
                             <Building2 className="h-4 w-4 flex-shrink-0 text-[#2563eb]" />
@@ -373,21 +300,21 @@ export default function VacanciesPage() {
                           <Calendar className="h-4 w-4 flex-shrink-0 text-[#2563eb]" />
                           <span className="text-sm">Posted: {formatDate(job.date_posted)}</span>
                         </div>
-                        <div className="flex items-center gap-3 font-semibold text-[#2563eb]">
+                        <div className="flex items-center gap-3 text-[#2563eb] font-semibold">
                           <Clock className="h-4 w-4 flex-shrink-0" />
                           <span className="text-sm">Apply by: {getDeadlineDate(job.date_posted)}</span>
                         </div>
                       </div>
 
                       {/* Description */}
-                      <p className="mb-6 line-clamp-3 text-sm leading-relaxed text-[#c7d7ff]">
+                      <p className="text-[#c7d7ff] text-sm leading-relaxed line-clamp-3 mb-6">
                         {job.job_description || "Join our team and contribute to the academic excellence of NORSU. We're looking for passionate individuals ready to make a difference."}
                       </p>
 
                       {/* Action Button */}
                       <Button
                         asChild
-                        className="w-full rounded-xl border-0 bg-gradient-to-r from-[#2563eb] to-[#1d4ed8] py-3 font-semibold text-white transition-all duration-300 hover:scale-105 hover:shadow-lg hover:from-[#1d4ed8] hover:to-[#2563eb]"
+                        className="w-full bg-gradient-to-r from-[#2563eb] to-[#1d4ed8] hover:from-[#1d4ed8] hover:to-[#2563eb] rounded-xl py-3 font-semibold transition-all duration-300 hover:shadow-lg hover:scale-105 text-white border-0"
                       >
                         <Link href={`/vacancies/${job.id}`}>
                           View Details & Apply
@@ -403,69 +330,45 @@ export default function VacanciesPage() {
       </section>
 
       {/* FOOTER */}
-      <footer className="relative border-t border-white/10 bg-[#0b1b3b]">
+      <footer className="relative bg-[#0b1b3b] border-t border-white/10">
         <div className="absolute inset-0 bg-gradient-to-b from-transparent to-[#0b1b3b]/80"></div>
-        <div className="relative z-10 mx-auto max-w-6xl grid grid-cols-1 gap-8 px-4 py-12 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="relative z-10 mx-auto max-w-6xl grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-8 px-4 py-12">
           <div>
-            <div className="mb-4 flex items-center gap-3 font-extrabold text-white">
-              <div className="rounded-lg bg-white/10 p-2 backdrop-blur-sm">
+            <div className="flex items-center gap-3 font-extrabold text-white mb-4">
+              <div className="bg-white/10 p-2 rounded-lg backdrop-blur-sm">
                 <Image src="/images/norsu.png" alt="NORSU" width={32} height={32} />
               </div>
               NORSU • HRM
             </div>
-            <p className="text-sm leading-relaxed text-[#c7d7ff]">
+            <p className="text-sm text-[#c7d7ff] leading-relaxed">
               Capitol Area, Kagawasan Ave, Dumaguete City, Negros Oriental, Philippines
             </p>
           </div>
           <div>
-            <h4 className="mb-4 text-lg font-semibold text-white">Quick Links</h4>
+            <h4 className="font-semibold text-white mb-4 text-lg">Quick Links</h4>
             <ul className="space-y-3 text-[#c7d7ff]">
-              <li>
-                <Link href="/vacancies" className="flex items-center gap-2 transition-colors duration-200 hover:text-white">
-                  <div className="h-1 w-1 rounded-full bg-[#2563eb]"></div>
-                  Vacancies
-                </Link>
-              </li>
-              <li>
-                <Link href="/about" className="flex items-center gap-2 transition-colors duration-200 hover:text-white">
-                  <div className="h-1 w-1 rounded-full bg-[#2563eb]"></div>
-                  About HR
-                </Link>
-              </li>
-              <li>
-                <Link href="/login" className="flex items-center gap-2 transition-colors duration-200 hover:text-white">
-                  <div className="h-1 w-1 rounded-full bg-[#2563eb]"></div>
-                  Login
-                </Link>
-              </li>
-              <li>
-                <Link href="/signup" className="flex items-center gap-2 transition-colors duration-200 hover:text-white">
-                  <div className="h-1 w-1 rounded-full bg-[#2563eb]"></div>
-                  Signup
-                </Link>
-              </li>
+              <li><Link href="/vacancies" className="hover:text-white transition-colors duration-200 flex items-center gap-2"><div className="w-1 h-1 bg-[#2563eb] rounded-full"></div>Vacancies</Link></li>
+              <li><Link href="/about" className="hover:text-white transition-colors duration-200 flex items-center gap-2"><div className="w-1 h-1 bg-[#2563eb] rounded-full"></div>About HR</Link></li>
+              <li><Link href="/login" className="hover:text-white transition-colors duration-200 flex items-center gap-2"><div className="w-1 h-1 bg-[#2563eb] rounded-full"></div>Login</Link></li>
+              <li><Link href="/signup" className="hover:text-white transition-colors duration-200 flex items-center gap-2"><div className="w-1 h-1 bg-[#2563eb] rounded-full"></div>Signup</Link></li>
             </ul>
           </div>
           <div>
-            <h4 className="mb-4 text-lg font-semibold text-white">Contact</h4>
+            <h4 className="font-semibold text-white mb-4 text-lg">Contact</h4>
             <div className="space-y-3 text-[#c7d7ff]">
               <p className="text-sm">Email: hr@norsu.edu.ph</p>
               <p className="text-sm">Phone: (035) 123-4567</p>
             </div>
           </div>
           <div>
-            <h4 className="mb-4 text-lg font-semibold text-white">Follow Us</h4>
+            <h4 className="font-semibold text-white mb-4 text-lg">Follow Us</h4>
             <div className="flex gap-4 text-[#c7d7ff]">
-              <a href="#" className="rounded-lg bg-white/10 p-2 backdrop-blur-sm transition-colors duration-200 hover:text-white">
-                Facebook
-              </a>
-              <a href="#" className="rounded-lg bg-white/10 p-2 backdrop-blur-sm transition-colors duration-200 hover:text-white">
-                Twitter/X
-              </a>
+              <a href="#" className="hover:text-white transition-colors duration-200 bg-white/10 p-2 rounded-lg backdrop-blur-sm">Facebook</a>
+              <a href="#" className="hover:text-white transition-colors duration-200 bg-white/10 p-2 rounded-lg backdrop-blur-sm">Twitter/X</a>
             </div>
           </div>
         </div>
-        <div className="relative z-10 border-t border-white/10 py-6 text-center text-sm text-[#94a3b8]">
+        <div className="relative z-10 text-center border-t border-white/10 py-6 text-sm text-[#94a3b8]">
           © {new Date().getFullYear()} NORSU • Human Resource Management. All rights reserved.
         </div>
       </footer>

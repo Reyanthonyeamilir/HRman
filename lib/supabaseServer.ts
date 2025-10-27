@@ -2,8 +2,8 @@ import { createServerClient } from '@supabase/ssr'
 import { cookies } from 'next/headers'
 import { cache } from 'react'
 
-export const createClient = cache(() => {
-  const cookieStore = cookies()
+export const createClient = cache(async () => {
+  const cookieStore = await cookies()
 
   return createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -31,7 +31,7 @@ export const createClient = cache(() => {
 
 export const getAuthenticatedUserWithRole = async () => {
   try {
-    const supabase = createClient()
+    const supabase = await createClient()
     
     // Get the user session
     const { data: { session }, error: sessionError } = await supabase.auth.getSession()
