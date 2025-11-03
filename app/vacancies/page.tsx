@@ -1,9 +1,8 @@
 "use client"
 
 import * as React from "react"
-import Link from "next/link"
 import Image from "next/image"
-import { usePathname } from "next/navigation"
+import Link from "next/link"
 import { Button } from "@/components/ui/button"
 import { supabase } from '@/lib/supabaseClient'
 import { Building2, MapPin, Calendar, Clock } from "lucide-react"
@@ -21,11 +20,9 @@ interface JobPosting {
 }
 
 export default function VacanciesPage() {
-  const [open, setOpen] = React.useState(false)
   const [jobs, setJobs] = React.useState<JobPosting[]>([])
   const [loading, setLoading] = React.useState(true)
   const [error, setError] = React.useState<string | null>(null)
-  const pathname = usePathname()
 
   const fetchJobs = async () => {
     try {
@@ -89,65 +86,8 @@ export default function VacanciesPage() {
     }
   }
 
-  const linkBase = "block rounded-full px-3.5 py-2 font-semibold text-slate-600 hover:bg-slate-100 hover:text-slate-900 md:inline-block"
-  const isActive = (href: string) => pathname === href ? "bg-slate-100 text-slate-900" : ""
-
   return (
     <>
-      {/* HEADER */}
-      <header className="sticky top-0 z-50 bg-white shadow-[0_1px_0_rgba(2,8,23,0.06)]">
-        <div className="mx-auto flex w-full max-w-6xl items-center gap-4 px-4 py-3">
-          <Link className="inline-flex items-center gap-2 font-extrabold" href="/" aria-label="NORSU Home">
-            <Image src="/images/norsu.png" alt="NORSU Seal" width={34} height={34} />
-            <span>NORSU • HRM</span>
-          </Link>
-
-          <button
-            className="ml-auto inline-grid place-items-center rounded-[10px] p-1.5 md:hidden focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgba(47,103,255,0.25)]"
-            aria-label="Toggle navigation"
-            aria-controls="siteNav"
-            aria-expanded={open}
-            onClick={() => setOpen(v => !v)}
-          >
-            <svg width="26" height="26" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-              <path d="M4 7h16M4 12h16M4 17h16" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
-            </svg>
-          </button>
-
-          <nav
-            id="siteNav"
-            aria-label="Primary Navigation"
-            className={`${open ? "translate-y-0 shadow-[0_10px_20px_rgba(2,8,23,0.08)]" : "-translate-y-[120%]"}
-              fixed left-0 right-0 top-[60px] border-t border-slate-200 bg-white transition
-              md:static md:translate-y-0 md:border-0 md:shadow-none`}
-          >
-            <ul className="mx-auto flex w-full max-w-6xl flex-col gap-0 px-4 py-2 md:flex-row md:items-center md:gap-4 md:py-0">
-              <li className="w-full md:w-auto">
-                <Link href="/" className={`${linkBase} ${isActive("/")}`} onClick={() => setOpen(false)}>Home</Link>
-              </li>
-              <li className="w-full md:w-auto">
-                <Link href="/about" className={`${linkBase} ${isActive("/about")}`} onClick={() => setOpen(false)}>About</Link>
-              </li>
-              <li className="w-full md:w-auto">
-                <Link href="/vacancies" className={`${linkBase} ${isActive("/vacancies")}`} onClick={() => setOpen(false)}>Vacancies</Link>
-              </li>
-              <li className="ml-auto w-full md:w-auto">
-                <Link href="/login" className={`${linkBase} ${isActive("/login")}`} onClick={() => setOpen(false)}>Login</Link>
-              </li>
-              <li className="w-full md:w-auto">
-                <Link
-                  href="/signup"
-                  className="inline-flex h-10 items-center justify-center rounded-full bg-[#2f67ff] px-4 font-bold text-white transition hover:-translate-y-[1px] hover:bg-[#2553cc]"
-                  onClick={() => setOpen(false)}
-                >
-                  Signup
-                </Link>
-              </li>
-            </ul>
-          </nav>
-        </div>
-      </header>
-
       {/* ENHANCED BACKGROUND IMAGE SECTION */}
       <div className="relative w-full overflow-hidden bg-gradient-to-br from-[#0b1b3b] via-[#1e3a8a] to-[#2563eb]">
         {/* Background Image with Responsive Sizing */}
@@ -401,74 +341,6 @@ export default function VacanciesPage() {
           </div>
         </div>
       </section>
-
-      {/* FOOTER */}
-      <footer className="relative border-t border-white/10 bg-[#0b1b3b]">
-        <div className="absolute inset-0 bg-gradient-to-b from-transparent to-[#0b1b3b]/80"></div>
-        <div className="relative z-10 mx-auto max-w-6xl grid grid-cols-1 gap-8 px-4 py-12 sm:grid-cols-2 lg:grid-cols-4">
-          <div>
-            <div className="mb-4 flex items-center gap-3 font-extrabold text-white">
-              <div className="rounded-lg bg-white/10 p-2 backdrop-blur-sm">
-                <Image src="/images/norsu.png" alt="NORSU" width={32} height={32} />
-              </div>
-              NORSU • HRM
-            </div>
-            <p className="text-sm leading-relaxed text-[#c7d7ff]">
-              Capitol Area, Kagawasan Ave, Dumaguete City, Negros Oriental, Philippines
-            </p>
-          </div>
-          <div>
-            <h4 className="mb-4 text-lg font-semibold text-white">Quick Links</h4>
-            <ul className="space-y-3 text-[#c7d7ff]">
-              <li>
-                <Link href="/vacancies" className="flex items-center gap-2 transition-colors duration-200 hover:text-white">
-                  <div className="h-1 w-1 rounded-full bg-[#2563eb]"></div>
-                  Vacancies
-                </Link>
-              </li>
-              <li>
-                <Link href="/about" className="flex items-center gap-2 transition-colors duration-200 hover:text-white">
-                  <div className="h-1 w-1 rounded-full bg-[#2563eb]"></div>
-                  About HR
-                </Link>
-              </li>
-              <li>
-                <Link href="/login" className="flex items-center gap-2 transition-colors duration-200 hover:text-white">
-                  <div className="h-1 w-1 rounded-full bg-[#2563eb]"></div>
-                  Login
-                </Link>
-              </li>
-              <li>
-                <Link href="/signup" className="flex items-center gap-2 transition-colors duration-200 hover:text-white">
-                  <div className="h-1 w-1 rounded-full bg-[#2563eb]"></div>
-                  Signup
-                </Link>
-              </li>
-            </ul>
-          </div>
-          <div>
-            <h4 className="mb-4 text-lg font-semibold text-white">Contact</h4>
-            <div className="space-y-3 text-[#c7d7ff]">
-              <p className="text-sm">Email: hr@norsu.edu.ph</p>
-              <p className="text-sm">Phone: (035) 123-4567</p>
-            </div>
-          </div>
-          <div>
-            <h4 className="mb-4 text-lg font-semibold text-white">Follow Us</h4>
-            <div className="flex gap-4 text-[#c7d7ff]">
-              <a href="#" className="rounded-lg bg-white/10 p-2 backdrop-blur-sm transition-colors duration-200 hover:text-white">
-                Facebook
-              </a>
-              <a href="#" className="rounded-lg bg-white/10 p-2 backdrop-blur-sm transition-colors duration-200 hover:text-white">
-                Twitter/X
-              </a>
-            </div>
-          </div>
-        </div>
-        <div className="relative z-10 border-t border-white/10 py-6 text-center text-sm text-[#94a3b8]">
-          © {new Date().getFullYear()} NORSU • Human Resource Management. All rights reserved.
-        </div>
-      </footer>
     </>
   )
 }

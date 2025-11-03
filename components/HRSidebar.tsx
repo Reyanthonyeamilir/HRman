@@ -1,169 +1,294 @@
 'use client'
 
-import * as React from 'react'
-import Link from 'next/link'
-import { usePathname } from 'next/navigation'
-import {
-  LayoutGrid,
-  Briefcase,
-  ClipboardList,
-  Tag as TagIcon,
-  Menu,
-  X
-} from 'lucide-react'
-import Image from 'next/image'
+import { useState, useEffect } from 'react'
+import HRSidebar from '../components/HRSidebar'
 
-const NAV_ITEMS = [
-  { href: '/hr/dashboard', label: 'Overview', icon: LayoutGrid },
-  { href: '/hr/jobs', label: 'Job Posting', icon: Briefcase },
-  { href: '/hr/review', label: 'Review Applications', icon: ClipboardList },
-  { href: '/hr/tag', label: 'Tag Application Status', icon: TagIcon },
-]
-
-interface HRSidebarProps {
-  className?: string
-  mobileOpen?: boolean
-  onMobileClose?: () => void
+interface Applicant {
+  id: string
+  email: string
+  phone?: string
+  role: string
+  created_at: string
+  user_data: any
 }
 
-export default function HRSidebar({
-  className = '',
-  mobileOpen = false,
-  onMobileClose
-}: HRSidebarProps) {
-  const pathname = usePathname()
+interface JobPosting {
+  id: string
+  job_title: string
+  department: string
+  location: string
+  status: string
+}
 
-  return (
-    <>
-      {/* Mobile Overlay */}
-      {mobileOpen && (
-        <div
-          className="fixed inset-0 bg-black/50 z-40 lg:hidden"
-          onClick={onMobileClose}
-        />
-      )}
+interface Application {
+  id: string
+  job_id: string
+  applicant_id: string
+  pdf_path: string
+  comment?: string
+  submitted_at: string
+  status: string
+  applicant: Applicant
+  job_posting: JobPosting | null
+}
 
-      {/* Sidebar */}
-      <aside
-        className={`
-          fixed lg:static inset-y-0 left-0 z-50
-          w-64 lg:w-full
-          transform transition-transform duration-300 ease-in-out lg:transform-none
-          ${mobileOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'}
-          ${className}
-        `}
-      >
-        <div className="h-full bg-gradient-to-b from-[#0f2a6a] to-[#0b1b3a] border-r border-white/25 lg:rounded-2xl lg:border lg:bg-white/10 lg:backdrop-blur-sm p-4 lg:from-transparent lg:to-transparent">
-          
-          {/* Mobile Header */}
-          <div className="flex items-center justify-between mb-6 lg:hidden">
-            <div className="flex items-center gap-3">
-              <div className="h-10 w-10 rounded-lg bg-gradient-to-br from-[#0078D4] to-[#1C89D1] flex items-center justify-center">
-                <span className="text-white font-bold text-sm">HR</span>
+export default function HRTagPage() {
+  const [applications, setApplications] = useState<Application[]>([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+  const [updating, setUpdating] = useState<string | null>(null)
+  const [mobileOpen, setMobileOpen] = useState(false)
+
+  useEffect(() => {
+    fetchApplications()
+  }, [])
+
+  const fetchApplications = async () => {
+    try {
+      setLoading(true)
+      setError(null)
+      const response = await fetch('/api/hr/applications')
+      
+      if (!response.ok) {
+        throw new Error('Failed to fetch applications')
+      }
+      
+      const data = await response.json()
+      
+      if (data.success) {
+        setApplications(data.applications)
+      } else {
+        throw new Error(data.error || 'Failed to fetch applications')
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'An error occurred')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const updateApplicationStatus = async (applicationId: string, newStatus: string) => {
+    try {
+      setUpdating(applicationId)
+      
+      const response = await fetch('/api/hr/applications', {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          applicationId,
+          status: newStatus,
+        }),
+      })
+
+      const data = await response.json()
+
+      if (!data.success) {
+        throw new Error(data.error || 'Failed to update status')
+      }
+
+      // Update local state
+      setApplications(prev =>
+        prev.map(app =>
+          app.id === applicationId ? { ...app, status: newStatus } : app
+        )
+      )
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to update status')
+    } finally {
+      setUpdating(null)
+    }
+  }
+
+  const formatDate = (dateString: string) => {
+    return new Date(dateString).toLocaleDateString('en-US', {
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric'
+    })
+  }
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-gray-50">
+        <div className="flex">
+          <HRSidebar />
+          <div className="flex-1 container mx-auto py-6">
+            <div className="flex justify-center items-center h-64">
+              <div className="text-center">
+                <p className="text-lg">Loading applications...</p>
+                <p className="text-sm text-muted-foreground mt-2">Please wait while we fetch the data</p>
               </div>
-              <div>
-                <div className="text-lg font-bold text-white">NORSU HR</div>
-                <div className="text-xs text-[#c7d7ff]">Recruitment Portal</div>
-              </div>
-            </div>
-            <button
-              onClick={onMobileClose}
-              className="rounded-lg p-2 hover:bg-white/10 transition-colors duration-200"
-            >
-              <X className="h-5 w-5 text-white" />
-            </button>
-          </div>
-
-          {/* Desktop Logo */}
-          <div className="hidden lg:flex items-center gap-3 px-2 pb-4 pt-1 mb-2 border-b border-white/20">
-            <div className="h-12 w-12 rounded-xl bg-gradient-to-br from-[#0078D4] to-[#1C89D1] flex items-center justify-center shadow-lg overflow-hidden">
-              <Image
-                src="/images/norsu.png"
-                alt="NORSU Logo"
-                width={48}
-                height={48}
-                className="rounded-xl object-cover"
-              />
-            </div>
-            <div>
-              <div className="text-xl font-bold text-white">NORSU HR</div>
-              <div className="text-sm text-[#c7d7ff]">Recruitment Portal</div>
             </div>
           </div>
-
-          {/* Navigation */}
-          <nav className="space-y-2">
-            {NAV_ITEMS.map(({ href, label, icon: Icon }) => (
-              <SideLink
-                key={href}
-                href={href}
-                pathname={pathname}
-                icon={<Icon className="h-5 w-5" />}
-                onClick={onMobileClose}
-              >
-                {label}
-              </SideLink>
-            ))}
-          </nav>
-
-          {/* User Info (Optional Footer) */}
-          <div className="absolute bottom-4 left-4 right-4 hidden lg:block">
-            <div className="border-t border-white/20 pt-4">
-              <div className="flex items-center gap-3">
-                <div className="h-8 w-8 rounded-full bg-gradient-to-br from-[#0078D4] to-[#1C89D1] flex items-center justify-center">
-                  <span className="text-white text-xs font-medium">HR</span>
-                </div>
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm font-medium text-white truncate">HR Officer</p>
-                  <p className="text-xs text-[#c7d7ff] truncate">hr@norsu.edu.ph</p>
-                </div>
-              </div>
-            </div>
-          </div>
-
         </div>
-      </aside>
-    </>
-  )
-}
+      </div>
+    )
+  }
 
-function SideLink({
-  href,
-  pathname,
-  children,
-  icon,
-  onClick
-}: {
-  href: string
-  pathname: string
-  children: React.ReactNode
-  icon: React.ReactNode
-  onClick?: () => void
-}) {
-  const active = pathname === href
+  if (error) {
+    return (
+      <div className="min-h-screen bg-gray-50">
+        <div className="flex">
+          <HRSidebar />
+          <div className="flex-1 container mx-auto py-6">
+            <div className="flex justify-center items-center h-64">
+              <div className="text-center text-destructive">
+                <p className="font-semibold">Error Loading Applications</p>
+                <p className="mt-2 text-sm">{error}</p>
+                <button 
+                  onClick={fetchApplications} 
+                  className="mt-4 px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600"
+                >
+                  Try Again
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    )
+  }
 
   return (
-    <Link
-      href={href}
-      onClick={onClick}
-      className={`flex items-center gap-3 rounded-xl border px-4 py-3 transition-all duration-200 text-sm group ${
-        active
-          ? 'border-[#93c5fd] bg-gradient-to-r from-[#0078D4] to-[#1C89D1] text-white shadow-lg'
-          : 'border-white/25 bg-white/5 text-[#e5edff] hover:bg-white/10 hover:border-[#93c5fd] hover:shadow-md'
-      }`}
-    >
-      <span
-        className={`shrink-0 transition-transform duration-200 ${
-          active ? 'scale-110' : 'group-hover:scale-110'
-        }`}
-      >
-        {icon}
-      </span>
-      <span className="font-medium">{children}</span>
+    <div className="min-h-screen bg-gray-50">
+      <div className="flex">
+        <HRSidebar 
+          mobileOpen={mobileOpen}
+          onMobileClose={() => setMobileOpen(false)}
+        />
+        
+        {/* Main Content */}
+        <div className="flex-1 lg:ml-0">
+          {/* Mobile Header */}
+          <div className="lg:hidden bg-white border-b p-4">
+            <div className="flex items-center justify-between">
+              <button
+                onClick={() => setMobileOpen(true)}
+                className="rounded-lg p-2 hover:bg-gray-100 transition-colors duration-200"
+              >
+                <svg className="h-6 w-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
+                </svg>
+              </button>
+              <div className="text-lg font-bold text-gray-900">Application Management</div>
+              <div className="w-10"></div> {/* Spacer for balance */}
+            </div>
+          </div>
 
-      {active && (
-        <div className="ml-auto h-2 w-2 rounded-full bg-white/80 animate-pulse"></div>
-      )}
-    </Link>
+          {/* Content */}
+          <div className="container mx-auto py-6 space-y-6 px-4 lg:px-6">
+            <div className="flex justify-between items-center">
+              <div>
+                <h1 className="text-3xl font-bold tracking-tight">Application Management</h1>
+                <p className="text-muted-foreground">
+                  Manage and review job applications
+                </p>
+              </div>
+              <button 
+                onClick={fetchApplications} 
+                className="px-4 py-2 border border-gray-300 rounded hover:bg-gray-50"
+              >
+                Refresh
+              </button>
+            </div>
+
+            <div className="bg-white shadow rounded-lg">
+              <div className="p-6">
+                <h2 className="text-2xl font-semibold">Applications</h2>
+                <p className="text-gray-600">
+                  Review and update application statuses. Total: {applications.length} applications
+                </p>
+              </div>
+              <div className="p-6">
+                {applications.length === 0 ? (
+                  <div className="text-center py-8">
+                    <p className="text-gray-500">No applications found.</p>
+                    <button 
+                      onClick={fetchApplications} 
+                      className="mt-2 px-4 py-2 border border-gray-300 rounded hover:bg-gray-50"
+                    >
+                      Refresh
+                    </button>
+                  </div>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <table className="min-w-full divide-y divide-gray-200">
+                      <thead className="bg-gray-50">
+                        <tr>
+                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Applicant</th>
+                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Job Position</th>
+                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Department</th>
+                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Submitted</th>
+                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
+                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Update Status</th>
+                        </tr>
+                      </thead>
+                      <tbody className="bg-white divide-y divide-gray-200">
+                        {applications.map((application) => (
+                          <tr key={application.id}>
+                            <td className="px-6 py-4 whitespace-nowrap">
+                              <div>
+                                <p className="font-medium">
+                                  {application.applicant.user_data?.name || application.applicant.email}
+                                </p>
+                                <p className="text-sm text-gray-500">
+                                  {application.applicant.email}
+                                </p>
+                                {application.applicant.phone && (
+                                  <p className="text-sm text-gray-500">
+                                    {application.applicant.phone}
+                                  </p>
+                                )}
+                              </div>
+                            </td>
+                            <td className="px-6 py-4 whitespace-nowrap">
+                              {application.job_posting?.job_title || 'N/A'}
+                            </td>
+                            <td className="px-6 py-4 whitespace-nowrap">
+                              {application.job_posting?.department || 'N/A'}
+                            </td>
+                            <td className="px-6 py-4 whitespace-nowrap">
+                              {formatDate(application.submitted_at)}
+                            </td>
+                            <td className="px-6 py-4 whitespace-nowrap">
+                              <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${
+                                application.status === 'pending' ? 'bg-yellow-100 text-yellow-800' :
+                                application.status === 'reviewed' ? 'bg-blue-100 text-blue-800' :
+                                application.status === 'accepted' ? 'bg-green-100 text-green-800' :
+                                'bg-red-100 text-red-800'
+                              }`}>
+                                {application.status.charAt(0).toUpperCase() + application.status.slice(1)}
+                              </span>
+                            </td>
+                            <td className="px-6 py-4 whitespace-nowrap">
+                              <select
+                                value={application.status}
+                                onChange={(e) => updateApplicationStatus(application.id, e.target.value)}
+                                disabled={updating === application.id}
+                                className="w-32 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                              >
+                                <option value="pending">Pending</option>
+                                <option value="reviewed">Reviewed</option>
+                                <option value="accepted">Accepted</option>
+                                <option value="rejected">Rejected</option>
+                              </select>
+                              {updating === application.id && (
+                                <p className="text-xs text-gray-500 mt-1">Updating...</p>
+                              )}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
   )
 }

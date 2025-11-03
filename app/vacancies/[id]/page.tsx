@@ -3,10 +3,10 @@
 import * as React from "react"
 import Link from "next/link"
 import Image from "next/image"
-import { usePathname } from "next/navigation"
+import { useParams, useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { supabase } from '@/lib/supabaseClient'
-import { Building2, MapPin, Calendar, Clock } from "lucide-react"
+import { Building2, MapPin, Calendar, Clock, ArrowLeft, User, FileText } from "lucide-react"
 
 interface JobPosting {
   id: string
@@ -20,14 +20,14 @@ interface JobPosting {
   profiles: { email: string }[] | null
 }
 
-export default function VacanciesPage() {
-  const [open, setOpen] = React.useState(false)
-  const [jobs, setJobs] = React.useState<JobPosting[]>([])
+export default function JobDetailPage() {
+  const params = useParams()
+  const router = useRouter()
+  const [job, setJob] = React.useState<JobPosting | null>(null)
   const [loading, setLoading] = React.useState(true)
   const [error, setError] = React.useState<string | null>(null)
-  const pathname = usePathname()
 
-  const fetchJobs = async () => {
+  const fetchJob = async () => {
     try {
       setLoading(true)
       const { data, error } = await supabase
@@ -35,33 +35,38 @@ export default function VacanciesPage() {
         .select(`
           id, job_title, department, location, job_description, image_path, date_posted, status, profiles(email)
         `)
-        .eq("status", "active")
-        .order("date_posted", { ascending: false })
+        .eq("id", params.id)
+        .single()
       
       if (error) throw error
       
-      const transformedData = data?.map(job => ({
-        ...job,
-        profiles: job.profiles?.[0] ? [job.profiles[0]] : null
-      })) || []
-      
-      setJobs(transformedData)
+      if (data) {
+        const transformedData = {
+          ...data,
+          profiles: data.profiles?.[0] ? [data.profiles[0]] : null
+        }
+        setJob(transformedData)
+      } else {
+        setError("Job not found")
+      }
     } catch (err) {
       console.error(err)
-      setError("Failed to load job vacancies. Please try again later.")
+      setError("Failed to load job details. Please try again later.")
     } finally {
       setLoading(false)
     }
   }
 
   React.useEffect(() => {
-    fetchJobs()
-  }, [])
+    if (params.id) {
+      fetchJob()
+    }
+  }, [params.id])
 
   const formatDate = (dateString: string) =>
     new Date(dateString).toLocaleDateString("en-US", {
       year: "numeric",
-      month: "short",
+      month: "long",
       day: "numeric",
     })
 
@@ -89,289 +94,240 @@ export default function VacanciesPage() {
     }
   }
 
-  const linkBase = "block rounded-full px-3.5 py-2 font-semibold text-slate-600 hover:bg-slate-100 hover:text-slate-900 md:inline-block"
-  const isActive = (href: string) => pathname === href ? "bg-slate-100 text-slate-900" : ""
-
-  return (
-    <>
-      {/* HEADER - Using the same navigation as About page */}
-      <header className="sticky top-0 z-50 bg-white shadow-[0_1px_0_rgba(2,8,23,0.06)]">
-        <div className="mx-auto flex w-full max-w-6xl items-center gap-4 px-4 py-3">
-          <Link className="inline-flex items-center gap-2 font-extrabold" href="/" aria-label="NORSU Home">
-            <Image src="/images/norsu.png" alt="NORSU Seal" width={34} height={34} />
-            <span>NORSU • HRM</span>
-          </Link>
-
-          <button
-            className="ml-auto inline-grid place-items-center rounded-[10px] p-1.5 md:hidden focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgba(47,103,255,0.25)]"
-            aria-label="Toggle navigation"
-            aria-controls="siteNav"
-            aria-expanded={open}
-            onClick={() => setOpen(v => !v)}
-          >
-            <svg width="26" height="26" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-              <path d="M4 7h16M4 12h16M4 17h16" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
-            </svg>
-          </button>
-
-          <nav
-            id="siteNav"
-            aria-label="Primary Navigation"
-            className={`${open ? "translate-y-0 shadow-[0_10px_20px_rgba(2,8,23,0.08)]" : "-translate-y-[120%]"}
-              fixed left-0 right-0 top-[60px] border-t border-slate-200 bg-white transition
-              md:static md:translate-y-0 md:border-0 md:shadow-none`}
-          >
-            <ul className="mx-auto flex w-full max-w-6xl flex-col gap-0 px-4 py-2 md:flex-row md:items-center md:gap-4 md:py-0">
-              <li className="w-full md:w-auto">
-                <Link href="/" className={`${linkBase} ${isActive("/")}`}>Home</Link>
-              </li>
-              <li className="w-full md:w-auto">
-                <Link href="/about" className={`${linkBase} ${isActive("/about")}`}>About</Link>
-              </li>
-              <li className="w-full md:w-auto">
-                <Link href="/vacancies" className={`${linkBase} ${isActive("/vacancies")}`}>Vacancies</Link>
-              </li>
-              <li className="ml-auto w-full md:w-auto">
-                <Link href="/login" className={`${linkBase} ${isActive("/login")}`}>Login</Link>
-              </li>
-              <li className="w-full md:w-auto">
-                <Link
-                  href="/signup"
-                  className="inline-flex h-10 items-center justify-center rounded-full bg-[#2f67ff] px-4 font-bold text-white transition hover:-translate-y-[1px] hover:bg-[#2553cc]"
-                >
-                  Signup
-                </Link>
-              </li>
-            </ul>
-          </nav>
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-[#0b1b3b] flex items-center justify-center">
+        <div className="text-center">
+          <div className="mx-auto mb-4 h-16 w-16 animate-spin rounded-full border-4 border-[#2563eb]/30 border-t-[#2563eb]"></div>
+          <p className="font-medium text-[#c7d7ff]">Loading job details...</p>
         </div>
-      </header>
+      </div>
+    )
+  }
 
-      {/* BACKGROUND IMAGE SECTION - Between header and main content */}
-      <div className="relative h-64 md:h-80 w-full overflow-hidden">
-        <div 
-          className="absolute inset-0 bg-cover bg-center bg-no-repeat"
-          style={{
-            backgroundImage: "url('/images/norsu-campus.jpg')",
-          }}
-        />
-        <div className="absolute inset-0 bg-gradient-to-r from-[#0b1b3b]/80 via-[#0b1b3b]/60 to-transparent"></div>
-        <div className="absolute inset-0 bg-gradient-to-t from-[#0b1b3b] via-transparent to-transparent"></div>
-        
-        {/* Overlay Content */}
-        <div className="relative z-10 h-full flex items-center justify-start">
-          <div className="max-w-6xl mx-auto px-4 w-full">
-            <div className="max-w-2xl">
-              <div className="inline-flex items-center gap-2 bg-white/10 backdrop-blur-md rounded-full px-6 py-2 border border-white/20 mb-4">
-                <div className="w-2 h-2 bg-[#2563eb] rounded-full animate-pulse"></div>
-                <p className="text-sm font-semibold uppercase tracking-widest text-[#c7d7ff]">Career Opportunities</p>
-              </div>
-              <h1 className="text-4xl md:text-5xl font-bold text-white mb-4 bg-gradient-to-r from-white to-[#c7d7ff] bg-clip-text text-transparent">
-                Join NORSU Family
-              </h1>
-              <p className="text-lg text-[#c7d7ff] max-w-xl leading-relaxed">
-                Build your career with Negros Oriental State University. Discover opportunities that shape futures and transform communities.
-              </p>
+  if (error || !job) {
+    return (
+      <div className="min-h-screen bg-[#0b1b3b] flex items-center justify-center">
+        <div className="text-center max-w-md mx-4">
+          <div className="mx-auto mb-6 rounded-2xl border border-red-500/20 bg-red-500/10 p-8 backdrop-blur-md">
+            <p className="mb-4 text-red-200">{error || "Job not found"}</p>
+            <div className="flex gap-4 justify-center flex-col sm:flex-row">
+              <Button 
+                onClick={fetchJob} 
+                className="rounded-full bg-[#2563eb] px-6 text-white shadow-lg transition-all duration-200 hover:bg-[#1d4ed8]"
+              >
+                Try Again
+              </Button>
+              <Button 
+                onClick={() => router.push('/vacancies')}
+                className="rounded-full border border-white/20 bg-white/10 px-6 text-white transition-all duration-200 hover:bg-white/20"
+              >
+                Back to Vacancies
+              </Button>
             </div>
           </div>
         </div>
       </div>
+    )
+  }
 
-      {/* MAIN CONTENT */}
-      <section className="relative bg-[#0b1b3b] py-16">
-        {/* Subtle background pattern */}
-        <div className="absolute inset-0 opacity-5">
-          <div className="absolute inset-0 bg-gradient-to-br from-[#2563eb] to-[#1e3a8a]"></div>
+  return (
+    <div className="min-h-screen bg-[#0b1b3b]">
+      {/* Simple Header with Back Button */}
+      <div className="border-b border-white/10 bg-[#0b1b3b]/95 backdrop-blur-md">
+        <div className="mx-auto max-w-4xl px-4 py-4">
+          <Button
+            variant="ghost"
+            onClick={() => router.push('/vacancies')}
+            className="flex items-center gap-2 text-[#c7d7ff] hover:text-white hover:bg-white/10"
+          >
+            <ArrowLeft className="h-4 w-4" />
+            Back to Vacancies
+          </Button>
         </div>
-        
-        <div className="relative z-10">
-          <div className="mx-auto w-full max-w-6xl px-4">
-            {/* Content Section */}
-            {loading ? (
-              <div className="flex justify-center py-20">
-                <div className="text-center">
-                  <div className="h-16 w-16 border-4 border-[#2563eb]/30 border-t-[#2563eb] rounded-full animate-spin mx-auto mb-4"></div>
-                  <p className="text-[#c7d7ff] font-medium">Loading opportunities...</p>
-                </div>
-              </div>
-            ) : error ? (
-              <div className="text-center py-12">
-                <div className="bg-red-500/10 backdrop-blur-md rounded-2xl border border-red-500/20 p-8 max-w-md mx-auto">
-                  <p className="text-red-200 mb-4">{error}</p>
-                  <Button 
-                    onClick={fetchJobs} 
-                    className="bg-[#2563eb] hover:bg-[#1d4ed8] rounded-full text-white px-6 shadow-lg transition-all duration-200"
+      </div>
+
+      {/* Main Content Container */}
+      <div className="flex items-center justify-center min-h-[calc(100vh-80px)] py-8">
+        <div className="w-full max-w-4xl mx-auto px-4">
+          
+          {/* Main Job Card */}
+          <div className="rounded-2xl border border-white/10 bg-white/5 backdrop-blur-md overflow-hidden">
+            
+            {/* Job Image with Fallback */}
+            <div className="relative h-64 md:h-80 w-full bg-gradient-to-br from-[#0b1b3b] via-[#1e3a8a] to-[#2563eb]">
+              {job.image_path ? (
+                <>
+                  <Image
+                    src={job.image_path}
+                    alt={job.job_title}
+                    fill
+                    className="object-cover"
+                    priority
+                    onError={(e) => {
+                      e.currentTarget.style.display = 'none'
+                      const fallback = document.getElementById('image-fallback')
+                      if (fallback) fallback.style.display = 'flex'
+                    }}
+                  />
+                  {/* Fallback that shows if image fails to load */}
+                  <div 
+                    id="image-fallback"
+                    className="hidden absolute inset-0 flex items-center justify-center"
+                    style={{ display: 'none' }}
                   >
-                    Try Again
-                  </Button>
-                </div>
-              </div>
-            ) : jobs.length === 0 ? (
-              <div className="text-center py-16">
-                <div className="bg-white/5 backdrop-blur-md rounded-2xl border border-white/10 p-12 max-w-md mx-auto shadow-2xl">
-                  <div className="bg-white/10 p-4 rounded-2xl inline-flex mb-4">
-                    <Building2 className="h-12 w-12 text-[#c7d7ff]" />
+                    <div className="text-center">
+                      <Building2 className="mx-auto mb-4 h-16 w-16 text-[#2563eb]" />
+                      <p className="text-xl font-bold text-[#2563eb]">NORSU HRM</p>
+                      <p className="text-sm text-[#c7d7ff] mt-2">{job.job_title}</p>
+                    </div>
                   </div>
-                  <h3 className="text-xl font-semibold text-white mb-3">No Current Vacancies</h3>
-                  <p className="text-[#c7d7ff] mb-6">We're always looking for talented individuals. Please check back later for new opportunities.</p>
-                  <Button 
-                    onClick={fetchJobs}
-                    className="bg-white/10 hover:bg-white/20 border border-white/20 text-white rounded-full px-6 transition-all duration-200"
-                  >
-                    Refresh
-                  </Button>
+                </>
+              ) : (
+                /* Default fallback when no image is provided */
+                <div className="flex h-full w-full items-center justify-center">
+                  <div className="text-center">
+                    <Building2 className="mx-auto mb-4 h-16 w-16 text-[#2563eb]" />
+                    <p className="text-xl font-bold text-[#2563eb]">NORSU HRM</p>
+                    <p className="text-sm text-[#c7d7ff] mt-2">{job.job_title}</p>
+                  </div>
+                </div>
+              )}
+              
+              {/* Gradient Overlay */}
+              <div className="absolute inset-0 bg-gradient-to-t from-[#0b1b3b]/90 via-transparent to-transparent"></div>
+              
+              {/* Job Type Badge on Image */}
+              <div className="absolute top-4 left-4">
+                <span className={`inline-flex items-center rounded-full px-3 py-1 text-sm font-semibold backdrop-blur-sm ${getJobTypeColor(getJobType(job.department))}`}>
+                  {getJobType(job.department)}
+                </span>
+              </div>
+            </div>
+
+            {/* Job Content */}
+            <div className="p-6 md:p-8">
+              
+              {/* Job Title */}
+              <h1 className="mb-6 text-2xl md:text-3xl font-bold text-white text-center">
+                {job.job_title}
+              </h1>
+
+              {/* Job Meta Information */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-8">
+                {job.department && (
+                  <div className="flex items-center gap-3 text-[#c7d7ff] justify-center sm:justify-start">
+                    <Building2 className="h-5 w-5 flex-shrink-0 text-[#2563eb]" />
+                    <div className="text-center sm:text-left">
+                      <p className="text-sm text-[#94a3b8]">Department</p>
+                      <p className="font-medium">{job.department}</p>
+                    </div>
+                  </div>
+                )}
+                {job.location && (
+                  <div className="flex items-center gap-3 text-[#c7d7ff] justify-center sm:justify-start">
+                    <MapPin className="h-5 w-5 flex-shrink-0 text-[#2563eb]" />
+                    <div className="text-center sm:text-left">
+                      <p className="text-sm text-[#94a3b8]">Location</p>
+                      <p className="font-medium">{job.location}</p>
+                    </div>
+                  </div>
+                )}
+                <div className="flex items-center gap-3 text-[#c7d7ff] justify-center sm:justify-start">
+                  <Calendar className="h-5 w-5 flex-shrink-0 text-[#2563eb]" />
+                  <div className="text-center sm:text-left">
+                    <p className="text-sm text-[#94a3b8]">Posted</p>
+                    <p className="font-medium">{formatDate(job.date_posted)}</p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-3 text-[#2563eb] font-semibold justify-center sm:justify-start">
+                  <Clock className="h-5 w-5 flex-shrink-0" />
+                  <div className="text-center sm:text-left">
+                    <p className="text-sm text-[#94a3b8]">Apply Before</p>
+                    <p className="font-medium">{getDeadlineDate(job.date_posted)}</p>
+                  </div>
                 </div>
               </div>
-            ) : (
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-                {jobs.map((job) => (
-                  <article
-                    key={job.id}
-                    className="group bg-white/5 backdrop-blur-md rounded-2xl border border-white/10 overflow-hidden transition-all duration-500 hover:bg-white/10 hover:border-white/20 hover:shadow-2xl hover:-translate-y-2"
-                  >
-                    {/* Image Section */}
-                    <div className="relative w-full h-48 bg-gradient-to-br from-[#0b1b3b] via-[#1e3a8a] to-[#2563eb] overflow-hidden">
-                      {job.image_path ? (
-                        <div className="relative w-full h-full">
-                          <Image
-                            src={job.image_path}
-                            alt={job.job_title}
-                            fill
-                            className="object-cover transition-transform duration-700 group-hover:scale-105"
-                            sizes="(max-width: 768px) 100vw, (max-width: 1200px) 50vw, 33vw"
-                            onError={(e) => {
-                              e.currentTarget.style.display = 'none'
-                              const container = e.currentTarget.parentElement
-                              if (container) {
-                                const fallback = container.querySelector('.image-fallback') as HTMLElement
-                                if (fallback) {
-                                  fallback.style.display = 'flex'
-                                }
-                              }
-                            }}
-                          />
-                          <div 
-                            className="image-fallback hidden absolute inset-0 w-full h-full items-center justify-center bg-gradient-to-br from-[#0b1b3b] to-[#1e3a8a]"
-                            style={{ display: 'none' }}
-                          >
-                            <div className="text-center">
-                              <Building2 className="h-12 w-12 text-[#2563eb] mx-auto mb-3" />
-                              <p className="text-[#2563eb] font-bold text-lg">NORSU HRM</p>
-                            </div>
-                          </div>
-                        </div>
-                      ) : (
-                        <div className="flex h-full w-full items-center justify-center">
-                          <div className="text-center">
-                            <Building2 className="h-12 w-12 text-[#2563eb] mx-auto mb-3" />
-                            <p className="text-[#2563eb] font-bold text-lg">NORSU HRM</p>
-                          </div>
-                        </div>
-                      )}
-                      <div className="absolute top-4 left-4">
-                        <span className={`inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold backdrop-blur-sm ${getJobTypeColor(getJobType(job.department))}`}>
-                          {getJobType(job.department)}
-                        </span>
-                      </div>
-                      <div className="absolute inset-0 bg-gradient-to-t from-[#0b1b3b]/80 via-transparent to-transparent"></div>
-                    </div>
 
-                    {/* Details Section */}
-                    <div className="p-6">
-                      <h3 className="text-xl font-bold text-white line-clamp-2 mb-4 group-hover:text-[#c7d7ff] transition-colors duration-300">
-                        {job.job_title}
-                      </h3>
-                      
-                      {/* Job Meta Information */}
-                      <div className="space-y-3 mb-5">
-                        {job.department && (
-                          <div className="flex items-center gap-3 text-[#c7d7ff]">
-                            <Building2 className="h-4 w-4 flex-shrink-0 text-[#2563eb]" />
-                            <span className="text-sm">{job.department}</span>
-                          </div>
-                        )}
-                        {job.location && (
-                          <div className="flex items-center gap-3 text-[#c7d7ff]">
-                            <MapPin className="h-4 w-4 flex-shrink-0 text-[#2563eb]" />
-                            <span className="text-sm">{job.location}</span>
-                          </div>
-                        )}
-                        <div className="flex items-center gap-3 text-[#94a3b8]">
-                          <Calendar className="h-4 w-4 flex-shrink-0 text-[#2563eb]" />
-                          <span className="text-sm">Posted: {formatDate(job.date_posted)}</span>
-                        </div>
-                        <div className="flex items-center gap-3 text-[#2563eb] font-semibold">
-                          <Clock className="h-4 w-4 flex-shrink-0" />
-                          <span className="text-sm">Apply by: {getDeadlineDate(job.date_posted)}</span>
-                        </div>
-                      </div>
-
-                      {/* Description */}
-                      <p className="text-[#c7d7ff] text-sm leading-relaxed line-clamp-3 mb-6">
-                        {job.job_description || "Join our team and contribute to the academic excellence of NORSU. We're looking for passionate individuals ready to make a difference."}
-                      </p>
-
-                      {/* Action Button */}
-                      <Button
-                        asChild
-                        className="w-full bg-gradient-to-r from-[#2563eb] to-[#1d4ed8] hover:from-[#1d4ed8] hover:to-[#2563eb] rounded-xl py-3 font-semibold transition-all duration-300 hover:shadow-lg hover:scale-105 text-white border-0"
-                      >
-                        <Link href={`/vacancies/${job.id}`}>
-                          View Details & Apply
-                        </Link>
-                      </Button>
-                    </div>
-                  </article>
-                ))}
+              {/* Apply Now Button - Centered */}
+              <div className="text-center mb-8">
+                <Button
+                  asChild
+                  className="rounded-xl bg-gradient-to-r from-[#2563eb] to-[#1d4ed8] px-8 py-3 font-semibold text-white transition-all duration-300 hover:scale-105 hover:shadow-lg hover:from-[#1d4ed8] hover:to-[#2563eb] text-lg w-full sm:w-auto"
+                  size="lg"
+                >
+                  <Link href="/login">
+                    Apply Now
+                  </Link>
+                </Button>
+                <p className="mt-3 text-sm text-[#94a3b8]">
+                  You need to login to apply for this position
+                </p>
               </div>
-            )}
-          </div>
-        </div>
-      </section>
 
-      {/* FOOTER */}
-      <footer className="relative bg-[#0b1b3b] border-t border-white/10">
-        <div className="absolute inset-0 bg-gradient-to-b from-transparent to-[#0b1b3b]/80"></div>
-        <div className="relative z-10 mx-auto max-w-6xl grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-8 px-4 py-12">
-          <div>
-            <div className="flex items-center gap-3 font-extrabold text-white mb-4">
-              <div className="bg-white/10 p-2 rounded-lg backdrop-blur-sm">
-                <Image src="/images/norsu.png" alt="NORSU" width={32} height={32} />
+              {/* Job Description */}
+              <div className="mb-8">
+                <h2 className="mb-4 flex items-center gap-3 text-xl font-bold text-white justify-center sm:justify-start">
+                  <FileText className="h-5 w-5 text-[#2563eb]" />
+                  Job Description
+                </h2>
+                <div className="text-center sm:text-left">
+                  <p className="text-lg leading-relaxed text-[#c7d7ff] whitespace-pre-line">
+                    {job.job_description || "No detailed description provided for this position. Please contact the HR department for more information."}
+                  </p>
+                </div>
               </div>
-              NORSU • HRM
-            </div>
-            <p className="text-sm text-[#c7d7ff] leading-relaxed">
-              Capitol Area, Kagawasan Ave, Dumaguete City, Negros Oriental, Philippines
-            </p>
-          </div>
-          <div>
-            <h4 className="font-semibold text-white mb-4 text-lg">Quick Links</h4>
-            <ul className="space-y-3 text-[#c7d7ff]">
-              <li><Link href="/vacancies" className="hover:text-white transition-colors duration-200 flex items-center gap-2"><div className="w-1 h-1 bg-[#2563eb] rounded-full"></div>Vacancies</Link></li>
-              <li><Link href="/about" className="hover:text-white transition-colors duration-200 flex items-center gap-2"><div className="w-1 h-1 bg-[#2563eb] rounded-full"></div>About HR</Link></li>
-              <li><Link href="/login" className="hover:text-white transition-colors duration-200 flex items-center gap-2"><div className="w-1 h-1 bg-[#2563eb] rounded-full"></div>Login</Link></li>
-              <li><Link href="/signup" className="hover:text-white transition-colors duration-200 flex items-center gap-2"><div className="w-1 h-1 bg-[#2563eb] rounded-full"></div>Signup</Link></li>
-            </ul>
-          </div>
-          <div>
-            <h4 className="font-semibold text-white mb-4 text-lg">Contact</h4>
-            <div className="space-y-3 text-[#c7d7ff]">
-              <p className="text-sm">Email: hr@norsu.edu.ph</p>
-              <p className="text-sm">Phone: (035) 123-4567</p>
-            </div>
-          </div>
-          <div>
-            <h4 className="font-semibold text-white mb-4 text-lg">Follow Us</h4>
-            <div className="flex gap-4 text-[#c7d7ff]">
-              <a href="#" className="hover:text-white transition-colors duration-200 bg-white/10 p-2 rounded-lg backdrop-blur-sm">Facebook</a>
-              <a href="#" className="hover:text-white transition-colors duration-200 bg-white/10 p-2 rounded-lg backdrop-blur-sm">Twitter/X</a>
+
+              {/* Requirements & Qualifications */}
+              <div className="mb-8">
+                <h2 className="mb-4 text-xl font-bold text-white text-center sm:text-left">Requirements & Qualifications</h2>
+                <div className="space-y-4 text-[#c7d7ff] text-center sm:text-left">
+                  <p>Detailed requirements and qualifications will be provided during the application process.</p>
+                  <p>Please ensure you meet the basic qualifications for the position before applying.</p>
+                </div>
+              </div>
+
+              {/* Job Summary */}
+              <div className="rounded-2xl border border-white/10 bg-white/5 p-6 mb-6">
+                <h3 className="mb-4 text-lg font-semibold text-white text-center sm:text-left">Job Summary</h3>
+                <div className="space-y-3 text-sm">
+                  <div className="flex flex-col sm:flex-row sm:justify-between gap-2">
+                    <span className="text-[#94a3b8] text-center sm:text-left">Position:</span>
+                    <span className="text-[#c7d7ff] font-medium text-center sm:text-right">{job.job_title}</span>
+                  </div>
+                  <div className="flex flex-col sm:flex-row sm:justify-between gap-2">
+                    <span className="text-[#94a3b8] text-center sm:text-left">Department:</span>
+                    <span className="text-[#c7d7ff] font-medium text-center sm:text-right">{job.department || "Not specified"}</span>
+                  </div>
+                  <div className="flex flex-col sm:flex-row sm:justify-between gap-2">
+                    <span className="text-[#94a3b8] text-center sm:text-left">Location:</span>
+                    <span className="text-[#c7d7ff] font-medium text-center sm:text-right">{job.location || "Not specified"}</span>
+                  </div>
+                  <div className="flex flex-col sm:flex-row sm:justify-between gap-2">
+                    <span className="text-[#94a3b8] text-center sm:text-left">Type:</span>
+                    <span className="text-[#c7d7ff] font-medium text-center sm:text-right">{getJobType(job.department)}</span>
+                  </div>
+                  <div className="flex flex-col sm:flex-row sm:justify-between gap-2">
+                    <span className="text-[#94a3b8] text-center sm:text-left">Status:</span>
+                    <span className="text-green-400 font-medium text-center sm:text-right">Active</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Contact Info */}
+              <div className="text-center">
+                <h3 className="mb-3 text-lg font-semibold text-white">Need Help?</h3>
+                <div className="space-y-2 text-sm text-[#c7d7ff]">
+                  <p>Contact our HR Department:</p>
+                  <p className="text-[#2563eb] font-medium">hr@norsu.edu.ph</p>
+                  <p className="text-[#2563eb] font-medium">(035) 123-4567</p>
+                </div>
+              </div>
+
             </div>
           </div>
         </div>
-        <div className="relative z-10 text-center border-t border-white/10 py-6 text-sm text-[#94a3b8]">
-          © {new Date().getFullYear()} NORSU • Human Resource Management. All rights reserved.
-        </div>
-      </footer>
-    </>
+      </div>
+    </div>
   )
 }
