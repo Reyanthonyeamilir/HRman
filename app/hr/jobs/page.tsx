@@ -1,5 +1,4 @@
 "use client"
-
 import * as React from "react"
 import Link from "next/link"
 import { usePathname } from "next/navigation"
@@ -27,6 +26,7 @@ export default function HRJobsPage() {
   const pathname = usePathname()
   const [jobs, setJobs] = React.useState<JobPosting[]>([])
   const [loading, setLoading] = React.useState(true)
+  const [error, setError] = React.useState<string | null>(null)
   const [modalOpen, setModalOpen] = React.useState(false)
   const [editId, setEditId] = React.useState<string | null>(null)
   const [file, setFile] = React.useState<File | null>(null)
@@ -35,6 +35,7 @@ export default function HRJobsPage() {
   const [mobileSidebarOpen, setMobileSidebarOpen] = React.useState(false)
   const [searchTerm, setSearchTerm] = React.useState("")
   const [mobileActionMenu, setMobileActionMenu] = React.useState<string | null>(null)
+  const [toast, setToast] = React.useState<{message: string, type: 'success' | 'error'} | null>(null)
 
   const [formData, setFormData] = React.useState({
     job_title: '',
@@ -44,10 +45,34 @@ export default function HRJobsPage() {
     status: 'active' as JobStatus
   })
 
+  // Show toast notification
+  const showToast = (message: string, type: 'success' | 'error') => {
+    setToast({ message, type })
+    setTimeout(() => setToast(null), 3000)
+  }
+
+  // Validate form data
+  const validateForm = (): string | null => {
+    if (!formData.job_title.trim()) {
+      return 'Job title is required'
+    }
+    if (formData.job_title.length > 100) {
+      return 'Job title must be less than 100 characters'
+    }
+    if (formData.department && formData.department.length > 50) {
+      return 'Department must be less than 50 characters'
+    }
+    if (formData.location && formData.location.length > 50) {
+      return 'Location must be less than 50 characters'
+    }
+    return null
+  }
+
   // Fetch jobs from Supabase
   const fetchJobs = async () => {
     try {
       setLoading(true)
+      setError(null)
       const { data, error } = await supabase
         .from('job_postings')
         .select('*')
@@ -55,9 +80,10 @@ export default function HRJobsPage() {
 
       if (error) throw error
       setJobs(data || [])
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error fetching jobs:', error)
-      alert('Error fetching job postings')
+      setError('Failed to load job postings')
+      showToast('Error loading job postings', 'error')
     } finally {
       setLoading(false)
     }
@@ -65,6 +91,23 @@ export default function HRJobsPage() {
 
   React.useEffect(() => { 
     fetchJobs() 
+  }, [])
+
+  // Real-time subscription to job postings
+  React.useEffect(() => {
+    const subscription = supabase
+      .channel('job_postings_changes')
+      .on('postgres_changes', 
+        { event: '*', schema: 'public', table: 'job_postings' }, 
+        () => {
+          fetchJobs()
+        }
+      )
+      .subscribe()
+
+    return () => {
+      subscription.unsubscribe()
+    }
   }, [])
 
   // Filter jobs based on search term
@@ -83,7 +126,10 @@ export default function HRJobsPage() {
 
       const { data, error } = await supabase.storage
         .from('job-images')
-        .upload(filePath, file)
+        .upload(filePath, file, {
+          cacheControl: '3600',
+          upsert: false
+        })
 
       if (error) throw error
 
@@ -94,14 +140,23 @@ export default function HRJobsPage() {
       return publicUrl
     } catch (error) {
       console.error('Error uploading image:', error)
-      throw error
+      throw new Error('Failed to upload image. Please try again.')
     }
+  }
+
+  // Handle action completion
+  const handleActionComplete = async () => {
+    await fetchJobs()
+    setModalOpen(false)
+    setFile(null)
+    setPreviewUrl(null)
   }
 
   // CREATE - Add new job posting
   const handleCreate = async () => {
-    if (!formData.job_title.trim()) {
-      alert('Job title is required')
+    const validationError = validateForm()
+    if (validationError) {
+      showToast(validationError, 'error')
       return
     }
 
@@ -134,13 +189,11 @@ export default function HRJobsPage() {
 
       if (error) throw error
 
-      setModalOpen(false)
-      setFile(null)
-      await fetchJobs()
-      alert('Job posting created successfully!')
+      await handleActionComplete()
+      showToast('Job posting created successfully!', 'success')
     } catch (error: any) {
       console.error('Error creating job:', error)
-      alert('Error creating job: ' + error.message)
+      showToast('Error creating job: ' + error.message, 'error')
     } finally {
       setFormLoading(false)
     }
@@ -148,8 +201,14 @@ export default function HRJobsPage() {
 
   // UPDATE - Edit job posting
   const handleUpdate = async () => {
-    if (!editId || !formData.job_title.trim()) {
-      alert('Job title is required')
+    const validationError = validateForm()
+    if (validationError) {
+      showToast(validationError, 'error')
+      return
+    }
+
+    if (!editId) {
+      showToast('No job selected for editing', 'error')
       return
     }
 
@@ -163,89 +222,134 @@ export default function HRJobsPage() {
       }
 
       // Update job posting
+      const updateData: any = {
+        job_title: formData.job_title,
+        department: formData.department || null,
+        location: formData.location || null,
+        job_description: formData.job_description || null,
+        status: formData.status
+      }
+
+      // Only update image_path if a new image was uploaded
+      if (imagePath) {
+        updateData.image_path = imagePath
+      }
+
       const { error } = await supabase
         .from('job_postings')
-        .update({
-          job_title: formData.job_title,
-          department: formData.department || null,
-          location: formData.location || null,
-          job_description: formData.job_description || null,
-          ...(imagePath && { image_path: imagePath }),
-          status: formData.status
-        })
+        .update(updateData)
         .eq('id', editId)
 
       if (error) throw error
 
-      setModalOpen(false)
-      setFile(null)
-      await fetchJobs()
-      alert('Job posting updated successfully!')
+      await handleActionComplete()
+      showToast('Job posting updated successfully!', 'success')
     } catch (error: any) {
       console.error('Error updating job:', error)
-      alert('Error updating job: ' + error.message)
+      showToast('Error updating job: ' + error.message, 'error')
     } finally {
       setFormLoading(false)
     }
   }
 
-  // DELETE - Remove job posting
+  // DELETE - Remove job posting (CORRECTED VERSION)
   const handleDelete = async (jobId: string, jobTitle: string) => {
-    if (!confirm(`Are you sure you want to delete "${jobTitle}"? This action cannot be undone.`)) return
-    
     try {
-      // Get job to check for image
-      const job = jobs.find(j => j.id === jobId)
+      console.log('Starting delete process for job:', jobId);
       
-      // Check if there are applications for this job
-      const { data: applications, error: appsError } = await supabase
+      // Get application count first
+      const { data: applications, error: appsError, count } = await supabase
         .from('applications')
-        .select('id')
-        .eq('job_id', jobId)
+        .select('*', { count: 'exact', head: true })
+        .eq('job_id', jobId);
 
-      if (appsError) throw appsError
+      if (appsError) {
+        console.error('Error fetching applications:', appsError);
+        throw appsError;
+      }
 
-      if (applications && applications.length > 0) {
-        if (!confirm(`This job has ${applications.length} application(s). Deleting will remove all associated applications. Continue?`)) {
-          return
-        }
+      const appCount = count || 0;
+      console.log(`Found ${appCount} applications for job ${jobId}`);
 
-        // Delete applications first
+      const message = appCount > 0 
+        ? `This job has ${appCount} application(s). Deleting will remove all associated applications. This action cannot be undone. Continue?`
+        : `Are you sure you want to delete "${jobTitle}"? This action cannot be undone.`;
+
+      if (!confirm(message)) {
+        console.log('Delete cancelled by user');
+        return;
+      }
+
+      // Get job to check for image
+      const job = jobs.find(j => j.id === jobId);
+      
+      // Delete applications first if they exist
+      if (appCount > 0) {
+        console.log('Deleting applications...');
         const { error: deleteAppsError } = await supabase
           .from('applications')
           .delete()
-          .eq('job_id', jobId)
+          .eq('job_id', jobId);
 
-        if (deleteAppsError) throw deleteAppsError
+        if (deleteAppsError) {
+          console.error('Error deleting applications:', deleteAppsError);
+          throw deleteAppsError;
+        }
+        console.log(`Successfully deleted applications`);
       }
 
       // Delete image from storage if exists
       if (job?.image_path) {
         try {
-          const imagePath = job.image_path.split('/').pop()
-          if (imagePath) {
-            await supabase.storage
-              .from('job-images')
-              .remove([`job-postings/${imagePath}`])
+          console.log('Deleting image from storage...');
+          // Extract the file path from the URL
+          const urlParts = job.image_path.split('/');
+          const fileName = urlParts[urlParts.length - 1];
+          const filePath = `job-postings/${fileName}`;
+          
+          console.log('Attempting to delete file:', filePath);
+          const { error: storageError } = await supabase.storage
+            .from('job-images')
+            .remove([filePath]);
+
+          if (storageError) {
+            console.warn('Could not delete image from storage (might already be deleted):', storageError);
+            // Continue with job deletion even if image deletion fails
+          } else {
+            console.log('Image deleted successfully from storage');
           }
         } catch (error) {
-          console.error('Error deleting image:', error)
+          console.error('Error deleting image:', error);
+          // Continue with job deletion even if image deletion fails
         }
       }
 
       // Delete the job posting
+      console.log('Deleting job posting...');
       const { error } = await supabase
         .from('job_postings')
         .delete()
-        .eq('id', jobId)
+        .eq('id', jobId);
 
-      if (error) throw error
+      if (error) {
+        console.error('Error deleting job posting:', error);
+        throw error;
+      }
 
-      await fetchJobs()
-      alert('Job posting deleted successfully!')
+      console.log('Job posting deleted successfully');
+      await fetchJobs();
+      showToast('Job posting deleted successfully!', 'success');
     } catch (error: any) {
-      console.error('Error deleting job:', error)
-      alert('Error deleting job: ' + error.message)
+      console.error('Error in delete process:', error);
+      
+      // More specific error messages
+      if (error.code === '23503') {
+        showToast('Cannot delete job: There are still related records. Please try again.', 'error');
+      } else if (error.code === '42501') {
+        showToast('Permission denied: You do not have rights to delete job postings.', 'error');
+      } else {
+        showToast('Error deleting job: ' + error.message, 'error');
+      }
     }
   }
 
@@ -262,10 +366,10 @@ export default function HRJobsPage() {
       if (error) throw error
 
       await fetchJobs()
-      alert(`Job ${newStatus === 'active' ? 'activated' : 'closed'} successfully!`)
+      showToast(`Job ${newStatus === 'active' ? 'activated' : 'closed'} successfully!`, 'success')
     } catch (error: any) {
       console.error('Error updating job status:', error)
-      alert('Error updating job status: ' + error.message)
+      showToast('Error updating job status: ' + error.message, 'error')
     }
   }
 
@@ -285,7 +389,10 @@ export default function HRJobsPage() {
 
   const openEdit = (jobId: string) => {
     const job = jobs.find(j => j.id === jobId)
-    if (!job) return
+    if (!job) {
+      showToast('Job not found', 'error')
+      return
+    }
 
     setEditId(jobId)
     setFormData({
@@ -305,12 +412,12 @@ export default function HRJobsPage() {
     const selectedFile = e.target.files?.[0]
     if (selectedFile) {
       if (!selectedFile.type.startsWith('image/')) {
-        alert('Please select an image file')
+        showToast('Please select an image file', 'error')
         return
       }
 
       if (selectedFile.size > 5 * 1024 * 1024) {
-        alert('Image size should be less than 5MB')
+        showToast('Image size should be less than 5MB', 'error')
         return
       }
 
@@ -332,147 +439,177 @@ export default function HRJobsPage() {
     })
   }
 
+  const handleSave = () => {
+    if (editId) {
+      handleUpdate()
+    } else {
+      handleCreate()
+    }
+  }
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-[#0078D4] via-[#1e3a8a] to-[#0b1b3a]">
-      <div className="min-h-screen bg-gradient-to-br from-[#0078D4]/20 via-[#1e3a8a]/40 to-[#0b1b3a]/80 py-4 text-white">
-        <div className="mx-auto w-full max-w-7xl px-4">
-          <div className="grid grid-cols-1 gap-6 lg:grid-cols-[280px_1fr]">
-            
-            {/* HRSidebar Component */}
-            <HRSidebar 
-              mobileOpen={mobileSidebarOpen}
-              onMobileClose={() => setMobileSidebarOpen(false)}
-            />
+      {/* Toast Notification */}
+      {toast && (
+        <div className={`fixed top-4 right-4 z-50 p-4 rounded-lg shadow-lg ${
+          toast.type === 'success' ? 'bg-green-500 text-white' : 'bg-red-500 text-white'
+        }`}>
+          {toast.message}
+        </div>
+      )}
 
-            {/* Main Content */}
-            <section className="min-h-screen">
-              {/* Mobile Header */}
-              <div className="flex items-center gap-4 mb-6 lg:hidden">
-                <Button
-                  variant="outline"
-                  size="icon"
-                  onClick={() => setMobileSidebarOpen(true)}
-                  className="border-white/30 text-[#eaf2ff] hover:bg-white/10"
-                >
-                  <Menu className="h-5 w-5" />
-                </Button>
-                <div>
-                  <h1 className="text-2xl font-bold text-white">Job Postings</h1>
-                  <p className="text-[#c7d7ff] text-sm">Manage and create job opportunities</p>
-                </div>
-              </div>
+      <div className="flex">
+        {/* Sidebar */}
+        <div className="hidden lg:block lg:w-80 lg:flex-shrink-0">
+          <HRSidebar />
+        </div>
 
-              {/* Desktop Welcome Section */}
-              <div className="hidden lg:block mb-8">
+        {/* Main Content */}
+        <div className="flex-1 min-w-0">
+          <div className="p-4 lg:p-6">
+            {/* Mobile Header */}
+            <div className="flex items-center gap-4 mb-6 lg:hidden">
+              <Button
+                variant="outline"
+                size="icon"
+                onClick={() => setMobileSidebarOpen(true)}
+                className="border-white/30 text-[#eaf2ff] hover:bg-white/10"
+              >
+                <Menu className="h-5 w-5" />
+              </Button>
+              <div>
                 <h1 className="text-2xl font-bold text-white">Job Postings</h1>
-                <p className="text-[#c7d7ff] mt-2">Manage and create job opportunities</p>
+                <p className="text-[#c7d7ff] text-sm">Manage and create job opportunities</p>
+              </div>
+            </div>
+
+            {/* Mobile Sidebar Overlay */}
+            {mobileSidebarOpen && (
+              <div className="fixed inset-0 z-40 lg:hidden">
+                <HRSidebar 
+                  mobileOpen={mobileSidebarOpen}
+                  onMobileClose={() => setMobileSidebarOpen(false)}
+                />
+              </div>
+            )}
+
+            {/* Desktop Welcome Section */}
+            <div className="hidden lg:block mb-8">
+              <h1 className="text-2xl font-bold text-white">Job Postings</h1>
+              <p className="text-[#c7d7ff] mt-2">Manage and create job opportunities</p>
+            </div>
+
+            {/* Header Section */}
+            <div className="mb-6 space-y-4">
+              <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+                <div className="text-center sm:text-left">
+                  <h1 className="text-xl font-bold text-white sm:text-2xl">Job Postings</h1>
+                  <p className="text-[#c7d7ff] mt-1 text-sm">Manage and create job opportunities</p>
+                </div>
+                <Button 
+                  onClick={openNew} 
+                  className="bg-[#0078D4] hover:bg-[#106EBE] text-white px-4 py-2 sm:px-6 sm:py-2 rounded-lg font-medium transition-colors duration-200 shadow-lg w-full sm:w-auto text-sm"
+                >
+                  ＋ Create Job
+                </Button>
               </div>
 
-              {/* Header Section - Mobile Optimized */}
-              <div className="mb-4 space-y-3">
-                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                  <div className="text-center sm:text-left">
-                    <h1 className="text-lg font-bold text-white sm:text-xl">Job Postings</h1>
-                    <p className="text-[#c7d7ff] mt-1 text-xs sm:text-sm">Manage and create job opportunities</p>
-                  </div>
-                  <Button 
-                    onClick={openNew} 
-                    className="bg-[#0078D4] hover:bg-[#106EBE] text-white px-3 py-2 sm:px-4 sm:py-2 rounded-lg font-medium transition-colors duration-200 shadow-lg w-full sm:w-auto text-xs sm:text-sm"
-                  >
-                    ＋ Create Job
-                  </Button>
-                </div>
-
-                {/* Search Bar - Mobile Optimized */}
-                <div className="relative w-full max-w-md mx-auto sm:mx-0">
-                  <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-[#c7d7ff] h-3 w-3 sm:h-4 sm:w-4" />
-                  <input
-                    type="text"
-                    placeholder="Search jobs..."
-                    value={searchTerm}
-                    onChange={(e) => setSearchTerm(e.target.value)}
-                    className="w-full pl-8 pr-4 py-2 sm:py-2 rounded-lg border border-[#93c5fd] bg-white/10 text-white placeholder-[#c7d7ff] focus:outline-none focus:ring-2 focus:ring-[#0078D4] focus:border-transparent text-xs sm:text-sm"
-                  />
-                </div>
+              {/* Search Bar */}
+              <div className="relative w-full max-w-md">
+                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-[#c7d7ff] h-4 w-4" />
+                <input
+                  type="text"
+                  placeholder="Search jobs..."
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  className="w-full pl-10 pr-4 py-2 rounded-lg border border-[#93c5fd] bg-white/10 text-white placeholder-[#c7d7ff] focus:outline-none focus:ring-2 focus:ring-[#0078D4] focus:border-transparent text-sm"
+                />
               </div>
+            </div>
 
-              {/* Jobs Section - Mobile First */}
-              <div className="bg-white/5 backdrop-blur-sm rounded-lg border border-white/10 overflow-hidden">
-                {/* Desktop Table */}
-                <div className="hidden md:block overflow-x-auto">
-                  <table className="w-full min-w-[600px]">
-                    <thead>
-                      <tr className="bg-white/10 border-b border-white/10">
-                        <th className="px-3 py-2 text-left text-xs font-semibold text-[#bfdbfe]">Job Details</th>
-                        <th className="px-3 py-2 text-left text-xs font-semibold text-[#bfdbfe]">Department</th>
-                        <th className="px-3 py-2 text-left text-xs font-semibold text-[#bfdbfe]">Location</th>
-                        <th className="px-3 py-2 text-left text-xs font-semibold text-[#bfdbfe]">Date Posted</th>
-                        <th className="px-3 py-2 text-left text-xs font-semibold text-[#bfdbfe]">Status</th>
-                        <th className="px-3 py-2 text-left text-xs font-semibold text-[#bfdbfe]">Actions</th>
+            {/* Error State */}
+            {error && (
+              <div className="mb-4 p-4 bg-red-500/20 border border-red-500/30 rounded-lg text-red-300 text-sm">
+                {error}
+              </div>
+            )}
+
+            {/* Jobs Section */}
+            <div className="bg-white/5 backdrop-blur-sm rounded-lg border border-white/10 overflow-hidden">
+              {/* Desktop Table */}
+              <div className="hidden md:block overflow-x-auto">
+                <table className="w-full">
+                  <thead>
+                    <tr className="bg-white/10 border-b border-white/10">
+                      <th className="px-4 py-3 text-left text-sm font-semibold text-[#bfdbfe]">Job Details</th>
+                      <th className="px-4 py-3 text-left text-sm font-semibold text-[#bfdbfe]">Department</th>
+                      <th className="px-4 py-3 text-left text-sm font-semibold text-[#bfdbfe]">Location</th>
+                      <th className="px-4 py-3 text-left text-sm font-semibold text-[#bfdbfe]">Date Posted</th>
+                      <th className="px-4 py-3 text-left text-sm font-semibold text-[#bfdbfe]">Status</th>
+                      <th className="px-4 py-3 text-left text-sm font-semibold text-[#bfdbfe]">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {loading ? (
+                      <tr>
+                        <td colSpan={6} className="px-4 py-8 text-center text-white/80">
+                          <div className="flex justify-center">
+                            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-[#0078D4]"></div>
+                          </div>
+                          <p className="mt-2 text-sm">Loading job postings...</p>
+                        </td>
                       </tr>
-                    </thead>
-                    <tbody>
-                      {loading ? (
-                        <tr>
-                          <td colSpan={6} className="px-4 py-6 text-center text-white/80">
-                            <div className="flex justify-center">
-                              <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-[#0078D4]"></div>
-                            </div>
-                            <p className="mt-2 text-xs">Loading job postings...</p>
-                          </td>
-                        </tr>
-                      ) : filteredJobs.length === 0 ? (
-                        <tr>
-                          <td colSpan={6} className="px-4 py-6 text-center text-white/80 text-xs">
-                            {searchTerm ? 'No jobs found matching your search.' : 'No job postings yet.'}
-                          </td>
-                        </tr>
-                      ) : (
-                        filteredJobs.map((job) => (
-                          <DesktopJobRow 
-                            key={job.id} 
-                            job={job} 
-                            onEdit={openEdit}
-                            onToggleStatus={handleToggleStatus}
-                            onDelete={handleDelete}
-                            formatDate={formatDate}
-                          />
-                        ))
-                      )}
-                    </tbody>
-                  </table>
-                </div>
-
-                {/* Mobile Cards */}
-                <div className="md:hidden space-y-2 p-3">
-                  {loading ? (
-                    <div className="text-center py-6 text-white/80">
-                      <div className="flex justify-center">
-                        <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-[#0078D4]"></div>
-                      </div>
-                      <p className="mt-2 text-xs">Loading job postings...</p>
-                    </div>
-                  ) : filteredJobs.length === 0 ? (
-                    <div className="text-center py-6 text-white/80 text-xs">
-                      {searchTerm ? 'No jobs found matching your search.' : 'No job postings yet.'}
-                    </div>
-                  ) : (
-                    filteredJobs.map((job) => (
-                      <MobileJobCard
-                        key={job.id}
-                        job={job}
-                        onEdit={openEdit}
-                        onToggleStatus={handleToggleStatus}
-                        onDelete={handleDelete}
-                        formatDate={formatDate}
-                        isMenuOpen={mobileActionMenu === job.id}
-                        onMenuToggle={() => setMobileActionMenu(mobileActionMenu === job.id ? null : job.id)}
-                      />
-                    ))
-                  )}
-                </div>
+                    ) : filteredJobs.length === 0 ? (
+                      <tr>
+                        <td colSpan={6} className="px-4 py-8 text-center text-white/80 text-sm">
+                          {searchTerm ? 'No jobs found matching your search.' : 'No job postings yet.'}
+                        </td>
+                      </tr>
+                    ) : (
+                      filteredJobs.map((job) => (
+                        <DesktopJobRow 
+                          key={job.id} 
+                          job={job} 
+                          onEdit={openEdit}
+                          onToggleStatus={handleToggleStatus}
+                          onDelete={handleDelete}
+                          formatDate={formatDate}
+                        />
+                      ))
+                    )}
+                  </tbody>
+                </table>
               </div>
-            </section>
+
+              {/* Mobile Cards */}
+              <div className="md:hidden space-y-3 p-4">
+                {loading ? (
+                  <div className="text-center py-8 text-white/80">
+                    <div className="flex justify-center">
+                      <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-[#0078D4]"></div>
+                    </div>
+                    <p className="mt-2 text-sm">Loading job postings...</p>
+                  </div>
+                ) : filteredJobs.length === 0 ? (
+                  <div className="text-center py-8 text-white/80 text-sm">
+                    {searchTerm ? 'No jobs found matching your search.' : 'No job postings yet.'}
+                  </div>
+                ) : (
+                  filteredJobs.map((job) => (
+                    <MobileJobCard
+                      key={job.id}
+                      job={job}
+                      onEdit={openEdit}
+                      onToggleStatus={handleToggleStatus}
+                      onDelete={handleDelete}
+                      formatDate={formatDate}
+                      isMenuOpen={mobileActionMenu === job.id}
+                      onMenuToggle={() => setMobileActionMenu(mobileActionMenu === job.id ? null : job.id)}
+                    />
+                  ))
+                )}
+              </div>
+            </div>
           </div>
         </div>
       </div>
@@ -488,7 +625,7 @@ export default function HRJobsPage() {
           file={file}
           onFileChange={handleFileChange}
           onRemoveImage={removeImage}
-          onSave={editId ? handleUpdate : handleCreate}
+          onSave={handleSave}
           onClose={() => setModalOpen(false)}
         />
       )}
@@ -512,35 +649,40 @@ function DesktopJobRow({
 }) {
   return (
     <tr className="border-b border-white/10 hover:bg-white/5 transition-colors duration-150">
-      <td className="px-3 py-3">
-        <div className="flex items-center gap-2">
+      <td className="px-4 py-4">
+        <div className="flex items-center gap-3">
           {job.image_path ? (
             <img 
               src={job.image_path} 
               alt="" 
-              className="h-8 w-8 rounded object-cover ring-1 ring-white/20" 
+              className="h-10 w-10 rounded object-cover ring-1 ring-white/20" 
             />
           ) : (
-            <div className="h-8 w-8 rounded bg-gradient-to-br from-[#0078D4] to-[#1C89D1] flex items-center justify-center">
-              <Briefcase className="h-4 w-4 text-white" />
+            <div className="h-10 w-10 rounded bg-gradient-to-br from-[#0078D4] to-[#1C89D1] flex items-center justify-center">
+              <Briefcase className="h-5 w-5 text-white" />
             </div>
           )}
           <div>
-            <div className="font-medium text-white text-xs sm:text-sm">{job.job_title}</div>
+            <div className="font-medium text-white text-sm">{job.job_title}</div>
+            {job.job_description && (
+              <div className="text-[#c7d7ff] text-xs mt-1 line-clamp-1">
+                {job.job_description}
+              </div>
+            )}
           </div>
         </div>
       </td>
-      <td className="px-3 py-3 text-white text-xs">
+      <td className="px-4 py-4 text-white text-sm">
         {job.department || '—'}
       </td>
-      <td className="px-3 py-3 text-white text-xs">
+      <td className="px-4 py-4 text-white text-sm">
         {job.location || '—'}
       </td>
-      <td className="px-3 py-3 text-[#c7d7ff] text-xs">
+      <td className="px-4 py-4 text-[#c7d7ff] text-sm">
         {formatDate(job.date_posted)}
       </td>
-      <td className="px-3 py-3">
-        <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${
+      <td className="px-4 py-4">
+        <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
           job.status === 'active' 
             ? 'bg-green-500/20 text-green-300' 
             : 'bg-red-500/20 text-red-300'
@@ -548,36 +690,31 @@ function DesktopJobRow({
           {job.status === 'active' ? 'Active' : 'Closed'}
         </span>
       </td>
-      <td className="px-3 py-3">
-        <div className="flex gap-1">
+      <td className="px-4 py-4">
+        <div className="flex gap-2">
           <button
             onClick={() => onEdit(job.id)}
-            className="inline-flex items-center gap-1 rounded bg-white/10 px-2 py-1 text-xs text-white hover:bg-white/20 transition-colors duration-200"
+            className="inline-flex items-center gap-1 rounded bg-white/10 px-3 py-1.5 text-xs text-white hover:bg-white/20 transition-colors duration-200"
           >
             <Pencil className="h-3 w-3" />
-            <span className="hidden sm:inline">Edit</span>
+            Edit
           </button>
           <button
             onClick={() => onToggleStatus(job)}
-            className={`rounded px-2 py-1 text-xs text-white transition-colors duration-200 ${
+            className={`rounded px-3 py-1.5 text-xs text-white transition-colors duration-200 ${
               job.status === 'active' 
                 ? 'bg-orange-500/20 hover:bg-orange-500/30 text-orange-300' 
                 : 'bg-green-500/20 hover:bg-green-500/30 text-green-300'
             }`}
           >
-            <span className="hidden sm:inline">
-              {job.status === 'active' ? 'Close' : 'Activate'}
-            </span>
-            <span className="sm:hidden">
-              {job.status === 'active' ? 'Close' : 'Open'}
-            </span>
+            {job.status === 'active' ? 'Close' : 'Activate'}
           </button>
           <button
             onClick={() => onDelete(job.id, job.job_title)}
-            className="inline-flex items-center gap-1 rounded bg-red-500/20 px-2 py-1 text-xs text-red-300 hover:bg-red-500/30 transition-colors duration-200"
+            className="inline-flex items-center gap-1 rounded bg-red-500/20 px-3 py-1.5 text-xs text-red-300 hover:bg-red-500/30 transition-colors duration-200"
           >
             <Trash2 className="h-3 w-3" />
-            <span className="hidden sm:inline">Delete</span>
+            Delete
           </button>
         </div>
       </td>
@@ -604,37 +741,37 @@ function MobileJobCard({
   onMenuToggle: () => void
 }) {
   return (
-    <div className="bg-white/5 rounded border border-white/10 p-3">
+    <div className="bg-white/5 rounded-lg border border-white/10 p-4">
       <div className="flex items-start justify-between">
-        <div className="flex items-center gap-2 flex-1">
+        <div className="flex items-center gap-3 flex-1">
           {job.image_path ? (
             <img 
               src={job.image_path} 
               alt="" 
-              className="h-8 w-8 rounded object-cover ring-1 ring-white/20" 
+              className="h-12 w-12 rounded object-cover ring-1 ring-white/20" 
             />
           ) : (
-            <div className="h-8 w-8 rounded bg-gradient-to-br from-[#0078D4] to-[#1C89D1] flex items-center justify-center">
-              <Briefcase className="h-4 w-4 text-white" />
+            <div className="h-12 w-12 rounded bg-gradient-to-br from-[#0078D4] to-[#1C89D1] flex items-center justify-center">
+              <Briefcase className="h-5 w-5 text-white" />
             </div>
           )}
           <div className="flex-1 min-w-0">
-            <h3 className="font-medium text-white text-xs truncate">{job.job_title}</h3>
-            <div className="flex items-center gap-1 mt-1 flex-wrap">
+            <h3 className="font-medium text-white text-sm truncate">{job.job_title}</h3>
+            <div className="flex items-center gap-2 mt-1 flex-wrap">
               {job.department && (
-                <span className="text-[10px] text-[#c7d7ff] bg-white/10 px-1.5 py-0.5 rounded">
+                <span className="text-xs text-[#c7d7ff] bg-white/10 px-2 py-1 rounded">
                   {job.department}
                 </span>
               )}
               {job.location && (
-                <span className="text-[10px] text-[#c7d7ff] bg-white/10 px-1.5 py-0.5 rounded">
+                <span className="text-xs text-[#c7d7ff] bg-white/10 px-2 py-1 rounded">
                   {job.location}
                 </span>
               )}
             </div>
-            <div className="flex items-center gap-2 mt-1 text-[10px] text-[#c7d7ff]">
+            <div className="flex items-center gap-2 mt-2 text-xs text-[#c7d7ff]">
               <span>{formatDate(job.date_posted)}</span>
-              <span className={`inline-flex items-center px-1.5 py-0.5 rounded-full ${
+              <span className={`inline-flex items-center px-2 py-0.5 rounded-full ${
                 job.status === 'active' 
                   ? 'bg-green-500/20 text-green-300' 
                   : 'bg-red-500/20 text-red-300'
@@ -649,29 +786,29 @@ function MobileJobCard({
         <div className="relative">
           <button
             onClick={onMenuToggle}
-            className="p-1 rounded hover:bg-white/10 transition-colors duration-200"
+            className="p-2 rounded hover:bg-white/10 transition-colors duration-200"
           >
-            <MoreVertical className="h-3 w-3 text-[#c7d7ff]" />
+            <MoreVertical className="h-4 w-4 text-[#c7d7ff]" />
           </button>
           
           {isMenuOpen && (
-            <div className="absolute right-0 top-6 z-10 w-28 bg-[#0f2a6a] border border-white/20 rounded shadow-lg py-1">
+            <div className="absolute right-0 top-10 z-10 w-32 bg-[#0f2a6a] border border-white/20 rounded-lg shadow-lg py-1">
               <button
                 onClick={() => onEdit(job.id)}
-                className="w-full text-left px-2 py-1.5 text-xs text-white hover:bg-white/10 flex items-center gap-1"
+                className="w-full text-left px-3 py-2 text-sm text-white hover:bg-white/10 flex items-center gap-2"
               >
                 <Pencil className="h-3 w-3" />
                 Edit
               </button>
               <button
                 onClick={() => onToggleStatus(job)}
-                className="w-full text-left px-2 py-1.5 text-xs text-white hover:bg-white/10"
+                className="w-full text-left px-3 py-2 text-sm text-white hover:bg-white/10"
               >
                 {job.status === 'active' ? 'Close' : 'Activate'}
               </button>
               <button
                 onClick={() => onDelete(job.id, job.job_title)}
-                className="w-full text-left px-2 py-1.5 text-xs text-red-300 hover:bg-red-500/20 flex items-center gap-1"
+                className="w-full text-left px-3 py-2 text-sm text-red-300 hover:bg-red-500/20 flex items-center gap-2"
               >
                 <Trash2 className="h-3 w-3" />
                 Delete
@@ -684,7 +821,7 @@ function MobileJobCard({
   )
 }
 
-/* Modal Component - Mobile Optimized */
+/* Modal Component */
 function JobModal({
   editId,
   formData,
@@ -698,25 +835,25 @@ function JobModal({
   onClose
 }: any) {
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-2 backdrop-blur-sm">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm">
       <div className="w-full max-w-md rounded-xl bg-gradient-to-b from-[#0f2a6a] to-[#0b1b3a] border border-[#93c5fd] shadow-xl max-h-[90vh] overflow-hidden">
-        <header className="flex items-center justify-between border-b border-white/20 px-4 py-3">
-          <h3 className="text-sm font-semibold text-white">
+        <header className="flex items-center justify-between border-b border-white/20 px-6 py-4">
+          <h3 className="text-lg font-semibold text-white">
             {editId == null ? "Create Job" : "Edit Job"}
           </h3>
           <button 
             onClick={onClose}
-            className="rounded p-1 hover:bg-white/10 transition-colors duration-200"
+            className="rounded p-2 hover:bg-white/10 transition-colors duration-200"
           >
-            <X className="h-4 w-4 text-white" />
+            <X className="h-5 w-5 text-white" />
           </button>
         </header>
 
-        <div className="max-h-[60vh] overflow-y-auto px-4 py-3">
-          <div className="grid gap-3">
+        <div className="max-h-[60vh] overflow-y-auto px-6 py-4">
+          <div className="grid gap-4">
             <Field label="Title *">
               <input
-                className="w-full rounded border border-[#93c5fd] bg-white/10 p-2 text-white placeholder-[#c7d7ff] focus:outline-none focus:ring-1 focus:ring-[#0078D4] focus:border-transparent text-xs"
+                className="w-full rounded-lg border border-[#93c5fd] bg-white/10 px-3 py-2 text-white placeholder-[#c7d7ff] focus:outline-none focus:ring-2 focus:ring-[#0078D4] focus:border-transparent text-sm"
                 value={formData.job_title}
                 onChange={e => setFormData({ ...formData, job_title: e.target.value })}
                 placeholder="Enter job title"
@@ -725,7 +862,7 @@ function JobModal({
 
             <Field label="Department">
               <input
-                className="w-full rounded border border-[#93c5fd] bg-white/10 p-2 text-white placeholder-[#c7d7ff] focus:outline-none focus:ring-1 focus:ring-[#0078D4] focus:border-transparent text-xs"
+                className="w-full rounded-lg border border-[#93c5fd] bg-white/10 px-3 py-2 text-white placeholder-[#c7d7ff] focus:outline-none focus:ring-2 focus:ring-[#0078D4] focus:border-transparent text-sm"
                 value={formData.department}
                 onChange={e => setFormData({ ...formData, department: e.target.value })}
                 placeholder="Enter department"
@@ -734,7 +871,7 @@ function JobModal({
 
             <Field label="Location">
               <input
-                className="w-full rounded border border-[#93c5fd] bg-white/10 p-2 text-white placeholder-[#c7d7ff] focus:outline-none focus:ring-1 focus:ring-[#0078D4] focus:border-transparent text-xs"
+                className="w-full rounded-lg border border-[#93c5fd] bg-white/10 px-3 py-2 text-white placeholder-[#c7d7ff] focus:outline-none focus:ring-2 focus:ring-[#0078D4] focus:border-transparent text-sm"
                 value={formData.location}
                 onChange={e => setFormData({ ...formData, location: e.target.value })}
                 placeholder="Enter location"
@@ -743,7 +880,7 @@ function JobModal({
 
             <Field label="Status">
               <select
-                className="w-full rounded border border-[#93c5fd] bg-white/10 p-2 text-white focus:outline-none focus:ring-1 focus:ring-[#0078D4] focus:border-transparent text-xs"
+                className="w-full rounded-lg border border-[#93c5fd] bg-white/10 px-3 py-2 text-white focus:outline-none focus:ring-2 focus:ring-[#0078D4] focus:border-transparent text-sm"
                 value={formData.status}
                 onChange={e => setFormData({ ...formData, status: e.target.value as JobStatus })}
               >
@@ -753,8 +890,8 @@ function JobModal({
             </Field>
 
             <Field label="Image">
-              <label className="flex cursor-pointer items-center gap-2 rounded border border-[#93c5fd] bg-white/10 p-2 hover:bg-white/15 transition-colors duration-200 text-xs">
-                <ImageIcon className="h-3 w-3 text-[#c7d7ff]" />
+              <label className="flex cursor-pointer items-center gap-3 rounded-lg border border-[#93c5fd] bg-white/10 px-3 py-2 hover:bg-white/15 transition-colors duration-200 text-sm">
+                <ImageIcon className="h-4 w-4 text-[#c7d7ff]" />
                 <span className="text-white truncate flex-1">
                   {file?.name ?? 'Choose image...'}
                 </span>
@@ -766,18 +903,18 @@ function JobModal({
                 />
               </label>
               {previewUrl && (
-                <div className="relative mt-2 inline-block">
+                <div className="relative mt-3 inline-block">
                   <img 
                     src={previewUrl} 
                     alt="preview" 
-                    className="h-16 w-16 rounded object-cover ring-1 ring-white/20" 
+                    className="h-20 w-20 rounded-lg object-cover ring-1 ring-white/20" 
                   />
                   <button
                     type="button"
                     onClick={onRemoveImage}
-                    className="absolute -top-1 -right-1 bg-red-500 text-white rounded-full p-0.5 hover:bg-red-600 transition-colors duration-200"
+                    className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full p-1 hover:bg-red-600 transition-colors duration-200"
                   >
-                    <X className="h-2 w-2" />
+                    <X className="h-3 w-3" />
                   </button>
                 </div>
               )}
@@ -785,8 +922,8 @@ function JobModal({
 
             <Field label="Description">
               <textarea
-                className="w-full rounded border border-[#93c5fd] bg-white/10 p-2 text-white placeholder-[#c7d7ff] focus:outline-none focus:ring-1 focus:ring-[#0078D4] focus:border-transparent text-xs"
-                rows={3}
+                className="w-full rounded-lg border border-[#93c5fd] bg-white/10 px-3 py-2 text-white placeholder-[#c7d7ff] focus:outline-none focus:ring-2 focus:ring-[#0078D4] focus:border-transparent text-sm"
+                rows={4}
                 value={formData.job_description}
                 onChange={e => setFormData({ ...formData, job_description: e.target.value })}
                 placeholder="Enter job description"
@@ -795,22 +932,20 @@ function JobModal({
           </div>
         </div>
 
-        <div className="flex flex-col gap-2 px-4 py-3 border-t border-white/20">
-          <div className="flex gap-2">
-            <button
-              onClick={onClose}
-              className="flex-1 rounded border border-white/30 bg-transparent px-3 py-2 text-white hover:bg-white/10 transition-colors duration-200 text-xs"
-            >
-              Cancel
-            </button>
-            <button
-              onClick={onSave}
-              disabled={formLoading || !formData.job_title.trim()}
-              className="flex-1 rounded bg-[#0078D4] px-3 py-2 font-medium text-white hover:bg-[#106EBE] disabled:opacity-50 disabled:cursor-not-allowed transition-colors duration-200 text-xs shadow-lg"
-            >
-              {formLoading ? 'Saving...' : 'Save Job'}
-            </button>
-          </div>
+        <div className="flex gap-3 px-6 py-4 border-t border-white/20">
+          <button
+            onClick={onClose}
+            className="flex-1 rounded-lg border border-white/30 bg-transparent px-4 py-2.5 text-white hover:bg-white/10 transition-colors duration-200 text-sm font-medium"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={onSave}
+            disabled={formLoading || !formData.job_title.trim()}
+            className="flex-1 rounded-lg bg-[#0078D4] px-4 py-2.5 font-medium text-white hover:bg-[#106EBE] disabled:opacity-50 disabled:cursor-not-allowed transition-colors duration-200 text-sm shadow-lg"
+          >
+            {formLoading ? 'Saving...' : 'Save Job'}
+          </button>
         </div>
       </div>
     </div>
@@ -819,8 +954,8 @@ function JobModal({
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
-    <label className="grid gap-1">
-      <span className="text-xs font-medium text-[#c7d7ff]">{label}</span>
+    <label className="grid gap-2">
+      <span className="text-sm font-medium text-[#c7d7ff]">{label}</span>
       {children}
     </label>
   )

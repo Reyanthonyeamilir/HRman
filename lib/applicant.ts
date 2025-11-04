@@ -131,7 +131,7 @@ export async function listMyApplications() {
         pdf_path,
         comment,
         submitted_at,
-        job_postings (
+        job_postings!inner(
           job_title,
           status
         )
@@ -141,16 +141,13 @@ export async function listMyApplications() {
 
     if (error) throw error
 
-    // Transform the data - using any to avoid complex type issues
+    // Transform the data - job_postings is returned as an object, not an array
     return (data || []).map((app: any) => {
-      // job_postings is an array, so we need to access the first element
-      const jobPosting = app.job_postings?.[0]
-      
       return {
         id: app.id,
         job_id: app.job_id,
-        job_title: jobPosting?.job_title || 'Unknown',
-        job_status: jobPosting?.status || 'unknown',
+        job_title: app.job_postings?.job_title || 'Unknown Job',
+        job_status: app.job_postings?.status || 'unknown',
         pdf_path: app.pdf_path,
         comment: app.comment || '',
         submitted_at: app.submitted_at

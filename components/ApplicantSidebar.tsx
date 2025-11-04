@@ -4,10 +4,10 @@ import * as React from 'react'
 import Link from 'next/link'
 import Image from 'next/image'
 import { usePathname } from 'next/navigation'
-import { Menu, LayoutDashboard, Briefcase, ClipboardList, Compass, X } from 'lucide-react'
+import { Menu, LayoutDashboard, Briefcase, ClipboardList, Compass, X, Mail, User } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { Sheet, SheetContent, SheetTrigger } from '@/components/ui/sheet'
 import { cn } from '@/lib/utils'
+import { getCurrentUser } from '@/lib/supabaseClient'
 
 const links = [
   { label: 'Dashboard', href: '/applicant', icon: LayoutDashboard },
@@ -16,15 +16,60 @@ const links = [
   { label: 'Track Application', href: '/applicant/track', icon: Compass },
 ]
 
-function useApplicantName() {
-  const [name, setName] = React.useState('Applicant')
+function useApplicantProfile() {
+  const [profile, setProfile] = React.useState({ 
+    name: 'Applicant', 
+    email: 'Loading...' 
+  })
+  
   React.useEffect(() => {
-    try {
-      const n = localStorage.getItem('applicant_name')
-      if (n && n.trim()) setName(n.trim())
-    } catch {}
+    const loadUserProfile = async () => {
+      try {
+        // Try to get from localStorage first (for quick display)
+        const storedName = localStorage.getItem('applicant_name')
+        const storedEmail = localStorage.getItem('applicant_email')
+        
+        if (storedName && storedEmail) {
+          setProfile({
+            name: storedName,
+            email: storedEmail
+          })
+        }
+
+        // Then try to get fresh data from Supabase
+        const user = await getCurrentUser()
+        if (user?.email) {
+          const userName = user.email.split('@')[0] || 'Applicant'
+          const userEmail = user.email
+          
+          setProfile({
+            name: userName,
+            email: userEmail
+          })
+          
+          // Update localStorage with fresh data
+          localStorage.setItem('applicant_name', userName)
+          localStorage.setItem('applicant_email', userEmail)
+        }
+      } catch (error) {
+        console.error('Error loading applicant profile:', error)
+        // Fallback to localStorage if Supabase fails
+        const storedName = localStorage.getItem('applicant_name')
+        const storedEmail = localStorage.getItem('applicant_email')
+        
+        if (storedName || storedEmail) {
+          setProfile({
+            name: storedName || 'Applicant',
+            email: storedEmail || 'user@norsu.edu.ph'
+          })
+        }
+      }
+    }
+
+    loadUserProfile()
   }, [])
-  return name
+  
+  return profile
 }
 
 function NavList({ onNavigate }: { onNavigate?: () => void }) {
@@ -56,8 +101,36 @@ function NavList({ onNavigate }: { onNavigate?: () => void }) {
   )
 }
 
+function ProfileSection({ name, email }: { name: string; email: string }) {
+  return (
+    <div className="border-t border-blue-800 pt-4 mt-4">
+      <div className="px-4 space-y-3">
+        <div className="flex items-center gap-3 p-3 bg-blue-900/30 rounded-lg border border-blue-700/50">
+          <div className="flex-shrink-0">
+            <div className="w-10 h-10 bg-blue-600 rounded-full flex items-center justify-center border-2 border-blue-400">
+              <User className="h-5 w-5 text-white" />
+            </div>
+          </div>
+          <div className="flex-1 min-w-0">
+            <p className="text-sm font-semibold text-white truncate">{name}</p>
+            <div className="flex items-center gap-1 mt-1">
+              <Mail className="h-3 w-3 text-blue-300" />
+              <p className="text-xs text-blue-200 truncate" title={email}>{email}</p>
+            </div>
+          </div>
+        </div>
+        <div className="bg-blue-900/20 rounded-lg p-2 border border-blue-700/30">
+          <p className="text-xs text-blue-200 text-center">
+            Signed in as Applicant
+          </p>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 export function ApplicantMobileTopbar() {
-  const name = useApplicantName()
+  const { name, email } = useApplicantProfile()
   const [mobileMenuOpen, setMobileMenuOpen] = React.useState(false)
 
   return (
@@ -80,7 +153,10 @@ export function ApplicantMobileTopbar() {
             alt="NORSU Logo" 
             className="rounded-sm border border-blue-600" 
           />
-          <h1 className="text-sm font-semibold text-white">Welcome, {name}!</h1>
+          <div className="flex flex-col">
+            <h1 className="text-sm font-semibold text-white">Welcome, {name}!</h1>
+            <p className="text-xs text-blue-200 truncate max-w-[150px]" title={email}>{email}</p>
+          </div>
         </div>
       </div>
 
@@ -109,6 +185,9 @@ export function ApplicantMobileTopbar() {
           {/* Navigation */}
           <NavList onNavigate={() => setMobileMenuOpen(false)} />
 
+          {/* Profile Section */}
+          <ProfileSection name={name} email={email} />
+
           {/* Close button */}
           <div className="absolute top-4 right-4">
             <Button
@@ -127,7 +206,7 @@ export function ApplicantMobileTopbar() {
 }
 
 export default function ApplicantSidebar() {
-  const name = useApplicantName()
+  const { name, email } = useApplicantProfile()
 
   return (
     <aside className="hidden h-full min-h-screen w-72 border-r border-blue-800 bg-[#0b1b3b] text-white md:block">
@@ -145,6 +224,9 @@ export default function ApplicantSidebar() {
       </div>
 
       <NavList />
+
+      {/* Profile Section */}
+      <ProfileSection name={name} email={email} />
     </aside>
   )
 }

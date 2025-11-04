@@ -12,7 +12,23 @@ export default function RootLayout({
   children: React.ReactNode
 }) {
   const [open, setOpen] = React.useState(false)
+  const [isScrolled, setIsScrolled] = React.useState(false)
+  const [mounted, setMounted] = React.useState(false)
   const pathname = usePathname()
+
+  React.useEffect(() => {
+    setMounted(true)
+    
+    const handleScroll = () => {
+      setIsScrolled(window.scrollY > 10)
+    }
+
+    // Set initial scroll state
+    handleScroll()
+    
+    window.addEventListener('scroll', handleScroll)
+    return () => window.removeEventListener('scroll', handleScroll)
+  }, [])
 
   const linkBase =
     "block rounded-full px-3.5 py-2 font-semibold text-slate-600 hover:bg-slate-100 hover:text-slate-900 md:inline-block"
@@ -23,42 +39,35 @@ export default function RootLayout({
     <html lang="en">
       <body>
         {/* NAVBAR */}
-        <header className="sticky top-0 z-50 bg-white shadow-[0_1px_0_rgba(2,8,23,0.06)]">
-          <div className="mx-auto flex w-full max-w-6xl items-center gap-4 px-4 py-3">
-            <Link className="inline-flex items-center gap-2 font-extrabold" href="/" aria-label="NORSU Home">
-              <Image src="/images/norsu.png" alt="NORSU Seal" width={34} height={34} />
-              <span>NORSU • HRM</span>
-            </Link>
+        <header className={`sticky top-0 z-50 bg-white transition-all duration-300 ${
+          mounted && isScrolled ? 'shadow-lg' : 'shadow-[0_1px_0_rgba(2,8,23,0.06)]'
+        }`}>
+          <div className="mx-auto flex w-full max-w-6xl items-center justify-between px-4 py-3">
+            {/* Left side - Logo + Navigation */}
+            <div className="flex items-center gap-6">
+              <Link className="inline-flex items-center gap-2 font-extrabold" href="/" aria-label="NORSU Home">
+                <Image src="/images/norsu.png" alt="NORSU Seal" width={34} height={34} />
+                <span>NORSU • HRM</span>
+              </Link>
 
-            {/* Main Navigation - Left Side */}
-            <nav className="hidden md:flex md:items-center md:gap-4">
-              <ul className="flex items-center gap-4">
-                <li>
-                  <Link href="/" className={`${linkBase} ${isActive("/")}`}>Home</Link>
-                </li>
-                <li>
-                  <Link href="/about" className={`${linkBase} ${isActive("/about")}`}>About</Link>
-                </li>
-                <li>
-                  <Link href="/vacancies" className={`${linkBase} ${isActive("/vacancies")}`}>Vacancies</Link>
-                </li>
-              </ul>
-            </nav>
+              {/* Desktop Navigation - Beside logo */}
+              <nav className="hidden md:flex md:items-center">
+                <ul className="flex items-center gap-2">
+                  <li>
+                    <Link href="/" className={`${linkBase} ${isActive("/")}`}>Home</Link>
+                  </li>
+                  <li>
+                    <Link href="/about" className={`${linkBase} ${isActive("/about")}`}>About</Link>
+                  </li>
+                  <li>
+                    <Link href="/vacancies" className={`${linkBase} ${isActive("/vacancies")}`}>Vacancies</Link>
+                  </li>
+                </ul>
+              </nav>
+            </div>
 
-            <button
-              className="ml-auto inline-grid place-items-center rounded-[10px] p-1.5 md:hidden focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgba(47,103,255,0.25)]"
-              aria-label="Toggle navigation"
-              aria-controls="siteNav"
-              aria-expanded={open}
-              onClick={() => setOpen(v => !v)}
-            >
-              <svg width="26" height="26" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-                <path d="M4 7h16M4 12h16M4 17h16" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
-              </svg>
-            </button>
-
-            {/* Auth Links - Right Side */}
-            <div className="ml-auto hidden md:flex md:items-center md:gap-4">
+            {/* Right side - Desktop Auth Links */}
+            <div className="hidden md:flex md:items-center md:gap-4">
               <Link href="/login" className={`${linkBase} ${isActive("/login")}`}>Login</Link>
               <Link
                 href="/signup"
@@ -68,39 +77,56 @@ export default function RootLayout({
               </Link>
             </div>
 
-            {/* Mobile Navigation */}
-            <nav
-              id="siteNav"
-              aria-label="Primary Navigation"
-              className={`${open ? "translate-y-0 shadow-[0_10px_20px_rgba(2,8,23,0.08)]" : "-translate-y-[120%]"}
-                fixed left-0 right-0 top-[60px] border-t border-slate-200 bg-white transition
-                md:static md:translate-y-0 md:border-0 md:shadow-none md:hidden`}
+            {/* Mobile Menu Button - Only visible on mobile */}
+            <button
+              className="inline-grid place-items-center rounded-[10px] p-1.5 md:hidden focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgba(47,103,255,0.25)]"
+              aria-label="Toggle navigation"
+              aria-controls="siteNav"
+              aria-expanded={open}
+              onClick={() => setOpen(v => !v)}
             >
-              <ul className="mx-auto flex w-full max-w-6xl flex-col gap-0 px-4 py-2">
-                <li className="w-full">
-                  <Link href="/" className={`${linkBase} ${isActive("/")}`} onClick={() => setOpen(false)}>Home</Link>
-                </li>
-                <li className="w-full">
-                  <Link href="/about" className={`${linkBase} ${isActive("/about")}`} onClick={() => setOpen(false)}>About</Link>
-                </li>
-                <li className="w-full">
-                  <Link href="/vacancies" className={`${linkBase} ${isActive("/vacancies")}`} onClick={() => setOpen(false)}>Vacancies</Link>
-                </li>
-                <li className="w-full">
-                  <Link href="/login" className={`${linkBase} ${isActive("/login")}`} onClick={() => setOpen(false)}>Login</Link>
-                </li>
-                <li className="w-full">
-                  <Link
-                    href="/signup"
-                    className="inline-flex h-10 items-center justify-center rounded-full bg-[#2f67ff] px-4 font-bold text-white transition hover:-translate-y-[1px] hover:bg-[#2553cc]"
-                    onClick={() => setOpen(false)}
-                  >
-                    Signup
-                  </Link>
-                </li>
-              </ul>
-            </nav>
+              <svg width="26" height="26" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                <path d="M4 7h16M4 12h16M4 17h16" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+              </svg>
+            </button>
           </div>
+
+          {/* Mobile Navigation */}
+          <nav
+            id="siteNav"
+            aria-label="Primary Navigation"
+            className={`${open ? "translate-y-0 shadow-[0_10px_20px_rgba(2,8,23,0.08)]" : "-translate-y-[120%]"}
+              fixed left-0 right-0 top-[60px] border-t border-slate-200 bg-white transition
+              md:hidden`}
+          >
+            <ul className="mx-auto flex w-full max-w-6xl flex-col gap-0 px-4 py-2">
+              <li className="w-full">
+                <Link href="/" className={`${linkBase} ${isActive("/")}`} onClick={() => setOpen(false)}>Home</Link>
+              </li>
+              <li className="w-full">
+                <Link href="/about" className={`${linkBase} ${isActive("/about")}`} onClick={() => setOpen(false)}>About</Link>
+              </li>
+              <li className="w-full">
+                <Link href="/vacancies" className={`${linkBase} ${isActive("/vacancies")}`} onClick={() => setOpen(false)}>Vacancies</Link>
+              </li>
+              <li className="w-full">
+                <Link href="/login" className={`${linkBase} ${isActive("/login")}`} onClick={() => setOpen(false)}>Login</Link>
+              </li>
+              <li className="w-full">
+                <Link
+                  href="/signup"
+                  className={`inline-flex h-10 items-center justify-center rounded-full px-4 font-bold transition hover:-translate-y-[1px] w-full max-w-[120px] mx-auto ${
+                    open 
+                      ? "bg-[#2f67ff] text-white hover:bg-[#2553cc]" 
+                      : "bg-white text-slate-600 border border-slate-300 hover:bg-slate-100"
+                  }`}
+                  onClick={() => setOpen(false)}
+                >
+                  Signup
+                </Link>
+              </li>
+            </ul>
+          </nav>
         </header>
 
         {/* HOME PAGE CONTENT */}

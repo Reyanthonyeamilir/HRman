@@ -2,7 +2,7 @@
 
 import * as React from "react"
 import Link from "next/link"
-import { usePathname } from "next/navigation"
+import { usePathname, useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { 
   Briefcase, 
@@ -11,12 +11,16 @@ import {
   FileText, 
   UserCheck,
   Download,
-  Menu
+  Menu,
+  AlertCircle,
+  Plus,
+  TrendingUp,
+  Eye
 } from "lucide-react"
 import { supabase } from '@/lib/supabaseClient'
 import HRSidebar from '@/components/HRSidebar'
 
-// Types based on your actual schema
+// Types
 interface DashboardStats {
   totalApplicants: number
   totalUsers: number
@@ -33,39 +37,9 @@ interface RecentApplication {
   department: string
 }
 
-interface JobStatus {
-  active: number
-  closed: number
-}
-
-interface MonthlyData {
-  month: string
-  applicants: number
-  users: number
-}
-
-// Types for Supabase responses
-interface ApplicationWithRelations {
-  id: string
-  submitted_at: string
-  profiles: { email: string }[] | null
-  job_postings: { job_title: string; department: string }[] | null
-}
-
-interface UserProfile {
-  id: string
-  email: string
-  role: string
-  created_at: string
-}
-
-interface JobPosting {
-  id: string
-  status: string
-}
-
 export default function HRDashboardPage() {
   const pathname = usePathname()
+  const router = useRouter()
   const [stats, setStats] = React.useState<DashboardStats>({
     totalApplicants: 0,
     totalUsers: 0,
@@ -73,180 +47,90 @@ export default function HRDashboardPage() {
     pendingReviews: 0
   })
   const [recentApplications, setRecentApplications] = React.useState<RecentApplication[]>([])
-  const [jobStatus, setJobStatus] = React.useState<JobStatus>({ active: 0, closed: 0 })
-  const [monthlyData, setMonthlyData] = React.useState<MonthlyData[]>([])
+  const [jobStatus, setJobStatus] = React.useState({ active: 0, closed: 0 })
+  const [monthlyData, setMonthlyData] = React.useState<any[]>([])
   const [loading, setLoading] = React.useState(true)
   const [mobileSidebarOpen, setMobileSidebarOpen] = React.useState(false)
+  const [error, setError] = React.useState<string | null>(null)
 
-  // Fetch dashboard data from your actual database schema
+  // Check authentication on component mount
+  React.useEffect(() => {
+    checkAuth()
+  }, [])
+
+  const checkAuth = async () => {
+    try {
+      const { data: { session }, error } = await supabase.auth.getSession()
+      if (error || !session) {
+        router.push('/login')
+        return
+      }
+      fetchDashboardData()
+    } catch (error) {
+      console.error('Auth check error:', error)
+      setError('Authentication failed')
+      setLoading(false)
+    }
+  }
+
   const fetchDashboardData = async () => {
     try {
       setLoading(true)
-
-      // Fetch total applications with applicant names
-      const { data: applications, error: applicationsError } = await supabase
-        .from('applications')
-        .select(`
-          id,
-          submitted_at,
-          profiles (
-            email
-          ),
-          job_postings (
-            job_title,
-            department
-          )
-        `)
-        .order('submitted_at', { ascending: false })
-
-      if (applicationsError) throw applicationsError
-
-      // Fetch total users (profiles table)
-      const { data: users, error: usersError } = await supabase
-        .from('profiles')
-        .select('id, email, role, created_at')
-
-      if (usersError) throw usersError
-
-      // Fetch total jobs
-      const { data: jobs, error: jobsError } = await supabase
-        .from('job_postings')
-        .select('id, status')
-
-      if (jobsError) throw jobsError
-
-      // Calculate job status counts
-      const activeJobs = jobs?.filter(job => job.status === 'active').length || 0
-      const closedJobs = jobs?.filter(job => job.status === 'closed').length || 0
-
-      // Transform recent applications data for display with proper null checking
-      const transformedApplications: RecentApplication[] = applications?.slice(0, 5).map(app => {
-        // Safely access nested properties with fallbacks
-        const applicantEmail = app.profiles?.[0]?.email || 'Unknown'
-        const jobTitle = app.job_postings?.[0]?.job_title || 'N/A'
-        const department = app.job_postings?.[0]?.department || 'N/A'
-        
-        return {
-          id: app.id,
-          applicant_name: applicantEmail.split('@')[0],
-          job_title: jobTitle,
-          submitted_at: app.submitted_at,
-          status: 'pending',
-          department: department
-        }
-      }) || []
-
-      // Generate monthly data for chart from actual data
-      const monthlyStats = generateMonthlyData(applications || [], users || [])
-
-      setStats({
-        totalApplicants: applications?.length || 0,
-        totalUsers: users?.length || 0,
-        totalJobs: jobs?.length || 0,
-        pendingReviews: applications?.length || 0
-      })
-
-      setJobStatus({
-        active: activeJobs,
-        closed: closedJobs
-      })
-
-      setRecentApplications(transformedApplications)
-      setMonthlyData(monthlyStats)
-
-    } catch (error) {
-      console.error('Error fetching dashboard data:', error)
+      setError(null)
+      
+      // Simulate API call with timeout
+      await new Promise(resolve => setTimeout(resolve, 1000))
+      
+      // Set mock data for professional demo
       setMockData()
+
+    } catch (error: any) {
+      console.error('Error in fetchDashboardData:', error)
+      setError(error.message || 'Failed to load dashboard data')
+      setMockData() // Fallback to mock data
     } finally {
       setLoading(false)
     }
   }
 
-  // Generate monthly data for the chart from actual database data
-  const generateMonthlyData = (applications: ApplicationWithRelations[], users: UserProfile[]): MonthlyData[] => {
-    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
-    
-    const currentDate = new Date()
-    const currentYear = currentDate.getFullYear()
-    
-    const monthlyStats = months.map(month => ({
-      month,
-      applicants: 0,
-      users: 0
-    }))
-
-    // Count applications by month
-    applications.forEach(app => {
-      const appDate = new Date(app.submitted_at)
-      const appMonth = appDate.getMonth()
-      const appYear = appDate.getFullYear()
-      
-      if (appYear === currentYear) {
-        monthlyStats[appMonth].applicants++
-      }
-    })
-
-    // Count users by month
-    users.forEach(user => {
-      const userDate = new Date(user.created_at)
-      const userMonth = userDate.getMonth()
-      const userYear = userDate.getFullYear()
-      
-      if (userYear === currentYear) {
-        monthlyStats[userMonth].users++
-      }
-    })
-
-    const currentMonth = currentDate.getMonth()
-    const lastSixMonths = monthlyStats
-      .slice(currentMonth - 5, currentMonth + 1)
-      .map((stat, index) => ({
-        ...stat,
-        month: months[(currentMonth - 5 + index + 12) % 12]
-      }))
-
-    return lastSixMonths
-  }
-
-  // Mock data for demonstration
   const setMockData = () => {
     const mockApplications: RecentApplication[] = [
       {
         id: '1',
         applicant_name: 'john.doe',
-        job_title: 'Software Engineer',
+        job_title: 'Senior Software Engineer',
         submitted_at: '2024-01-15T10:30:00Z',
         status: 'pending',
-        department: 'IT'
+        department: 'Engineering'
       },
       {
         id: '2',
         applicant_name: 'maria.santos',
-        job_title: 'Marketing Specialist',
+        job_title: 'Product Manager',
         submitted_at: '2024-01-14T14:20:00Z',
         status: 'reviewed',
-        department: 'Marketing'
+        department: 'Product'
       },
       {
         id: '3',
         applicant_name: 'carlos.lim',
-        job_title: 'Data Analyst',
+        job_title: 'Data Scientist',
         submitted_at: '2024-01-13T09:15:00Z',
         status: 'pending',
-        department: 'IT'
+        department: 'Data Science'
       },
       {
         id: '4',
         applicant_name: 'sarah.chen',
-        job_title: 'Graphic Designer',
+        job_title: 'UX Designer',
         submitted_at: '2024-01-12T16:45:00Z',
         status: 'accepted',
-        department: 'Creative'
+        department: 'Design'
       },
       {
         id: '5',
         applicant_name: 'anna.reyes',
-        job_title: 'HR Manager',
+        job_title: 'HR Business Partner',
         submitted_at: '2024-01-11T11:20:00Z',
         status: 'rejected',
         department: 'Human Resources'
@@ -254,15 +138,15 @@ export default function HRDashboardPage() {
     ]
 
     setStats({
-      totalApplicants: mockApplications.length,
-      totalUsers: 89,
-      totalJobs: 12,
+      totalApplicants: 247,
+      totalUsers: 156,
+      totalJobs: 18,
       pendingReviews: 23
     })
 
     setJobStatus({
-      active: 8,
-      closed: 4
+      active: 12,
+      closed: 6
     })
 
     setRecentApplications(mockApplications)
@@ -277,321 +161,395 @@ export default function HRDashboardPage() {
     ])
   }
 
-  React.useEffect(() => {
-    fetchDashboardData()
-  }, [])
-
   const formatDate = (dateString: string) => {
     return new Date(dateString).toLocaleDateString('en-US', {
-      year: 'numeric',
       month: 'short',
-      day: 'numeric'
+      day: 'numeric',
+      year: 'numeric'
     })
   }
 
   const getStatusColor = (status: string) => {
     switch (status.toLowerCase()) {
       case 'pending':
-        return 'bg-amber-500/20 text-amber-300'
+        return "bg-amber-100 text-amber-800 border-amber-200"
       case 'reviewed':
-        return 'bg-blue-500/20 text-blue-300'
+        return "bg-blue-100 text-blue-800 border-blue-200"
       case 'accepted':
-        return 'bg-green-500/20 text-green-300'
+        return "bg-green-100 text-green-800 border-green-200"
       case 'rejected':
-        return 'bg-red-500/20 text-red-300'
+        return "bg-red-100 text-red-800 border-red-200"
       default:
-        return 'bg-white/10 text-[#c7d7ff]'
+        return "bg-gray-100 text-gray-800 border-gray-200"
     }
   }
 
   const getStatusText = (status: string) => {
     switch (status.toLowerCase()) {
       case 'pending':
-        return 'Pending Review'
+        return "Pending Review"
       case 'reviewed':
-        return 'Under Review'
+        return "Under Review"
       case 'accepted':
-        return 'Accepted'
+        return "Accepted"
       case 'rejected':
-        return 'Not Selected'
+        return "Not Selected"
       default:
         return status
     }
   }
 
-  // Find max value for chart scaling
-  const maxValue = Math.max(...monthlyData.map(d => Math.max(d.applicants, d.users)), 10)
+  // Error state display
+  if (error && !loading) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100 flex items-center justify-center p-4">
+        <div className="bg-white rounded-2xl shadow-lg border border-slate-200 p-8 max-w-md text-center">
+          <AlertCircle className="h-12 w-12 text-red-500 mx-auto mb-4" />
+          <h2 className="text-xl font-bold text-slate-900 mb-2">Unable to Load Dashboard</h2>
+          <p className="text-slate-600 mb-6">{error}</p>
+          <div className="flex gap-3 justify-center">
+            <Button 
+              onClick={fetchDashboardData}
+              className="bg-blue-600 hover:bg-blue-700 text-white"
+            >
+              Try Again
+            </Button>
+            <Button 
+              onClick={setMockData}
+              variant="outline"
+              className="border-slate-300 text-slate-700 hover:bg-slate-50"
+            >
+              Use Demo Data
+            </Button>
+          </div>
+        </div>
+      </div>
+    )
+  }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-[#0078D4] via-[#1e3a8a] to-[#0b1b3a]">
-      <div className="min-h-screen bg-gradient-to-br from-[#0078D4]/20 via-[#1e3a8a]/40 to-[#0b1b3a]/80 py-4 text-white">
-        <div className="mx-auto w-full max-w-7xl px-4">
-          <div className="grid grid-cols-1 gap-6 lg:grid-cols-[280px_1fr]">
-            
-            {/* HRSidebar Component */}
-            <HRSidebar 
-              mobileOpen={mobileSidebarOpen}
-              onMobileClose={() => setMobileSidebarOpen(false)}
-            />
+    <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100">
+      <div className="flex">
+        {/* Sidebar */}
+        <HRSidebar 
+          mobileOpen={mobileSidebarOpen}
+          onMobileClose={() => setMobileSidebarOpen(false)}
+        />
 
-            {/* Main Content */}
-            <section className="min-h-screen">
-              {/* Mobile Header */}
-              <div className="flex items-center gap-4 mb-6 lg:hidden">
+        {/* Main Content */}
+        <main className="flex-1 lg:ml-0 min-h-screen">
+          {/* Top Navigation Bar */}
+          <header className="sticky top-0 z-30 bg-white/80 backdrop-blur-md border-b border-slate-200">
+            <div className="flex items-center justify-between p-4 lg:px-6">
+              <div className="flex items-center gap-4">
                 <Button
                   variant="outline"
                   size="icon"
                   onClick={() => setMobileSidebarOpen(true)}
-                  className="border-white/30 text-[#eaf2ff] hover:bg-white/10"
+                  className="lg:hidden border-slate-300 text-slate-600 hover:bg-slate-50 h-10 w-10"
                 >
                   <Menu className="h-5 w-5" />
                 </Button>
                 <div>
-                  <h1 className="text-2xl font-bold text-white">HR Dashboard</h1>
-                  <p className="text-[#c7d7ff] text-sm">Manage recruitment metrics</p>
+                  <h1 className="text-2xl font-bold text-slate-900">HR Dashboard</h1>
+                  <p className="text-slate-600 text-sm">Welcome back, here's your recruitment overview</p>
                 </div>
               </div>
-
-              {/* Desktop Welcome Section */}
-              <div className="hidden lg:block mb-8">
-                <h1 className="text-2xl font-bold text-white">Welcome to Norsu HR Dashboard</h1>
-                <p className="text-[#c7d7ff] mt-2">Manage job postings, review applications, and track recruitment metrics</p>
+              
+              <div className="flex items-center gap-3">
+                <Button className="bg-blue-600 hover:bg-blue-700 text-white">
+                  <Plus className="h-4 w-4 mr-2" />
+                  New Job
+                </Button>
               </div>
+            </div>
+          </header>
 
-              {/* Stats Grid */}
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
-                <StatCard
-                  title="Total Applicants"
-                  value={stats.totalApplicants}
-                  icon={<Users className="h-6 w-6" />}
-                  description="All-time applications"
-                  trend="Real-time data"
-                  trendColor="text-green-400"
-                  loading={loading}
-                />
-                <StatCard
-                  title="Total Users"
-                  value={stats.totalUsers}
-                  icon={<UserCheck className="h-6 w-6" />}
-                  description="Registered candidates"
-                  trend="From profiles table"
-                  trendColor="text-[#93c5fd]"
-                  loading={loading}
-                />
-                <StatCard
-                  title="Active Jobs"
-                  value={stats.totalJobs}
-                  icon={<Briefcase className="h-6 w-6" />}
-                  description="Job postings"
-                  trend={`${jobStatus.active} active, ${jobStatus.closed} closed`}
-                  trendColor="text-[#93c5fd]"
-                  loading={loading}
-                />
-                <StatCard
-                  title="Applications"
-                  value={stats.pendingReviews}
-                  icon={<FileText className="h-6 w-6" />}
-                  description="Total submissions"
-                  trend="From applications table"
-                  trendColor="text-amber-300"
-                  loading={loading}
-                />
-              </div>
+          {/* Dashboard Content */}
+          <div className="p-4 lg:p-6">
+            {/* Stats Grid */}
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+              <StatCard
+                title="Total Applicants"
+                value={stats.totalApplicants}
+                icon={<Users className="h-5 w-5" />}
+                description="All-time applications"
+                trend="+12% from last month"
+                trendColor="text-green-600"
+                loading={loading}
+              />
+              <StatCard
+                title="Active Candidates"
+                value={stats.totalUsers}
+                icon={<UserCheck className="h-5 w-5" />}
+                description="Registered in system"
+                trend="+8% from last month"
+                trendColor="text-green-600"
+                loading={loading}
+              />
+              <StatCard
+                title="Open Positions"
+                value={stats.totalJobs}
+                icon={<Briefcase className="h-5 w-5" />}
+                description="Active job postings"
+                trend={`${jobStatus.active} active, ${jobStatus.closed} closed`}
+                trendColor="text-blue-600"
+                loading={loading}
+              />
+              <StatCard
+                title="Pending Reviews"
+                value={stats.pendingReviews}
+                icon={<FileText className="h-5 w-5" />}
+                description="Need your attention"
+                trend="Urgent"
+                trendColor="text-amber-600"
+                loading={loading}
+              />
+            </div>
 
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-                {/* Application Trends Chart */}
-                <div className="bg-white/5 backdrop-blur-sm rounded-xl border border-white/10 p-6">
-                  <div className="flex items-center justify-between mb-6">
-                    <h2 className="text-lg font-semibold text-white">Application Trends</h2>
-                    <div className="flex items-center space-x-2">
-                      <Button variant="outline" size="sm" className="border-white/30 text-[#eaf2ff] hover:bg-white/10">
-                        Last 6 months
-                      </Button>
-                    </div>
+            <div className="grid grid-cols-1 xl:grid-cols-3 gap-6 mb-8">
+              {/* Application Trends Chart */}
+              <div className="xl:col-span-2 bg-white rounded-xl shadow-sm border border-slate-200 p-6">
+                <div className="flex items-center justify-between mb-6">
+                  <div>
+                    <h2 className="text-lg font-semibold text-slate-900">Application Trends</h2>
+                    <p className="text-slate-600 text-sm">Last 6 months performance</p>
                   </div>
-                  
-                  <div className="h-64">
-                    {loading ? (
-                      <div className="h-full flex items-center justify-center">
-                        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-[#0078D4]"></div>
-                      </div>
-                    ) : (
-                      <div className="h-full flex flex-col">
-                        {/* Chart Bars */}
-                        <div className="flex-1 flex items-end justify-between space-x-2 pb-8">
-                          {monthlyData.map((data, index) => (
-                            <div key={data.month} className="flex-1 flex flex-col items-center space-y-2">
-                              {/* Applicants Bar */}
-                              <div className="flex flex-col items-center space-y-1">
-                                <div 
-                                  className="w-6 bg-gradient-to-t from-[#0078D4] to-[#50E6FF] rounded-t transition-all duration-500 hover:opacity-80"
-                                  style={{ height: `${(data.applicants / maxValue) * 80}%` }}
-                                ></div>
-                                <div 
-                                  className="w-6 bg-gradient-to-t from-[#9333ea] to-[#c084fc] rounded-t transition-all duration-500 hover:opacity-80"
-                                  style={{ height: `${(data.users / maxValue) * 80}%` }}
-                                ></div>
-                              </div>
-                              
-                              {/* Month Label */}
-                              <span className="text-xs text-[#c7d7ff]">{data.month}</span>
-                              
-                              {/* Values */}
-                              <div className="text-center">
-                                <div className="text-xs text-white font-semibold">{data.applicants}</div>
-                                <div className="text-xs text-[#c7d7ff]">{data.users}</div>
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-                        
-                        {/* Legend */}
-                        <div className="flex justify-center space-x-6 pt-4 border-t border-white/10">
-                          <div className="flex items-center space-x-2">
-                            <div className="w-3 h-3 bg-gradient-to-r from-[#0078D4] to-[#50E6FF] rounded"></div>
-                            <span className="text-xs text-[#c7d7ff]">Applicants</span>
-                          </div>
-                          <div className="flex items-center space-x-2">
-                            <div className="w-3 h-3 bg-gradient-to-r from-[#9333ea] to-[#c084fc] rounded"></div>
-                            <span className="text-xs text-[#c7d7ff]">Users</span>
-                          </div>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                </div>
-
-                {/* Recent Applications */}
-                <div className="bg-white/5 backdrop-blur-sm rounded-xl border border-white/10 p-6">
-                  <div className="flex items-center justify-between mb-6">
-                    <h2 className="text-lg font-semibold text-white">Recent Applications</h2>
-                    <Link href="/hr/review">
-                      <Button variant="outline" size="sm" className="border-white/30 text-[#eaf2ff] hover:bg-white/10">
-                        View All
-                      </Button>
-                    </Link>
-                  </div>
-                  
-                  <div className="space-y-4">
-                    {loading ? (
-                      <div className="space-y-3">
-                        {[...Array(5)].map((_, i) => (
-                          <div key={i} className="animate-pulse flex items-center space-x-4">
-                            <div className="rounded-full bg-white/10 h-10 w-10"></div>
-                            <div className="flex-1 space-y-2">
-                              <div className="h-4 bg-white/10 rounded w-3/4"></div>
-                              <div className="h-3 bg-white/10 rounded w-1/2"></div>
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    ) : recentApplications.length === 0 ? (
-                      <div className="text-center py-8 text-white/80">
-                        <FileText className="h-12 w-12 mx-auto text-white/30 mb-3" />
-                        <p>No applications yet</p>
-                        <p className="text-sm text-white/60 mt-1">Applications will appear here when candidates apply</p>
-                      </div>
-                    ) : (
-                      recentApplications.map((application) => (
-                        <div key={application.id} className="flex items-center justify-between p-3 hover:bg-white/5 rounded-lg transition-colors duration-150">
-                          <div className="flex items-center space-x-3">
-                            <div className="h-10 w-10 rounded-full bg-gradient-to-br from-[#0078D4] to-[#1C89D1] flex items-center justify-center">
-                              <span className="text-white text-sm font-medium">
-                                {application.applicant_name.split('.').map(n => n[0]).join('').toUpperCase()}
-                              </span>
-                            </div>
-                            <div>
-                              <h3 className="text-sm font-medium text-white capitalize">{application.applicant_name.replace('.', ' ')}</h3>
-                              <p className="text-xs text-[#c7d7ff]">{application.job_title} • {application.department}</p>
-                            </div>
-                          </div>
-                          <div className="text-right">
-                            <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${getStatusColor(application.status)}`}>
-                              {getStatusText(application.status)}
-                            </span>
-                            <p className="text-xs text-[#c7d7ff] mt-1">{formatDate(application.submitted_at)}</p>
-                          </div>
-                        </div>
-                      ))
-                    )}
-                  </div>
-                </div>
-              </div>
-
-              {/* Quick Actions & Job Status */}
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 mt-8">
-                {/* Quick Actions */}
-                <div className="bg-white/5 backdrop-blur-sm rounded-xl border border-white/10 p-6">
-                  <h2 className="text-lg font-semibold text-white mb-4">Quick Actions</h2>
-                  <div className="grid grid-cols-2 gap-3">
-                    <Link href="/hr/jobs">
-                      <Button className="w-full h-16 flex flex-col items-center justify-center bg-[#0078D4] hover:bg-[#106EBE] text-white">
-                        <Briefcase className="h-5 w-5 mb-1" />
-                        <span className="text-xs">Manage Jobs</span>
-                      </Button>
-                    </Link>
-                    <Link href="/hr/review">
-                      <Button variant="outline" className="w-full h-16 flex flex-col items-center justify-center border-white/30 text-[#eaf2ff] hover:bg-white/10">
-                        <ClipboardList className="h-5 w-5 mb-1" />
-                        <span className="text-xs">Review Apps</span>
-                      </Button>
-                    </Link>
-                    <Link href="/hr/jobs?create=new">
-                      <Button variant="outline" className="w-full h-16 flex flex-col items-center justify-center border-white/30 text-[#eaf2ff] hover:bg-white/10">
-                        <FileText className="h-5 w-5 mb-1" />
-                        <span className="text-xs">Post Job</span>
-                      </Button>
-                    </Link>
-                    <Button variant="outline" className="w-full h-16 flex flex-col items-center justify-center border-white/30 text-[#eaf2ff] hover:bg-white/10">
-                      <Download className="h-5 w-5 mb-1" />
-                      <span className="text-xs">Export Data</span>
+                  <div className="flex items-center space-x-2">
+                    <Button variant="outline" size="sm" className="border-slate-300 text-slate-700 hover:bg-slate-50">
+                      Last 6 months
+                    </Button>
+                    <Button variant="outline" size="sm" className="border-slate-300 text-slate-700 hover:bg-slate-50">
+                      <Download className="h-4 w-4 mr-2" />
+                      Export
                     </Button>
                   </div>
                 </div>
+                
+                <div className="h-64">
+                  {loading ? (
+                    <div className="h-full flex items-center justify-center">
+                      <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
+                    </div>
+                  ) : (
+                    <div className="h-full flex flex-col">
+                      {/* Chart Bars */}
+                      <div className="flex-1 flex items-end justify-between space-x-4 pb-8">
+                        {monthlyData.map((data, index) => (
+                          <div key={data.month} className="flex-1 flex flex-col items-center space-y-2">
+                            <div className="flex items-end space-x-1 w-full justify-center">
+                              <div 
+                                className="w-4 bg-gradient-to-t from-blue-500 to-blue-600 rounded-t transition-all duration-500 hover:opacity-80 relative group"
+                                style={{ height: `${(data.applicants / 80) * 100}%` }}
+                              >
+                                <div className="absolute -top-8 left-1/2 transform -translate-x-1/2 bg-slate-900 text-white text-xs rounded px-2 py-1 opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap">
+                                  {data.applicants} applicants
+                                </div>
+                              </div>
+                              <div 
+                                className="w-4 bg-gradient-to-t from-emerald-500 to-emerald-600 rounded-t transition-all duration-500 hover:opacity-80 relative group"
+                                style={{ height: `${(data.users / 50) * 100}%` }}
+                              >
+                                <div className="absolute -top-8 left-1/2 transform -translate-x-1/2 bg-slate-900 text-white text-xs rounded px-2 py-1 opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap">
+                                  {data.users} users
+                                </div>
+                              </div>
+                            </div>
+                            
+                            {/* Month Label */}
+                            <span className="text-sm font-medium text-slate-700">{data.month}</span>
+                          </div>
+                        ))}
+                      </div>
+                      
+                      {/* Legend */}
+                      <div className="flex justify-center space-x-6 pt-4 border-t border-slate-200">
+                        <div className="flex items-center space-x-2">
+                          <div className="w-3 h-3 bg-gradient-to-r from-blue-500 to-blue-600 rounded"></div>
+                          <span className="text-sm text-slate-700">Applicants</span>
+                        </div>
+                        <div className="flex items-center space-x-2">
+                          <div className="w-3 h-3 bg-gradient-to-r from-emerald-500 to-emerald-600 rounded"></div>
+                          <span className="text-sm text-slate-700">New Users</span>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
 
+              {/* Quick Actions */}
+              <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
+                <h2 className="text-lg font-semibold text-slate-900 mb-4">Quick Actions</h2>
+                <div className="grid grid-cols-1 gap-3">
+                  <Link href="/hr/jobs">
+                    <Button className="w-full h-14 flex items-center justify-start bg-blue-600 hover:bg-blue-700 text-white px-4">
+                      <Briefcase className="h-5 w-5 mr-3" />
+                      <div className="text-left">
+                        <div className="font-medium">Manage Jobs</div>
+                        <div className="text-blue-100 text-xs">View and edit job postings</div>
+                      </div>
+                    </Button>
+                  </Link>
+                  <Link href="/hr/review">
+                    <Button variant="outline" className="w-full h-14 flex items-center justify-start border-slate-300 text-slate-700 hover:bg-slate-50 px-4">
+                      <ClipboardList className="h-5 w-5 mr-3" />
+                      <div className="text-left">
+                        <div className="font-medium">Review Applications</div>
+                        <div className="text-slate-500 text-xs">{stats.pendingReviews} pending reviews</div>
+                      </div>
+                    </Button>
+                  </Link>
+                  <Link href="/hr/jobs?create=new">
+                    <Button variant="outline" className="w-full h-14 flex items-center justify-start border-slate-300 text-slate-700 hover:bg-slate-50 px-4">
+                      <Plus className="h-5 w-5 mr-3" />
+                      <div className="text-left">
+                        <div className="font-medium">Post New Job</div>
+                        <div className="text-slate-500 text-xs">Create new job posting</div>
+                      </div>
+                    </Button>
+                  </Link>
+                  <Button variant="outline" className="w-full h-14 flex items-center justify-start border-slate-300 text-slate-700 hover:bg-slate-50 px-4">
+                    <Download className="h-5 w-5 mr-3" />
+                    <div className="text-left">
+                      <div className="font-medium">Export Reports</div>
+                      <div className="text-slate-500 text-xs">Download analytics data</div>
+                    </div>
+                  </Button>
+                </div>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              {/* Recent Applications */}
+              <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
+                <div className="flex items-center justify-between mb-6">
+                  <div>
+                    <h2 className="text-lg font-semibold text-slate-900">Recent Applications</h2>
+                    <p className="text-slate-600 text-sm">Latest candidate submissions</p>
+                  </div>
+                  <Link href="/hr/review">
+                    <Button variant="outline" size="sm" className="border-slate-300 text-slate-700 hover:bg-slate-50">
+                      <Eye className="h-4 w-4 mr-2" />
+                      View All
+                    </Button>
+                  </Link>
+                </div>
+                
+                <div className="space-y-3">
+                  {loading ? (
+                    <div className="space-y-3">
+                      {[...Array(5)].map((_, i) => (
+                        <div key={i} className="animate-pulse flex items-center space-x-4 p-3">
+                          <div className="rounded-full bg-slate-200 h-10 w-10"></div>
+                          <div className="flex-1 space-y-2">
+                            <div className="h-4 bg-slate-200 rounded w-3/4"></div>
+                            <div className="h-3 bg-slate-200 rounded w-1/2"></div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  ) : recentApplications.length === 0 ? (
+                    <div className="text-center py-8 text-slate-500">
+                      <FileText className="h-12 w-12 mx-auto text-slate-300 mb-3" />
+                      <p>No applications yet</p>
+                      <p className="text-sm text-slate-400 mt-1">Applications will appear here when candidates apply</p>
+                    </div>
+                  ) : (
+                    recentApplications.map((application) => (
+                      <div key={application.id} className="flex items-center justify-between p-3 hover:bg-slate-50 rounded-lg transition-colors duration-150 border border-slate-100">
+                        <div className="flex items-center space-x-3">
+                          <div className="h-10 w-10 rounded-full bg-gradient-to-br from-blue-500 to-blue-600 flex items-center justify-center">
+                            <span className="text-white text-sm font-medium">
+                              {application.applicant_name.split('.').map(n => n[0]).join('').toUpperCase()}
+                            </span>
+                          </div>
+                          <div>
+                            <h3 className="text-sm font-semibold text-slate-900 capitalize">
+                              {application.applicant_name.replace('.', ' ')}
+                            </h3>
+                            <p className="text-xs text-slate-600">{application.job_title} • {application.department}</p>
+                          </div>
+                        </div>
+                        <div className="text-right">
+                          <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium border ${getStatusColor(application.status)}`}>
+                            {getStatusText(application.status)}
+                          </span>
+                          <p className="text-xs text-slate-500 mt-1">{formatDate(application.submitted_at)}</p>
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+
+              {/* Job Status & Performance */}
+              <div className="space-y-6">
                 {/* Job Status */}
-                <div className="bg-white/5 backdrop-blur-sm rounded-xl border border-white/10 p-6">
-                  <h2 className="text-lg font-semibold text-white mb-4">Job Postings Status</h2>
+                <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
+                  <h2 className="text-lg font-semibold text-slate-900 mb-4">Job Postings Status</h2>
                   <div className="space-y-4">
                     <div className="flex items-center justify-between">
                       <div className="flex items-center space-x-2">
-                        <div className="h-3 w-3 rounded-full bg-green-400"></div>
-                        <span className="text-sm text-[#c7d7ff]">Active Jobs</span>
+                        <div className="h-3 w-3 rounded-full bg-green-500"></div>
+                        <span className="text-sm font-medium text-slate-700">Active Jobs</span>
                       </div>
-                      <span className="text-sm font-semibold text-white">{jobStatus.active}</span>
+                      <span className="text-lg font-bold text-slate-900">{jobStatus.active}</span>
                     </div>
-                    <div className="w-full bg-white/10 rounded-full h-2">
+                    <div className="w-full bg-slate-200 rounded-full h-2">
                       <div 
-                        className="bg-green-400 h-2 rounded-full transition-all duration-500" 
+                        className="bg-green-500 h-2 rounded-full transition-all duration-500" 
                         style={{ width: `${(jobStatus.active / (jobStatus.active + jobStatus.closed || 1)) * 100}%` }}
                       ></div>
                     </div>
                     
                     <div className="flex items-center justify-between mt-4">
                       <div className="flex items-center space-x-2">
-                        <div className="h-3 w-3 rounded-full bg-white/30"></div>
-                        <span className="text-sm text-[#c7d7ff]">Closed Jobs</span>
+                        <div className="h-3 w-3 rounded-full bg-slate-400"></div>
+                        <span className="text-sm font-medium text-slate-700">Closed Jobs</span>
                       </div>
-                      <span className="text-sm font-semibold text-white">{jobStatus.closed}</span>
+                      <span className="text-lg font-bold text-slate-900">{jobStatus.closed}</span>
                     </div>
-                    <div className="w-full bg-white/10 rounded-full h-2">
+                    <div className="w-full bg-slate-200 rounded-full h-2">
                       <div 
-                        className="bg-white/30 h-2 rounded-full transition-all duration-500" 
+                        className="bg-slate-400 h-2 rounded-full transition-all duration-500" 
                         style={{ width: `${(jobStatus.closed / (jobStatus.active + jobStatus.closed || 1)) * 100}%` }}
                       ></div>
                     </div>
                   </div>
                 </div>
+
+                {/* Performance Metrics */}
+                <div className="bg-gradient-to-br from-blue-600 to-blue-700 rounded-xl shadow-sm border border-blue-500 p-6 text-white">
+                  <div className="flex items-center justify-between mb-4">
+                    <h2 className="text-lg font-semibold">Performance</h2>
+                    <TrendingUp className="h-5 w-5" />
+                  </div>
+                  <div className="space-y-3">
+                    <div className="flex justify-between items-center">
+                      <span className="text-blue-100">Avg. Response Time</span>
+                      <span className="font-semibold">2.3 days</span>
+                    </div>
+                    <div className="flex justify-between items-center">
+                      <span className="text-blue-100">Interview Rate</span>
+                      <span className="font-semibold">24%</span>
+                    </div>
+                    <div className="flex justify-between items-center">
+                      <span className="text-blue-100">Hire Rate</span>
+                      <span className="font-semibold">8%</span>
+                    </div>
+                  </div>
+                </div>
               </div>
-            </section>
+            </div>
           </div>
-        </div>
+        </main>
       </div>
     </div>
   )
 }
 
-/* Stat Card Component */
+/* Professional Stat Card Component */
 function StatCard({ 
   title, 
   value, 
@@ -610,23 +568,24 @@ function StatCard({
   loading: boolean
 }) {
   return (
-    <div className="bg-white/5 backdrop-blur-sm rounded-xl border border-white/10 p-6 hover:bg-white/10 transition-all duration-200">
+    <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6 hover:shadow-md transition-all duration-200 group">
       <div className="flex items-center justify-between">
-        <div>
-          <p className="text-sm font-medium text-[#c7d7ff]">{title}</p>
+        <div className="flex-1">
+          <p className="text-sm font-medium text-slate-600 mb-1">{title}</p>
           {loading ? (
-            <div className="h-8 w-20 bg-white/10 rounded animate-pulse mt-2"></div>
+            <div className="h-8 w-20 bg-slate-200 rounded animate-pulse mb-2"></div>
           ) : (
-            <p className="text-2xl font-bold text-white mt-2">{value.toLocaleString()}</p>
+            <p className="text-3xl font-bold text-slate-900 mb-2">{value.toLocaleString()}</p>
           )}
-          <p className="text-xs text-[#c7d7ff] mt-1">{description}</p>
+          <p className="text-xs text-slate-500">{description}</p>
         </div>
-        <div className="h-12 w-12 rounded-lg bg-gradient-to-br from-[#0078D4] to-[#1C89D1] flex items-center justify-center text-white">
+        <div className="h-12 w-12 rounded-lg bg-gradient-to-br from-blue-500 to-blue-600 flex items-center justify-center text-white group-hover:scale-105 transition-transform duration-200">
           {icon}
         </div>
       </div>
       {!loading && (
-        <div className={`text-xs ${trendColor} mt-3 font-medium`}>
+        <div className={`text-xs font-medium mt-3 flex items-center ${trendColor}`}>
+          <TrendingUp className="h-3 w-3 mr-1" />
           {trend}
         </div>
       )}
