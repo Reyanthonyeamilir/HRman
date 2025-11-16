@@ -136,21 +136,6 @@ export default function VacanciesPage() {
                 Build your career with Negros Oriental State University. Discover rewarding opportunities that shape futures and transform communities through education and innovation.
               </p>
 
-              {/* Stats */}
-              <div className="flex flex-wrap gap-6">
-                <div className="text-center">
-                  <div className="text-2xl font-bold text-white md:text-3xl">50+</div>
-                  <div className="text-sm text-[#c7d7ff]">Team Members</div>
-                </div>
-                <div className="text-center">
-                  <div className="text-2xl font-bold text-white md:text-3xl">10+</div>
-                  <div className="text-sm text-[#c7d7ff]">Departments</div>
-                </div>
-                <div className="text-center">
-                  <div className="text-2xl font-bold text-white md:text-3xl">5+</div>
-                  <div className="text-sm text-[#c7d7ff]">Campuses</div>
-                </div>
-              </div>
             </div>
           </div>
         </div>

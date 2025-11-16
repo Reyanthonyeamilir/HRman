@@ -55,21 +55,7 @@ export default function AboutPage() {
                 Discover how our Human Resource Management team supports the growth and success of Negros Oriental State University's dedicated faculty and staff.
               </p>
 
-              {/* Stats */}
-              <div className="flex flex-wrap gap-6">
-                <div className="text-center">
-                  <div className="text-2xl font-bold text-white md:text-3xl">500+</div>
-                  <div className="text-sm text-[#c7d7ff]">Employees Supported</div>
-                </div>
-                <div className="text-center">
-                  <div className="text-2xl font-bold text-white md:text-3xl">15+</div>
-                  <div className="text-sm text-[#c7d7ff]">Years of Service</div>
-                </div>
-                <div className="text-center">
-                  <div className="text-2xl font-bold text-white md:text-3xl">24/7</div>
-                  <div className="text-sm text-[#c7d7ff]">HR Support</div>
-                </div>
-              </div>
+            
             </div>
           </div>
         </div>

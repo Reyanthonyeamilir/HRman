@@ -101,22 +101,6 @@ export default function HomePage() {
                   Explore Vacancies
                 </Link>
               </div>
-
-              {/* Stats */}
-              <div className="mt-12 flex flex-wrap gap-8">
-                <div className="text-center">
-                  <div className="text-2xl font-bold text-white md:text-3xl">500+</div>
-                  <div className="text-sm text-[#c7d7ff]">Employees</div>
-                </div>
-                <div className="text-center">
-                  <div className="text-2xl font-bold text-white md:text-3xl">50+</div>
-                  <div className="text-sm text-[#c7d7ff]">Positions</div>
-                </div>
-                <div className="text-center">
-                  <div className="text-2xl font-bold text-white md:text-3xl">24/7</div>
-                  <div className="text-sm text-[#c7d7ff]">HR Support</div>
-                </div>
-              </div>
             </div>
           </div>
         </div>

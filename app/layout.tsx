@@ -132,47 +132,70 @@ export default function RootLayout({
         {/* HOME PAGE CONTENT */}
         {children}
 
-        {/* FOOTER */}
-        <footer className="bg-slate-900 text-slate-300">
-          <div className="mx-auto grid w-full max-w-6xl grid-cols-1 gap-6 px-4 py-12 sm:grid-cols-2 lg:grid-cols-4">
-            <div>
-              <div className="inline-flex items-center gap-2 font-extrabold text-white">
-                <Image src="/images/norsu.png" alt="NORSU Seal" width={34} height={34} />
-                <span>NORSU • HRM</span>
+        {/* FOOTER - Ultra compact and professional */}
+        <footer className="bg-slate-900 text-slate-400">
+          <div className="mx-auto w-full max-w-6xl px-4 py-6">
+            <div className="grid grid-cols-1 gap-6 text-xs md:grid-cols-4">
+              {/* Brand Section */}
+              <div className="space-y-2">
+                <div className="inline-flex items-center gap-1.5 font-bold text-white">
+                  <Image src="/images/norsu.png" alt="NORSU Seal" width={20} height={20} />
+                  <span className="text-xs">NORSU • HRM</span>
+                </div>
+                <p className="leading-tight text-slate-500">
+                  Capitol Area, Kagawasan Ave, Dumaguete City, Negros Oriental
+                </p>
+                <p className="text-slate-600">Mon–Fri, 8:00 AM – 5:00 PM</p>
               </div>
-              <p className="mt-2 text-sm text-slate-200">
-                Capitol Area, Kagawasan Ave, Dumaguete City, Negros Oriental, Philippines
+
+              {/* Quick Links */}
+              <div className="space-y-1.5">
+                <h4 className="font-semibold uppercase tracking-wider text-white text-[11px]">Quick Links</h4>
+                <ul className="space-y-1">
+                  <li><Link href="/vacancies" className="text-slate-500 hover:text-white transition-colors">Vacancies</Link></li>
+                  <li><Link href="/about" className="text-slate-500 hover:text-white transition-colors">About HR</Link></li>
+                  <li><Link href="/login" className="text-slate-500 hover:text-white transition-colors">Login</Link></li>
+                  <li><Link href="/signup" className="text-slate-500 hover:text-white transition-colors">Signup</Link></li>
+                </ul>
+              </div>
+
+              {/* Contact */}
+              <div className="space-y-1.5">
+                <h4 className="font-semibold uppercase tracking-wider text-white text-[11px]">Contact</h4>
+                <ul className="space-y-1">
+                  <li>
+                    <a href="mailto:hr@norsu.edu.ph" className="text-slate-500 hover:text-white transition-colors">hr@norsu.edu.ph</a>
+                  </li>
+                  <li className="text-slate-500">(035) 123-4567</li>
+                  <li>
+                    <a href="#" className="text-slate-500 hover:text-white transition-colors">Help Desk</a>
+                  </li>
+                </ul>
+              </div>
+
+              {/* Social */}
+              <div className="space-y-1.5">
+                <h4 className="font-semibold uppercase tracking-wider text-white text-[11px]">Follow</h4>
+                <p className="leading-tight text-slate-500">
+                  University updates and announcements.
+                </p>
+                <div className="flex gap-3 pt-0.5">
+                  <a href="#" className="text-slate-500 hover:text-white transition-colors" aria-label="Facebook">
+                    FB
+                  </a>
+                  <a href="#" className="text-slate-500 hover:text-white transition-colors" aria-label="Twitter">
+                    X
+                  </a>
+                </div>
+              </div>
+            </div>
+
+            {/* Copyright */}
+            <div className="mt-4 border-t border-slate-800 pt-3 text-center">
+              <p className="text-[11px] text-slate-600">
+                © {new Date().getFullYear()} Negros Oriental State University • Human Resource Management.
               </p>
-              <p className="mt-1 text-sm text-slate-400">Mon–Fri, 8:00 AM – 5:00 PM</p>
             </div>
-            <div>
-              <h4 className="mb-2 font-semibold text-white">Quick Links</h4>
-              <ul className="grid gap-2">
-                <li><Link href="/vacancies" className="text-slate-200 hover:underline">Vacancies</Link></li>
-                <li><Link href="/about" className="text-slate-200 hover:underline">About HR</Link></li>
-                <li><Link href="/login" className="text-slate-200 hover:underline">Login</Link></li>
-                <li><Link href="/signup" className="text-slate-200 hover:underline">Signup</Link></li>
-              </ul>
-            </div>
-            <div>
-              <h4 className="mb-2 font-semibold text-white">Contact</h4>
-              <ul className="grid gap-2 text-slate-200">
-                <li>Email: <a href="mailto:hr@norsu.edu.ph" className="hover:underline">hr@norsu.edu.ph</a></li>
-                <li>Phone: (035) 123-4567</li>
-                <li>Help Desk: <a href="#" className="hover:underline">Submit a ticket</a></li>
-              </ul>
-            </div>
-            <div>
-              <h4 className="mb-2 font-semibold text-white">Follow</h4>
-              <p className="text-sm text-slate-400">Stay connected with university updates.</p>
-              <div className="mt-2 flex gap-2">
-                <a href="#" aria-label="Facebook" title="Facebook" className="text-slate-200 hover:underline">Facebook</a>
-                <a href="#" aria-label="Twitter" title="Twitter" className="text-slate-200 hover:underline">Twitter/X</a>
-              </div>
-            </div>
-          </div>
-          <div className="mx-auto w-full max-w-6xl border-t border-white/10 px-4 py-4 text-center text-xs text-slate-400">
-            © {new Date().getFullYear()} Negros Oriental State University • Human Resource Management.
           </div>
         </footer>
       </body>
