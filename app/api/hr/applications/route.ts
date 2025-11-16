@@ -58,7 +58,7 @@ async function getHRApplications() {
 
     // Fetch applications with related data using your SupabaseHR utility
     console.log('Fetching applications with details...')
-    const { data: applications, error } = await supabaseHR.getApplicationsWithDetails()
+    const { applications, error } = await supabaseHR.getApplicationsWithDetails() // FIXED: removed 'data:'
 
     console.log('Applications fetch result:', { 
       count: applications?.length, 

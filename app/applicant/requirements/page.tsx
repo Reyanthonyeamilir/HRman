@@ -405,7 +405,7 @@ function RequirementsContent() {
                 <TableHeader>
                   <TableRow className="bg-gray-50">
                     <TableHead className="font-semibold">Job Title</TableHead>
-                    <TableHead className="font-semibold hidden sm:table-cell">Status</TableHead>
+                    <TableHead className="font-semibold hidden sm:table-cell">Job Status</TableHead>
                     <TableHead className="font-semibold hidden lg:table-cell">File</TableHead>
                     <TableHead className="font-semibold hidden xl:table-cell">Comments</TableHead>
                     <TableHead className="font-semibold">Submitted</TableHead>

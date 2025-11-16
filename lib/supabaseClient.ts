@@ -1,3 +1,4 @@
+// lib/supabaseClient.ts
 'use client'
 
 import { createClient } from '@supabase/supabase-js'
@@ -11,10 +12,10 @@ export const supabase = createClient(url, anon, {
     persistSession: true,
     autoRefreshToken: true,
     detectSessionInUrl: true,
-    flowType: 'pkce', // More secure flo
+    flowType: 'pkce',
     debug: false
   },
-global: {
+  global: {
     headers: {
       'X-Client-Info': 'nextjs-auth'
     }
@@ -83,6 +84,24 @@ export async function signIn({ email, password }: { email: string; password: str
     await new Promise(resolve => setTimeout(resolve, 1500))
     
     console.log('🔐 Sign in successful, user:', data.user?.email)
+    
+    // Check if user has a profile, create if not
+    if (data.user) {
+      const currentUser = await getCurrentUser()
+      if (currentUser && !currentUser.profile) {
+        console.log('🆕 Auto-creating profile for user...')
+        // Auto-assign role based on email
+        let role = 'applicant'
+        if (email.includes('admin') || email.includes('super')) {
+          role = 'super_admin'
+        } else if (email.includes('hr')) {
+          role = 'hr'
+        }
+        
+        await createOrUpdateProfile(data.user.id, email, role)
+      }
+    }
+    
     return { user: data.user, error: null }
   } catch (error: any) {
     console.error('Sign in error:', error)
@@ -99,24 +118,77 @@ export async function getCurrentSession() {
 
 // Helper function to get current user with profile
 export async function getCurrentUser() {
-  const { data: { user }, error } = await supabase.auth.getUser()
-  if (error) throw error
-  
-  if (!user) return null
+  try {
+    const { data: { user }, error } = await supabase.auth.getUser()
+    if (error) {
+      console.error('Auth getUser error:', error)
+      throw error
+    }
+    
+    if (!user) {
+      console.log('No authenticated user')
+      return null
+    }
 
-  // Get user profile
-  const { data: profile, error: profileError } = await supabase
-    .from('profiles')
-    .select('*')
-    .eq('id', user.id)
-    .single()
+    console.log('🔍 Fetching profile for user:', user.id)
 
-  if (profileError) {
-    console.error('Profile fetch error:', profileError)
-    return { ...user, profile: null }
+    // Get user profile with better error handling
+    const { data: profile, error: profileError } = await supabase
+      .from('profiles')
+      .select('*')
+      .eq('id', user.id)
+      .single()
+
+    // Handle case where profile doesn't exist
+    if (profileError) {
+      if (profileError.code === 'PGRST116') {
+        // No profile found - this is expected for new users
+        console.log('📝 No profile found for user, will create one')
+        return { ...user, profile: null }
+      } else {
+        console.error('❌ Profile fetch error:', profileError)
+        // For other errors, still return user but without profile
+        return { ...user, profile: null }
+      }
+    }
+
+    console.log('✅ Profile found:', profile)
+    return { ...user, profile }
+  } catch (error) {
+    console.error('❌ Error in getCurrentUser:', error)
+    return null
   }
+}
 
-  return { ...user, profile }
+// Helper function to create or update user profile
+export async function createOrUpdateProfile(userId: string, email: string, role: string = 'applicant') {
+  try {
+    console.log('🆕 Creating/updating profile for:', email, 'with role:', role)
+    
+    const { data: profile, error } = await supabase
+      .from('profiles')
+      .upsert({
+        id: userId,
+        email: email,
+        role: role,
+        updated_at: new Date().toISOString()
+      }, {
+        onConflict: 'id'
+      })
+      .select()
+      .single()
+
+    if (error) {
+      console.error('❌ Profile upsert error:', error)
+      throw error
+    }
+
+    console.log('✅ Profile created/updated:', profile)
+    return profile
+  } catch (error) {
+    console.error('❌ Error in createOrUpdateProfile:', error)
+    throw error
+  }
 }
 
 /* ---------------- Applicant APIs ---------------- */

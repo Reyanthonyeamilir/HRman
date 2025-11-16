@@ -2,12 +2,11 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getAuthenticatedUserWithRole } from '@/lib/supabaseServer'
 import { supabaseAdmin } from '@/lib/supabaseAdminClient'
 
-// GET - List all users (only for super admin)
+// GET - List all users OR get dashboard stats (only for super admin)
 export async function GET(request: NextRequest) {
   try {
     console.log('🎯 GET /api/admin - ENTERING FUNCTION')
     console.log('🔐 Request URL:', request.url)
-    console.log('🔐 Request method:', request.method)
     
     // Check if user is authenticated and is super admin
     console.log('🔐 Calling getAuthenticatedUserWithRole...')
@@ -26,26 +25,57 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
     }
 
-    console.log('✅ User is super_admin, proceeding to fetch users...')
+    console.log('✅ User is super_admin, proceeding...')
     
-    // Fetch all users
-    console.log('🔐 Fetching users from database...')
-    const { data: users, error } = await supabaseAdmin
-      .from('profiles')
-      .select('*')
-      .order('created_at', { ascending: false })
+    // Check if this is a stats request
+    const url = new URL(request.url)
+    const statsParam = url.searchParams.get('stats')
+    
+    if (statsParam === 'true') {
+      console.log('📊 Fetching dashboard statistics...')
+      
+      // Fetch dashboard statistics
+      const [usersResult, applicationsResult, hrStaffResult, pendingResult] = await Promise.all([
+        supabaseAdmin.from('profiles').select('*', { count: 'exact', head: true }),
+        supabaseAdmin.from('applications').select('*', { count: 'exact', head: true }),
+        supabaseAdmin.from('profiles').select('*', { count: 'exact', head: true }).eq('role', 'hr'),
+        supabaseAdmin.from('applications').select('*', { count: 'exact', head: true }).eq('status', 'pending')
+      ])
 
-    console.log('🔐 Profiles fetch result:', { data: users?.length, error })
+      console.log('📊 Stats fetched successfully:', {
+        totalUsers: usersResult.count,
+        totalApplications: applicationsResult.count,
+        totalHRStaff: hrStaffResult.count,
+        pendingReviews: pendingResult.count
+      })
 
-    if (error) {
-      console.error('❌ Database error:', error)
-      throw error
+      return NextResponse.json({
+        totalUsers: usersResult.count || 0,
+        totalApplications: applicationsResult.count || 0,
+        totalHRStaff: hrStaffResult.count || 0,
+        pendingReviews: pendingResult.count || 0
+      })
+    } else {
+      // Original functionality - fetch all users
+      console.log('🔐 Fetching users from database...')
+      const { data: users, error } = await supabaseAdmin
+        .from('profiles')
+        .select('*')
+        .order('created_at', { ascending: false })
+
+      console.log('🔐 Profiles fetch result:', { data: users?.length, error })
+
+      if (error) {
+        console.error('❌ Database error:', error)
+        throw error
+      }
+
+      console.log('✅ Successfully returning users')
+      return NextResponse.json({ users })
     }
 
-    console.log('✅ Successfully returning users')
-    return NextResponse.json({ users })
   } catch (error: any) {
-    console.error('❌ Get users error:', error)
+    console.error('❌ Get users/stats error:', error)
     return NextResponse.json({ error: error.message }, { status: 500 })
   }
 }

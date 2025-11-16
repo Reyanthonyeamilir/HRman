@@ -3,11 +3,11 @@
 import * as React from 'react'
 import Link from 'next/link'
 import Image from 'next/image'
-import { usePathname } from 'next/navigation'
-import { Menu, LayoutDashboard, Briefcase, ClipboardList, Compass, X, Mail, User } from 'lucide-react'
+import { usePathname, useRouter } from 'next/navigation'
+import { Menu, LayoutDashboard, Briefcase, ClipboardList, Compass, X, Mail, User, LogOut } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
-import { getCurrentUser } from '@/lib/supabaseClient'
+import { getCurrentUser, signOut } from '@/lib/supabaseClient'
 
 const links = [
   { label: 'Dashboard', href: '/applicant', icon: LayoutDashboard },
@@ -101,6 +101,52 @@ function NavList({ onNavigate }: { onNavigate?: () => void }) {
   )
 }
 
+function LogoutButton({ onNavigate }: { onNavigate?: () => void }) {
+  const router = useRouter()
+  const [isLoading, setIsLoading] = React.useState(false)
+
+  const handleLogout = async () => {
+    try {
+      setIsLoading(true)
+      await signOut()
+      
+      // Clear localStorage
+      localStorage.removeItem('applicant_name')
+      localStorage.removeItem('applicant_email')
+      
+      // Close mobile menu if open
+      if (onNavigate) {
+        onNavigate()
+      }
+      
+      // Redirect to login page
+      router.push('/login')
+    } catch (error) {
+      console.error('Error during logout:', error)
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
+  return (
+    <div className="px-3 mt-4">
+      <Button
+        variant="outline"
+        onClick={handleLogout}
+        disabled={isLoading}
+        className={cn(
+          'w-full flex items-center gap-3 rounded-xl px-3 py-2 text-sm transition-all duration-200',
+          'border-red-600 text-red-400 hover:bg-red-600 hover:text-white',
+          'disabled:opacity-50 disabled:cursor-not-allowed'
+        )}
+      >
+        <LogOut className="size-4" />
+        <span>{isLoading ? 'Logging out...' : 'Logout'}</span>
+      </Button>
+    </div>
+  )
+}
+
 function ProfileSection({ name, email }: { name: string; email: string }) {
   return (
     <div className="border-t border-blue-800 pt-4 mt-4">
@@ -188,6 +234,9 @@ export function ApplicantMobileTopbar() {
           {/* Profile Section */}
           <ProfileSection name={name} email={email} />
 
+          {/* Logout Button */}
+          <LogoutButton onNavigate={() => setMobileMenuOpen(false)} />
+
           {/* Close button */}
           <div className="absolute top-4 right-4">
             <Button
@@ -227,6 +276,9 @@ export default function ApplicantSidebar() {
 
       {/* Profile Section */}
       <ProfileSection name={name} email={email} />
+
+      {/* Logout Button */}
+      <LogoutButton />
     </aside>
   )
 }

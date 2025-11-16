@@ -36,6 +36,7 @@ export default function HRJobsPage() {
   const [searchTerm, setSearchTerm] = React.useState("")
   const [mobileActionMenu, setMobileActionMenu] = React.useState<string | null>(null)
   const [toast, setToast] = React.useState<{message: string, type: 'success' | 'error'} | null>(null)
+  const [deleteConfirm, setDeleteConfirm] = React.useState<{open: boolean, job: JobPosting | null}>({open: false, job: null})
 
   const [formData, setFormData] = React.useState({
     job_title: '',
@@ -150,6 +151,13 @@ export default function HRJobsPage() {
     setModalOpen(false)
     setFile(null)
     setPreviewUrl(null)
+    setFormData({
+      job_title: '',
+      department: '',
+      location: '',
+      job_description: '',
+      status: 'active'
+    })
   }
 
   // CREATE - Add new job posting
@@ -252,12 +260,12 @@ export default function HRJobsPage() {
     }
   }
 
-  // DELETE - Remove job posting (CORRECTED VERSION)
-  const handleDelete = async (jobId: string, jobTitle: string) => {
+  // DELETE - Remove job posting from database
+  const handleDelete = async (jobId: string) => {
     try {
       console.log('Starting delete process for job:', jobId);
       
-      // Get application count first
+      // First, check if there are any applications for this job
       const { data: applications, error: appsError, count } = await supabase
         .from('applications')
         .select('*', { count: 'exact', head: true })
@@ -271,19 +279,7 @@ export default function HRJobsPage() {
       const appCount = count || 0;
       console.log(`Found ${appCount} applications for job ${jobId}`);
 
-      const message = appCount > 0 
-        ? `This job has ${appCount} application(s). Deleting will remove all associated applications. This action cannot be undone. Continue?`
-        : `Are you sure you want to delete "${jobTitle}"? This action cannot be undone.`;
-
-      if (!confirm(message)) {
-        console.log('Delete cancelled by user');
-        return;
-      }
-
-      // Get job to check for image
-      const job = jobs.find(j => j.id === jobId);
-      
-      // Delete applications first if they exist
+      // If there are applications, delete them first due to foreign key constraint
       if (appCount > 0) {
         console.log('Deleting applications...');
         const { error: deleteAppsError } = await supabase
@@ -295,9 +291,12 @@ export default function HRJobsPage() {
           console.error('Error deleting applications:', deleteAppsError);
           throw deleteAppsError;
         }
-        console.log(`Successfully deleted applications`);
+        console.log(`Successfully deleted ${appCount} applications`);
       }
 
+      // Get job to check for image
+      const job = jobs.find(j => j.id === jobId);
+      
       // Delete image from storage if exists
       if (job?.image_path) {
         try {
@@ -313,7 +312,7 @@ export default function HRJobsPage() {
             .remove([filePath]);
 
           if (storageError) {
-            console.warn('Could not delete image from storage (might already be deleted):', storageError);
+            console.warn('Could not delete image from storage:', storageError);
             // Continue with job deletion even if image deletion fails
           } else {
             console.log('Image deleted successfully from storage');
@@ -324,8 +323,8 @@ export default function HRJobsPage() {
         }
       }
 
-      // Delete the job posting
-      console.log('Deleting job posting...');
+      // Delete the job posting from database
+      console.log('Deleting job posting from database...');
       const { error } = await supabase
         .from('job_postings')
         .delete()
@@ -336,8 +335,11 @@ export default function HRJobsPage() {
         throw error;
       }
 
-      console.log('Job posting deleted successfully');
+      console.log('Job posting deleted successfully from database');
+      
+      // Refresh the jobs list
       await fetchJobs();
+      setDeleteConfirm({open: false, job: null});
       showToast('Job posting deleted successfully!', 'success');
     } catch (error: any) {
       console.error('Error in delete process:', error);
@@ -351,6 +353,12 @@ export default function HRJobsPage() {
         showToast('Error deleting job: ' + error.message, 'error');
       }
     }
+  }
+
+  // Open delete confirmation
+  const openDeleteConfirm = (job: JobPosting) => {
+    setDeleteConfirm({open: true, job});
+    setMobileActionMenu(null);
   }
 
   // TOGGLE STATUS - Activate/Close job
@@ -455,6 +463,45 @@ export default function HRJobsPage() {
           toast.type === 'success' ? 'bg-green-500 text-white' : 'bg-red-500 text-white'
         }`}>
           {toast.message}
+        </div>
+      )}
+
+      {/* Delete Confirmation Modal */}
+      {deleteConfirm.open && deleteConfirm.job && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm">
+          <div className="w-full max-w-md rounded-xl bg-gradient-to-b from-[#0f2a6a] to-[#0b1b3a] border border-red-500/50 shadow-xl">
+            <header className="flex items-center justify-between border-b border-white/20 px-6 py-4">
+              <h3 className="text-lg font-semibold text-white">Confirm Delete</h3>
+              <button 
+                onClick={() => setDeleteConfirm({open: false, job: null})}
+                className="rounded p-2 hover:bg-white/10 transition-colors duration-200"
+              >
+                <X className="h-5 w-5 text-white" />
+              </button>
+            </header>
+
+            <div className="px-6 py-4">
+              <p className="text-white mb-4">
+                Are you sure you want to delete the job posting <strong>"{deleteConfirm.job.job_title}"</strong>? 
+                This action cannot be undone and will also delete all associated applications.
+              </p>
+            </div>
+
+            <div className="flex gap-3 px-6 py-4 border-t border-white/20">
+              <button
+                onClick={() => setDeleteConfirm({open: false, job: null})}
+                className="flex-1 rounded-lg border border-white/30 bg-transparent px-4 py-2.5 text-white hover:bg-white/10 transition-colors duration-200 text-sm font-medium"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => handleDelete(deleteConfirm.job!.id)}
+                className="flex-1 rounded-lg bg-red-500 px-4 py-2.5 font-medium text-white hover:bg-red-600 transition-colors duration-200 text-sm shadow-lg"
+              >
+                Delete Job
+              </button>
+            </div>
+          </div>
         </div>
       )}
 
@@ -572,7 +619,7 @@ export default function HRJobsPage() {
                           job={job} 
                           onEdit={openEdit}
                           onToggleStatus={handleToggleStatus}
-                          onDelete={handleDelete}
+                          onDelete={openDeleteConfirm}
                           formatDate={formatDate}
                         />
                       ))
@@ -601,7 +648,7 @@ export default function HRJobsPage() {
                       job={job}
                       onEdit={openEdit}
                       onToggleStatus={handleToggleStatus}
-                      onDelete={handleDelete}
+                      onDelete={openDeleteConfirm}
                       formatDate={formatDate}
                       isMenuOpen={mobileActionMenu === job.id}
                       onMenuToggle={() => setMobileActionMenu(mobileActionMenu === job.id ? null : job.id)}
@@ -644,7 +691,7 @@ function DesktopJobRow({
   job: JobPosting
   onEdit: (id: string) => void
   onToggleStatus: (job: JobPosting) => void
-  onDelete: (id: string, title: string) => void
+  onDelete: (job: JobPosting) => void
   formatDate: (date: string) => string
 }) {
   return (
@@ -710,7 +757,7 @@ function DesktopJobRow({
             {job.status === 'active' ? 'Close' : 'Activate'}
           </button>
           <button
-            onClick={() => onDelete(job.id, job.job_title)}
+            onClick={() => onDelete(job)}
             className="inline-flex items-center gap-1 rounded bg-red-500/20 px-3 py-1.5 text-xs text-red-300 hover:bg-red-500/30 transition-colors duration-200"
           >
             <Trash2 className="h-3 w-3" />
@@ -735,7 +782,7 @@ function MobileJobCard({
   job: JobPosting
   onEdit: (id: string) => void
   onToggleStatus: (job: JobPosting) => void
-  onDelete: (id: string, title: string) => void
+  onDelete: (job: JobPosting) => void
   formatDate: (date: string) => string
   isMenuOpen: boolean
   onMenuToggle: () => void
@@ -807,7 +854,7 @@ function MobileJobCard({
                 {job.status === 'active' ? 'Close' : 'Activate'}
               </button>
               <button
-                onClick={() => onDelete(job.id, job.job_title)}
+                onClick={() => onDelete(job)}
                 className="w-full text-left px-3 py-2 text-sm text-red-300 hover:bg-red-500/20 flex items-center gap-2"
               >
                 <Trash2 className="h-3 w-3" />

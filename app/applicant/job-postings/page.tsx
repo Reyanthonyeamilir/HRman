@@ -2,7 +2,6 @@
 
 import * as React from 'react'
 import { Input } from '@/components/ui/input'
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -25,6 +24,7 @@ type JobType = 'Faculty' | 'Staff' | 'Professional'
 export default function JobPostingsPage() {
   const [q, setQ] = React.useState('')
   const [selectedJob, setSelectedJob] = React.useState<string>('all')
+  const [sortBy, setSortBy] = React.useState<string>('recent')
   const [jobs, setJobs] = React.useState<Job[]>([])
   const [loading, setLoading] = React.useState(true)
   const [error, setError] = React.useState<string | null>(null)
@@ -213,32 +213,30 @@ export default function JobPostingsPage() {
             
             <div className="space-y-2">
               <label className="text-sm font-medium text-gray-700">Filter by Job Title</label>
-              <Select value={selectedJob} onValueChange={setSelectedJob}>
-                <SelectTrigger>
-                  <SelectValue placeholder="All Job Titles" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All Job Titles</SelectItem>
-                  {jobTitles.filter(title => title !== 'all').map((title) => (
-                    <SelectItem key={title} value={title}>
-                      {title}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <select 
+                value={selectedJob} 
+                onChange={(e) => setSelectedJob(e.target.value)}
+                className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                <option value="all">All Job Titles</option>
+                {jobTitles.filter(title => title !== 'all').map((title) => (
+                  <option key={title} value={title}>
+                    {title}
+                  </option>
+                ))}
+              </select>
             </div>
 
             <div className="space-y-2">
               <label className="text-sm font-medium text-gray-700">Sort By</label>
-              <Select defaultValue="recent">
-                <SelectTrigger>
-                  <SelectValue placeholder="Most Recent" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="recent">Most Recent</SelectItem>
-                  <SelectItem value="older">Older First</SelectItem>
-                </SelectContent>
-              </Select>
+              <select 
+                value={sortBy}
+                onChange={(e) => setSortBy(e.target.value)}
+                className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                <option value="recent">Most Recent</option>
+                <option value="older">Older First</option>
+              </select>
             </div>
           </div>
         </CardContent>
