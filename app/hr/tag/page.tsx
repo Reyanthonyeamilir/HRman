@@ -190,23 +190,25 @@ export default function HRTagPage() {
 
   const getStatusColor = (status: string) => {
     switch (status) {
-      case 'active': return 'bg-green-100 text-green-800 border-green-200'
-      case 'closed': return 'bg-gray-100 text-gray-800 border-gray-200'
-      case 'draft': return 'bg-yellow-100 text-yellow-800 border-yellow-200'
-      default: return 'bg-blue-100 text-blue-800 border-blue-200'
+      case 'active': return 'bg-emerald-500/20 text-emerald-700 border-emerald-500/30'
+      case 'closed': return 'bg-slate-500/20 text-slate-700 border-slate-500/30'
+      case 'draft': return 'bg-amber-500/20 text-amber-700 border-amber-500/30'
+      default: return 'bg-blue-500/20 text-blue-700 border-blue-500/30'
     }
   }
 
   const getDepartmentColor = (department: string) => {
     const departmentColors: { [key: string]: string } = {
-      'engineering': 'bg-blue-50 text-blue-700 border-blue-200',
-      'design': 'bg-purple-50 text-purple-700 border-purple-200',
-      'marketing': 'bg-green-50 text-green-700 border-green-200',
-      'sales': 'bg-orange-50 text-orange-700 border-orange-200',
-      'hr': 'bg-pink-50 text-pink-700 border-pink-200',
-      'finance': 'bg-indigo-50 text-indigo-700 border-indigo-200'
+      'engineering': 'bg-blue-500/20 text-blue-700 border-blue-500/30',
+      'design': 'bg-purple-500/20 text-purple-700 border-purple-500/30',
+      'marketing': 'bg-emerald-500/20 text-emerald-700 border-emerald-500/30',
+      'sales': 'bg-orange-500/20 text-orange-700 border-orange-500/30',
+      'hr': 'bg-pink-500/20 text-pink-700 border-pink-500/30',
+      'finance': 'bg-indigo-500/20 text-indigo-700 border-indigo-500/30',
+      'it': 'bg-cyan-500/20 text-cyan-700 border-cyan-500/30',
+      'administration': 'bg-violet-500/20 text-violet-700 border-violet-500/30'
     }
-    return departmentColors[department.toLowerCase()] || 'bg-gray-50 text-gray-700 border-gray-200'
+    return departmentColors[department.toLowerCase()] || 'bg-slate-500/20 text-slate-700 border-slate-500/30'
   }
 
   const filteredApplications = applications.filter(app => 
@@ -220,7 +222,7 @@ export default function HRTagPage() {
         <div className="flex-1 flex items-center justify-center">
           <div className="text-center">
             <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto"></div>
-            <p className="text-lg mt-4">Loading applications...</p>
+            <p className="text-lg mt-4 text-gray-600">Loading applications...</p>
           </div>
         </div>
       </div>
@@ -247,7 +249,7 @@ export default function HRTagPage() {
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
               </svg>
             </button>
-            <h1 className="text-lg font-semibold">Application Management</h1>
+            <h1 className="text-lg font-semibold text-gray-900">Application Management</h1>
             <div className="w-6"></div>
           </div>
         </div>
@@ -284,7 +286,7 @@ export default function HRTagPage() {
           {/* Stats and Filters */}
           <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4 lg:p-6 mb-6">
             <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between">
-              <div className="flex items-center space-x-4 mb-4 lg:mb-0">
+              <div className="flex items-center space-x-6 mb-4 lg:mb-0">
                 <div className="text-center">
                   <div className="text-2xl font-bold text-gray-900">{applications.length}</div>
                   <div className="text-sm text-gray-500">Total Applications</div>
@@ -299,14 +301,14 @@ export default function HRTagPage() {
               </div>
               
               <div className="flex flex-col sm:flex-row gap-3">
-                <div className="flex space-x-2">
+                <div className="flex flex-wrap gap-2">
                   {['all', 'active', 'closed', 'draft'].map((status) => (
                     <button
                       key={status}
                       onClick={() => setSelectedStatus(status)}
-                      className={`px-3 py-1 rounded-full text-sm font-medium transition-colors ${
+                      className={`px-3 py-1 rounded-full text-sm font-medium transition-all duration-200 ${
                         selectedStatus === status
-                          ? 'bg-blue-600 text-white'
+                          ? 'bg-blue-600 text-white shadow-lg shadow-blue-500/25'
                           : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
                       }`}
                     >
@@ -360,12 +362,12 @@ export default function HRTagPage() {
                 {filteredApplications.map((application) => (
                   <div 
                     key={application.id} 
-                    className="bg-white rounded-lg border border-gray-200 shadow-sm hover:shadow-md transition-shadow duration-200"
+                    className="bg-gradient-to-br from-blue-50 to-indigo-50 rounded-xl border border-blue-200 shadow-sm hover:shadow-lg hover:border-blue-300 transition-all duration-300 hover:-translate-y-1"
                   >
                     {/* Card Header */}
-                    <div className="p-4 lg:p-6 border-b border-gray-200">
+                    <div className="p-4 lg:p-6 border-b border-blue-200">
                       <div className="flex justify-between items-start mb-3">
-                        <div>
+                        <div className="flex-1 min-w-0">
                           <h3 className="font-semibold text-gray-900 text-lg line-clamp-1">
                             {application.job_posting.job_title}
                           </h3>
@@ -384,33 +386,33 @@ export default function HRTagPage() {
                     {/* Card Body */}
                     <div className="p-4 lg:p-6">
                       <div className="space-y-3">
-                        <div className="flex items-center text-sm text-gray-600">
-                          <svg className="h-4 w-4 mr-2 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <div className="flex items-center text-sm text-gray-700">
+                          <svg className="h-4 w-4 mr-2 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
                           </svg>
-                          <span className="font-medium text-gray-900">{application.applicant.email}</span>
+                          <span className="font-medium text-gray-900 truncate">{application.applicant.email}</span>
                         </div>
                         
                         {application.applicant.phone && (
-                          <div className="flex items-center text-sm text-gray-600">
-                            <svg className="h-4 w-4 mr-2 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <div className="flex items-center text-sm text-gray-700">
+                            <svg className="h-4 w-4 mr-2 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" />
                             </svg>
                             {application.applicant.phone}
                           </div>
                         )}
                         
-                        <div className="flex items-center text-sm text-gray-600">
-                          <svg className="h-4 w-4 mr-2 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <div className="flex items-center text-sm text-gray-700">
+                          <svg className="h-4 w-4 mr-2 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
                           </svg>
                           Applied on {formatDate(application.submitted_at)}
                         </div>
 
                         {application.comment && (
-                          <div className="text-sm text-gray-600">
+                          <div className="text-sm">
                             <p className="font-medium text-gray-700 mb-1">Comment:</p>
-                            <p className="text-gray-600 bg-gray-50 rounded px-3 py-2 border border-gray-200">
+                            <p className="text-gray-600 bg-blue-50 rounded-lg px-3 py-2 border border-blue-200">
                               {application.comment}
                             </p>
                           </div>
@@ -419,7 +421,7 @@ export default function HRTagPage() {
                     </div>
 
                     {/* Card Footer */}
-                    <div className="p-4 lg:p-6 border-t border-gray-200 bg-gray-50 rounded-b-lg">
+                    <div className="p-4 lg:p-6 border-t border-blue-200 bg-blue-100/50 rounded-b-xl">
                       <div className="flex justify-between items-center">
                         <Button
                           onClick={() => downloadResume(
@@ -427,9 +429,8 @@ export default function HRTagPage() {
                             application.applicant.email,
                             application.job_posting.job_title
                           )}
-                          variant="outline"
+                          className="flex items-center bg-blue-600 hover:bg-blue-700 text-white border-0"
                           size="sm"
-                          className="flex items-center"
                         >
                           <svg className="h-4 w-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
