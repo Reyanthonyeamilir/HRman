@@ -50,7 +50,7 @@ export default function RootLayout({
                 <span>NORSU • HRM</span>
               </Link>
 
-              {/* Desktop Navigation - Beside logo */}
+              {/* DESKTOP NAVIGATION - Hidden on mobile */}
               <nav className="hidden md:flex md:items-center">
                 <ul className="flex items-center gap-2">
                   <li>
@@ -66,7 +66,7 @@ export default function RootLayout({
               </nav>
             </div>
 
-            {/* Right side - Desktop Auth Links */}
+            {/* DESKTOP AUTH LINKS - Hidden on mobile */}
             <div className="hidden md:flex md:items-center md:gap-4">
               <Link href="/login" className={`${linkBase} ${isActive("/login")}`}>Login</Link>
               <Link
@@ -77,7 +77,7 @@ export default function RootLayout({
               </Link>
             </div>
 
-            {/* Mobile Menu Button - Only visible on mobile */}
+            {/* MOBILE MENU BUTTON - Only visible on mobile */}
             <button
               className="inline-grid place-items-center rounded-[10px] p-1.5 md:hidden focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgba(47,103,255,0.25)]"
               aria-label="Toggle navigation"
@@ -85,13 +85,21 @@ export default function RootLayout({
               aria-expanded={open}
               onClick={() => setOpen(v => !v)}
             >
-              <svg width="26" height="26" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-                <path d="M4 7h16M4 12h16M4 17h16" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
-              </svg>
+              {open ? (
+                // Close icon (X) when menu is open - MOBILE
+                <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+                  <path d="M18 6L6 18M6 6l12 12" strokeLinecap="round" strokeLinejoin="round" />
+                </svg>
+              ) : (
+                // Hamburger icon when menu is closed - MOBILE
+                <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+                  <path d="M4 7h16M4 12h16M4 17h16" strokeLinecap="round" strokeLinejoin="round" />
+                </svg>
+              )}
             </button>
           </div>
 
-          {/* Mobile Navigation */}
+          {/* MOBILE NAVIGATION - Only visible on mobile */}
           <nav
             id="siteNav"
             aria-label="Primary Navigation"
@@ -132,7 +140,7 @@ export default function RootLayout({
         {/* HOME PAGE CONTENT */}
         {children}
 
-        {/* FOOTER - Ultra compact and professional */}
+        {/* FOOTER - Visible on both desktop and mobile */}
         <footer className="bg-slate-900 text-slate-400">
           <div className="mx-auto w-full max-w-6xl px-4 py-6">
             <div className="grid grid-cols-1 gap-6 text-xs md:grid-cols-4">

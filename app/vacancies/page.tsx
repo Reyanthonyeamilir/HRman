@@ -4,8 +4,9 @@ import * as React from "react"
 import Image from "next/image"
 import Link from "next/link"
 import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
 import { supabase } from '@/lib/supabaseClient'
-import { Building2, MapPin, Calendar, Clock } from "lucide-react"
+import { Building2, MapPin, Calendar, Clock, Search } from "lucide-react"
 
 interface JobPosting {
   id: string
@@ -23,6 +24,7 @@ export default function VacanciesPage() {
   const [jobs, setJobs] = React.useState<JobPosting[]>([])
   const [loading, setLoading] = React.useState(true)
   const [error, setError] = React.useState<string | null>(null)
+  const [searchTerm, setSearchTerm] = React.useState("")
 
   const fetchJobs = async () => {
     try {
@@ -85,6 +87,14 @@ export default function VacanciesPage() {
       default: return "bg-gray-500/20 text-gray-200 border border-gray-500/30"
     }
   }
+
+  // Filter jobs based on search term
+  const filteredJobs = jobs.filter(job =>
+    job.job_title.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    job.department?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    job.location?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    job.job_description?.toLowerCase().includes(searchTerm.toLowerCase())
+  )
 
   return (
     <>
@@ -166,7 +176,7 @@ export default function VacanciesPage() {
       </div>
 
       {/* MAIN CONTENT */}
-      <section className="relative bg-[#0b1b3b] py-16 md:py-20">
+      <section className="relative bg-[#0b1b3b] py-12 md:py-16">
         {/* Subtle background pattern */}
         <div className="absolute inset-0 opacity-[0.03]">
           <div className="absolute inset-0 bg-gradient-to-br from-[#2563eb] to-[#1e3a8a]"></div>
@@ -175,67 +185,106 @@ export default function VacanciesPage() {
         <div className="relative z-10">
           <div className="mx-auto w-full max-w-6xl px-4">
             {/* Section Header */}
-            <div className="mb-12 text-center md:mb-16">
-              <h2 className="mb-4 text-3xl font-bold text-white md:text-4xl">
+            <div className="mb-8 text-center">
+              <h2 className="mb-3 text-2xl font-bold text-white md:text-3xl">
                 Current Open Positions
               </h2>
-              <p className="mx-auto max-w-2xl text-lg text-[#c7d7ff]">
+              <p className="mx-auto max-w-2xl text-sm text-[#c7d7ff]">
                 Explore our latest career opportunities and find the perfect role to match your skills and aspirations.
               </p>
             </div>
 
+            {/* Search Bar */}
+            <div className="mx-auto mb-8 max-w-md">
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[#94a3b8]" />
+                <Input
+                  type="text"
+                  placeholder="Search jobs by title, department, or location..."
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  className="w-full rounded-xl border-white/20 bg-white/5 pl-10 pr-4 text-white placeholder:text-[#94a3b8] focus:border-[#2563eb] focus:ring-[#2563eb]"
+                />
+              </div>
+            </div>
+
+            {/* Results Count */}
+            {!loading && !error && (
+              <div className="mb-6 text-center">
+                <p className="text-sm text-[#94a3b8]">
+                  Showing {filteredJobs.length} of {jobs.length} positions
+                  {searchTerm && ` for "${searchTerm}"`}
+                </p>
+              </div>
+            )}
+
             {/* Content Section */}
             {loading ? (
-              <div className="flex justify-center py-20">
+              <div className="flex justify-center py-12">
                 <div className="text-center">
-                  <div className="mx-auto mb-4 h-16 w-16 animate-spin rounded-full border-4 border-[#2563eb]/30 border-t-[#2563eb]"></div>
-                  <p className="font-medium text-[#c7d7ff]">Loading opportunities...</p>
+                  <div className="mx-auto mb-3 h-8 w-8 animate-spin rounded-full border-4 border-[#2563eb]/30 border-t-[#2563eb]"></div>
+                  <p className="text-sm text-[#c7d7ff]">Loading opportunities...</p>
                 </div>
               </div>
             ) : error ? (
-              <div className="text-center py-12">
-                <div className="mx-auto max-w-md rounded-2xl border border-red-500/20 bg-red-500/10 p-8 backdrop-blur-md">
-                  <p className="mb-4 text-red-200">{error}</p>
+              <div className="text-center py-8">
+                <div className="mx-auto max-w-md rounded-xl border border-red-500/20 bg-red-500/10 p-6 backdrop-blur-md">
+                  <p className="mb-3 text-sm text-red-200">{error}</p>
                   <Button 
                     onClick={fetchJobs} 
-                    className="rounded-full bg-[#2563eb] px-6 text-white shadow-lg transition-all duration-200 hover:bg-[#1d4ed8]"
+                    className="rounded-full bg-[#2563eb] px-4 py-2 text-sm text-white hover:bg-[#1d4ed8]"
                   >
                     Try Again
                   </Button>
                 </div>
               </div>
-            ) : jobs.length === 0 ? (
-              <div className="text-center py-16">
-                <div className="mx-auto max-w-md rounded-2xl border border-white/10 bg-white/5 p-12 shadow-2xl backdrop-blur-md">
-                  <div className="mb-4 inline-flex rounded-2xl bg-white/10 p-4">
-                    <Building2 className="h-12 w-12 text-[#c7d7ff]" />
+            ) : filteredJobs.length === 0 ? (
+              <div className="text-center py-12">
+                <div className="mx-auto max-w-md rounded-xl border border-white/10 bg-white/5 p-8 backdrop-blur-md">
+                  <div className="mb-3 inline-flex rounded-xl bg-white/10 p-3">
+                    <Building2 className="h-8 w-8 text-[#c7d7ff]" />
                   </div>
-                  <h3 className="mb-3 text-xl font-semibold text-white">No Current Vacancies</h3>
-                  <p className="mb-6 text-[#c7d7ff]">We're always looking for talented individuals. Please check back later for new opportunities.</p>
+                  <h3 className="mb-2 text-lg font-semibold text-white">
+                    {searchTerm ? "No matching positions found" : "No Current Vacancies"}
+                  </h3>
+                  <p className="mb-4 text-sm text-[#c7d7ff]">
+                    {searchTerm 
+                      ? "Try adjusting your search terms or browse all available positions."
+                      : "We're always looking for talented individuals. Please check back later for new opportunities."
+                    }
+                  </p>
+                  {searchTerm && (
+                    <Button 
+                      onClick={() => setSearchTerm("")}
+                      className="mr-2 rounded-full border border-white/20 bg-white/10 px-4 py-2 text-sm text-white hover:bg-white/20"
+                    >
+                      Clear Search
+                    </Button>
+                  )}
                   <Button 
                     onClick={fetchJobs}
-                    className="rounded-full border border-white/20 bg-white/10 px-6 text-white transition-all duration-200 hover:bg-white/20"
+                    className="rounded-full border border-white/20 bg-white/10 px-4 py-2 text-sm text-white hover:bg-white/20"
                   >
                     Refresh
                   </Button>
                 </div>
               </div>
             ) : (
-              <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3">
-                {jobs.map((job) => (
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                {filteredJobs.map((job) => (
                   <article
                     key={job.id}
-                    className="group overflow-hidden rounded-2xl border border-white/10 bg-white/5 backdrop-blur-md transition-all duration-500 hover:-translate-y-2 hover:border-white/20 hover:bg-white/10 hover:shadow-2xl"
+                    className="group overflow-hidden rounded-xl border border-white/10 bg-white/5 backdrop-blur-md transition-all duration-300 hover:-translate-y-1 hover:border-white/20 hover:bg-white/10 hover:shadow-xl"
                   >
                     {/* Image Section */}
-                    <div className="relative h-48 overflow-hidden bg-gradient-to-br from-[#0b1b3b] via-[#1e3a8a] to-[#2563eb]">
+                    <div className="relative h-32 overflow-hidden bg-gradient-to-br from-[#0b1b3b] via-[#1e3a8a] to-[#2563eb]">
                       {job.image_path ? (
                         <div className="relative h-full w-full">
                           <Image
                             src={job.image_path}
                             alt={job.job_title}
                             fill
-                            className="object-cover transition-transform duration-700 group-hover:scale-105"
+                            className="object-cover transition-transform duration-500 group-hover:scale-105"
                             sizes="(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 33vw"
                             onError={(e) => {
                               e.currentTarget.style.display = 'none'
@@ -253,21 +302,21 @@ export default function VacanciesPage() {
                             style={{ display: 'none' }}
                           >
                             <div className="text-center">
-                              <Building2 className="mx-auto mb-3 h-12 w-12 text-[#2563eb]" />
-                              <p className="text-lg font-bold text-[#2563eb]">NORSU HRM</p>
+                              <Building2 className="mx-auto mb-1 h-6 w-6 text-[#2563eb]" />
+                              <p className="text-xs font-bold text-[#2563eb]">NORSU HRM</p>
                             </div>
                           </div>
                         </div>
                       ) : (
                         <div className="flex h-full w-full items-center justify-center">
                           <div className="text-center">
-                            <Building2 className="mx-auto mb-3 h-12 w-12 text-[#2563eb]" />
-                            <p className="text-lg font-bold text-[#2563eb]">NORSU HRM</p>
+                            <Building2 className="mx-auto mb-1 h-6 w-6 text-[#2563eb]" />
+                            <p className="text-xs font-bold text-[#2563eb]">NORSU HRM</p>
                           </div>
                         </div>
                       )}
-                      <div className="absolute left-4 top-4">
-                        <span className={`inline-flex items-center rounded-full px-3 py-1 text-xs font-semibold backdrop-blur-sm ${getJobTypeColor(getJobType(job.department))}`}>
+                      <div className="absolute left-2 top-2">
+                        <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium backdrop-blur-sm ${getJobTypeColor(getJobType(job.department))}`}>
                           {getJobType(job.department)}
                         </span>
                       </div>
@@ -275,47 +324,47 @@ export default function VacanciesPage() {
                     </div>
 
                     {/* Details Section */}
-                    <div className="p-6">
-                      <h3 className="mb-4 line-clamp-2 text-xl font-bold text-white transition-colors duration-300 group-hover:text-[#c7d7ff]">
+                    <div className="p-4">
+                      <h3 className="mb-2 line-clamp-2 text-base font-bold text-white group-hover:text-[#c7d7ff]">
                         {job.job_title}
                       </h3>
                       
                       {/* Job Meta Information */}
-                      <div className="mb-5 space-y-3">
+                      <div className="mb-3 space-y-1.5">
                         {job.department && (
-                          <div className="flex items-center gap-3 text-[#c7d7ff]">
-                            <Building2 className="h-4 w-4 flex-shrink-0 text-[#2563eb]" />
-                            <span className="text-sm">{job.department}</span>
+                          <div className="flex items-center gap-2 text-[#c7d7ff]">
+                            <Building2 className="h-3 w-3 flex-shrink-0 text-[#2563eb]" />
+                            <span className="text-xs truncate">{job.department}</span>
                           </div>
                         )}
                         {job.location && (
-                          <div className="flex items-center gap-3 text-[#c7d7ff]">
-                            <MapPin className="h-4 w-4 flex-shrink-0 text-[#2563eb]" />
-                            <span className="text-sm">{job.location}</span>
+                          <div className="flex items-center gap-2 text-[#c7d7ff]">
+                            <MapPin className="h-3 w-3 flex-shrink-0 text-[#2563eb]" />
+                            <span className="text-xs truncate">{job.location}</span>
                           </div>
                         )}
-                        <div className="flex items-center gap-3 text-[#94a3b8]">
-                          <Calendar className="h-4 w-4 flex-shrink-0 text-[#2563eb]" />
-                          <span className="text-sm">Posted: {formatDate(job.date_posted)}</span>
+                        <div className="flex items-center gap-2 text-[#94a3b8]">
+                          <Calendar className="h-3 w-3 flex-shrink-0 text-[#2563eb]" />
+                          <span className="text-xs">Posted: {formatDate(job.date_posted)}</span>
                         </div>
-                        <div className="flex items-center gap-3 font-semibold text-[#2563eb]">
-                          <Clock className="h-4 w-4 flex-shrink-0" />
-                          <span className="text-sm">Apply by: {getDeadlineDate(job.date_posted)}</span>
+                        <div className="flex items-center gap-2 font-semibold text-[#2563eb]">
+                          <Clock className="h-3 w-3 flex-shrink-0" />
+                          <span className="text-xs">Apply by: {getDeadlineDate(job.date_posted)}</span>
                         </div>
                       </div>
 
                       {/* Description */}
-                      <p className="mb-6 line-clamp-3 text-sm leading-relaxed text-[#c7d7ff]">
-                        {job.job_description || "Join our team and contribute to the academic excellence of NORSU. We're looking for passionate individuals ready to make a difference."}
+                      <p className="mb-3 line-clamp-2 text-xs leading-relaxed text-[#c7d7ff]">
+                        {job.job_description || "Join our team and contribute to the academic excellence of NORSU."}
                       </p>
 
                       {/* Action Button */}
                       <Button
                         asChild
-                        className="w-full rounded-xl border-0 bg-gradient-to-r from-[#2563eb] to-[#1d4ed8] py-3 font-semibold text-white transition-all duration-300 hover:scale-105 hover:shadow-lg hover:from-[#1d4ed8] hover:to-[#2563eb]"
+                        className="w-full rounded-lg border-0 bg-gradient-to-r from-[#2563eb] to-[#1d4ed8] px-3 py-2 text-xs font-semibold text-white transition-all duration-200 hover:scale-105 hover:from-[#1d4ed8] hover:to-[#2563eb]"
                       >
                         <Link href={`/vacancies/${job.id}`}>
-                          View Details & Apply
+                          View Details
                         </Link>
                       </Button>
                     </div>

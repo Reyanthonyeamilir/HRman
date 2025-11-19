@@ -6,7 +6,7 @@ import Image from "next/image"
 import { useParams, useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { supabase } from '@/lib/supabaseClient'
-import { Building2, MapPin, Calendar, Clock, ArrowLeft, User, FileText } from "lucide-react"
+import { Building2, MapPin, Calendar, Clock, ArrowLeft, FileText } from "lucide-react"
 
 interface JobPosting {
   id: string
@@ -66,7 +66,7 @@ export default function JobDetailPage() {
   const formatDate = (dateString: string) =>
     new Date(dateString).toLocaleDateString("en-US", {
       year: "numeric",
-      month: "long",
+      month: "short",
       day: "numeric",
     })
 
@@ -98,8 +98,8 @@ export default function JobDetailPage() {
     return (
       <div className="min-h-screen bg-[#0b1b3b] flex items-center justify-center">
         <div className="text-center">
-          <div className="mx-auto mb-4 h-16 w-16 animate-spin rounded-full border-4 border-[#2563eb]/30 border-t-[#2563eb]"></div>
-          <p className="font-medium text-[#c7d7ff]">Loading job details...</p>
+          <div className="mx-auto mb-4 h-8 w-8 animate-spin rounded-full border-4 border-[#2563eb]/30 border-t-[#2563eb]"></div>
+          <p className="text-sm text-[#c7d7ff]">Loading job details...</p>
         </div>
       </div>
     )
@@ -109,18 +109,18 @@ export default function JobDetailPage() {
     return (
       <div className="min-h-screen bg-[#0b1b3b] flex items-center justify-center">
         <div className="text-center max-w-md mx-4">
-          <div className="mx-auto mb-6 rounded-2xl border border-red-500/20 bg-red-500/10 p-8 backdrop-blur-md">
-            <p className="mb-4 text-red-200">{error || "Job not found"}</p>
-            <div className="flex gap-4 justify-center flex-col sm:flex-row">
+          <div className="mx-auto mb-6 rounded-xl border border-red-500/20 bg-red-500/10 p-6 backdrop-blur-md">
+            <p className="mb-4 text-sm text-red-200">{error || "Job not found"}</p>
+            <div className="flex gap-3 justify-center flex-col sm:flex-row">
               <Button 
                 onClick={fetchJob} 
-                className="rounded-full bg-[#2563eb] px-6 text-white shadow-lg transition-all duration-200 hover:bg-[#1d4ed8]"
+                className="rounded-full bg-[#2563eb] px-4 py-2 text-sm text-white hover:bg-[#1d4ed8]"
               >
                 Try Again
               </Button>
               <Button 
                 onClick={() => router.push('/vacancies')}
-                className="rounded-full border border-white/20 bg-white/10 px-6 text-white transition-all duration-200 hover:bg-white/20"
+                className="rounded-full border border-white/20 bg-white/10 px-4 py-2 text-sm text-white hover:bg-white/20"
               >
                 Back to Vacancies
               </Button>
@@ -132,30 +132,28 @@ export default function JobDetailPage() {
   }
 
   return (
-    <div className="min-h-screen bg-[#0b1b3b]">
-      {/* Simple Header with Back Button */}
-      <div className="border-b border-white/10 bg-[#0b1b3b]/95 backdrop-blur-md">
-        <div className="mx-auto max-w-4xl px-4 py-4">
-          <Button
-            variant="ghost"
-            onClick={() => router.push('/vacancies')}
-            className="flex items-center gap-2 text-[#c7d7ff] hover:text-white hover:bg-white/10"
-          >
-            <ArrowLeft className="h-4 w-4" />
-            Back to Vacancies
-          </Button>
-        </div>
+    <div className="min-h-screen bg-[#0b1b3b] py-4">
+      {/* Minimal Header */}
+      <div className="mx-auto max-w-md px-4 mb-4">
+        <Button
+          variant="ghost"
+          onClick={() => router.push('/vacancies')}
+          className="flex items-center gap-1 text-xs text-[#c7d7ff] hover:text-white hover:bg-white/10 px-2 py-1"
+        >
+          <ArrowLeft className="h-3 w-3" />
+          Back to Vacancies
+        </Button>
       </div>
 
-      {/* Main Content Container */}
-      <div className="flex items-center justify-center min-h-[calc(100vh-80px)] py-8">
-        <div className="w-full max-w-4xl mx-auto px-4">
+      {/* Compact Main Content */}
+      <div className="flex justify-center">
+        <div className="w-full max-w-md mx-auto px-4">
           
-          {/* Main Job Card */}
-          <div className="rounded-2xl border border-white/10 bg-white/5 backdrop-blur-md overflow-hidden">
+          {/* Ultra Compact Job Card */}
+          <div className="rounded-lg border border-white/10 bg-white/5 backdrop-blur-md overflow-hidden">
             
-            {/* Job Image with Fallback */}
-            <div className="relative h-64 md:h-80 w-full bg-gradient-to-br from-[#0b1b3b] via-[#1e3a8a] to-[#2563eb]">
+            {/* Small Job Image */}
+            <div className="relative h-32 w-full bg-gradient-to-br from-[#0b1b3b] via-[#1e3a8a] to-[#2563eb]">
               {job.image_path ? (
                 <>
                   <Image
@@ -170,157 +168,130 @@ export default function JobDetailPage() {
                       if (fallback) fallback.style.display = 'flex'
                     }}
                   />
-                  {/* Fallback that shows if image fails to load */}
                   <div 
                     id="image-fallback"
                     className="hidden absolute inset-0 flex items-center justify-center"
                     style={{ display: 'none' }}
                   >
                     <div className="text-center">
-                      <Building2 className="mx-auto mb-4 h-16 w-16 text-[#2563eb]" />
-                      <p className="text-xl font-bold text-[#2563eb]">NORSU HRM</p>
-                      <p className="text-sm text-[#c7d7ff] mt-2">{job.job_title}</p>
+                      <Building2 className="mx-auto mb-1 h-6 w-6 text-[#2563eb]" />
+                      <p className="text-xs font-bold text-[#2563eb]">NORSU HRM</p>
                     </div>
                   </div>
                 </>
               ) : (
-                /* Default fallback when no image is provided */
                 <div className="flex h-full w-full items-center justify-center">
                   <div className="text-center">
-                    <Building2 className="mx-auto mb-4 h-16 w-16 text-[#2563eb]" />
-                    <p className="text-xl font-bold text-[#2563eb]">NORSU HRM</p>
-                    <p className="text-sm text-[#c7d7ff] mt-2">{job.job_title}</p>
+                    <Building2 className="mx-auto mb-1 h-6 w-6 text-[#2563eb]" />
+                    <p className="text-xs font-bold text-[#2563eb]">NORSU HRM</p>
                   </div>
                 </div>
               )}
               
-              {/* Gradient Overlay */}
               <div className="absolute inset-0 bg-gradient-to-t from-[#0b1b3b]/90 via-transparent to-transparent"></div>
               
-              {/* Job Type Badge on Image */}
-              <div className="absolute top-4 left-4">
-                <span className={`inline-flex items-center rounded-full px-3 py-1 text-sm font-semibold backdrop-blur-sm ${getJobTypeColor(getJobType(job.department))}`}>
+              <div className="absolute top-2 left-2">
+                <span className={`inline-flex items-center rounded-full px-1.5 py-0.5 text-xs font-medium backdrop-blur-sm ${getJobTypeColor(getJobType(job.department))}`}>
                   {getJobType(job.department)}
                 </span>
               </div>
             </div>
 
-            {/* Job Content */}
-            <div className="p-6 md:p-8">
+            {/* Ultra Compact Job Content */}
+            <div className="p-4">
               
               {/* Job Title */}
-              <h1 className="mb-6 text-2xl md:text-3xl font-bold text-white text-center">
+              <h1 className="mb-3 text-lg font-bold text-white text-center leading-tight">
                 {job.job_title}
               </h1>
 
-              {/* Job Meta Information */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-8">
+              {/* Minimal Job Meta */}
+              <div className="grid grid-cols-2 gap-2 mb-4 text-xs">
                 {job.department && (
-                  <div className="flex items-center gap-3 text-[#c7d7ff] justify-center sm:justify-start">
-                    <Building2 className="h-5 w-5 flex-shrink-0 text-[#2563eb]" />
-                    <div className="text-center sm:text-left">
-                      <p className="text-sm text-[#94a3b8]">Department</p>
-                      <p className="font-medium">{job.department}</p>
+                  <div className="flex items-center gap-1.5 text-[#c7d7ff]">
+                    <Building2 className="h-3 w-3 flex-shrink-0 text-[#2563eb]" />
+                    <div className="min-w-0">
+                      <p className="text-[10px] text-[#94a3b8]">Department</p>
+                      <p className="font-medium truncate">{job.department}</p>
                     </div>
                   </div>
                 )}
                 {job.location && (
-                  <div className="flex items-center gap-3 text-[#c7d7ff] justify-center sm:justify-start">
-                    <MapPin className="h-5 w-5 flex-shrink-0 text-[#2563eb]" />
-                    <div className="text-center sm:text-left">
-                      <p className="text-sm text-[#94a3b8]">Location</p>
-                      <p className="font-medium">{job.location}</p>
+                  <div className="flex items-center gap-1.5 text-[#c7d7ff]">
+                    <MapPin className="h-3 w-3 flex-shrink-0 text-[#2563eb]" />
+                    <div className="min-w-0">
+                      <p className="text-[10px] text-[#94a3b8]">Location</p>
+                      <p className="font-medium truncate">{job.location}</p>
                     </div>
                   </div>
                 )}
-                <div className="flex items-center gap-3 text-[#c7d7ff] justify-center sm:justify-start">
-                  <Calendar className="h-5 w-5 flex-shrink-0 text-[#2563eb]" />
-                  <div className="text-center sm:text-left">
-                    <p className="text-sm text-[#94a3b8]">Posted</p>
+                <div className="flex items-center gap-1.5 text-[#c7d7ff]">
+                  <Calendar className="h-3 w-3 flex-shrink-0 text-[#2563eb]" />
+                  <div>
+                    <p className="text-[10px] text-[#94a3b8]">Posted</p>
                     <p className="font-medium">{formatDate(job.date_posted)}</p>
                   </div>
                 </div>
-                <div className="flex items-center gap-3 text-[#2563eb] font-semibold justify-center sm:justify-start">
-                  <Clock className="h-5 w-5 flex-shrink-0" />
-                  <div className="text-center sm:text-left">
-                    <p className="text-sm text-[#94a3b8]">Apply Before</p>
+                <div className="flex items-center gap-1.5 text-[#2563eb] font-semibold">
+                  <Clock className="h-3 w-3 flex-shrink-0" />
+                  <div>
+                    <p className="text-[10px] text-[#94a3b8]">Apply Before</p>
                     <p className="font-medium">{getDeadlineDate(job.date_posted)}</p>
                   </div>
                 </div>
               </div>
 
-              {/* Apply Now Button - Centered */}
-              <div className="text-center mb-8">
+              {/* Apply Button */}
+              <div className="text-center mb-4">
                 <Button
                   asChild
-                  className="rounded-xl bg-gradient-to-r from-[#2563eb] to-[#1d4ed8] px-8 py-3 font-semibold text-white transition-all duration-300 hover:scale-105 hover:shadow-lg hover:from-[#1d4ed8] hover:to-[#2563eb] text-lg w-full sm:w-auto"
-                  size="lg"
+                  className="rounded-lg bg-gradient-to-r from-[#2563eb] to-[#1d4ed8] px-4 py-2 text-sm font-semibold text-white transition-all duration-200 hover:scale-105 w-full"
                 >
                   <Link href="/login">
                     Apply Now
                   </Link>
                 </Button>
-                <p className="mt-3 text-sm text-[#94a3b8]">
-                  You need to login to apply for this position
+                <p className="mt-1 text-[10px] text-[#94a3b8]">
+                  Login required to apply
                 </p>
               </div>
 
-              {/* Job Description */}
-              <div className="mb-8">
-                <h2 className="mb-4 flex items-center gap-3 text-xl font-bold text-white justify-center sm:justify-start">
-                  <FileText className="h-5 w-5 text-[#2563eb]" />
-                  Job Description
+              {/* Compact Job Description */}
+              <div className="mb-4">
+                <h2 className="mb-2 flex items-center gap-1.5 text-sm font-bold text-white">
+                  <FileText className="h-3.5 w-3.5 text-[#2563eb]" />
+                  Description
                 </h2>
-                <div className="text-center sm:text-left">
-                  <p className="text-lg leading-relaxed text-[#c7d7ff] whitespace-pre-line">
-                    {job.job_description || "No detailed description provided for this position. Please contact the HR department for more information."}
-                  </p>
-                </div>
+                <p className="text-xs leading-relaxed text-[#c7d7ff] line-clamp-4">
+                  {job.job_description || "No detailed description provided. Contact HR for more information."}
+                </p>
               </div>
 
-              {/* Requirements & Qualifications */}
-              <div className="mb-8">
-                <h2 className="mb-4 text-xl font-bold text-white text-center sm:text-left">Requirements & Qualifications</h2>
-                <div className="space-y-4 text-[#c7d7ff] text-center sm:text-left">
-                  <p>Detailed requirements and qualifications will be provided during the application process.</p>
-                  <p>Please ensure you meet the basic qualifications for the position before applying.</p>
-                </div>
-              </div>
-
-              {/* Job Summary */}
-              <div className="rounded-2xl border border-white/10 bg-white/5 p-6 mb-6">
-                <h3 className="mb-4 text-lg font-semibold text-white text-center sm:text-left">Job Summary</h3>
-                <div className="space-y-3 text-sm">
-                  <div className="flex flex-col sm:flex-row sm:justify-between gap-2">
-                    <span className="text-[#94a3b8] text-center sm:text-left">Position:</span>
-                    <span className="text-[#c7d7ff] font-medium text-center sm:text-right">{job.job_title}</span>
+              {/* Minimal Job Summary */}
+              <div className="rounded-lg border border-white/10 bg-white/5 p-3 mb-3">
+                <h3 className="mb-2 text-sm font-semibold text-white">Job Summary</h3>
+                <div className="space-y-1.5 text-xs">
+                  <div className="flex justify-between">
+                    <span className="text-[#94a3b8]">Position:</span>
+                    <span className="text-[#c7d7ff] font-medium truncate ml-2 max-w-[120px]">{job.job_title}</span>
                   </div>
-                  <div className="flex flex-col sm:flex-row sm:justify-between gap-2">
-                    <span className="text-[#94a3b8] text-center sm:text-left">Department:</span>
-                    <span className="text-[#c7d7ff] font-medium text-center sm:text-right">{job.department || "Not specified"}</span>
+                  <div className="flex justify-between">
+                    <span className="text-[#94a3b8]">Type:</span>
+                    <span className="text-[#c7d7ff] font-medium">{getJobType(job.department)}</span>
                   </div>
-                  <div className="flex flex-col sm:flex-row sm:justify-between gap-2">
-                    <span className="text-[#94a3b8] text-center sm:text-left">Location:</span>
-                    <span className="text-[#c7d7ff] font-medium text-center sm:text-right">{job.location || "Not specified"}</span>
-                  </div>
-                  <div className="flex flex-col sm:flex-row sm:justify-between gap-2">
-                    <span className="text-[#94a3b8] text-center sm:text-left">Type:</span>
-                    <span className="text-[#c7d7ff] font-medium text-center sm:text-right">{getJobType(job.department)}</span>
-                  </div>
-                  <div className="flex flex-col sm:flex-row sm:justify-between gap-2">
-                    <span className="text-[#94a3b8] text-center sm:text-left">Status:</span>
-                    <span className="text-green-400 font-medium text-center sm:text-right">Active</span>
+                  <div className="flex justify-between">
+                    <span className="text-[#94a3b8]">Status:</span>
+                    <span className="text-green-400 font-medium">Active</span>
                   </div>
                 </div>
               </div>
 
-              {/* Contact Info */}
+              {/* Minimal Contact Info */}
               <div className="text-center">
-                <h3 className="mb-3 text-lg font-semibold text-white">Need Help?</h3>
-                <div className="space-y-2 text-sm text-[#c7d7ff]">
-                  <p>Contact our HR Department:</p>
+                <h3 className="mb-1 text-sm font-semibold text-white">Need Help?</h3>
+                <div className="space-y-0.5 text-xs text-[#c7d7ff]">
+                  <p>Contact HR:</p>
                   <p className="text-[#2563eb] font-medium">hr@norsu.edu.ph</p>
-                  <p className="text-[#2563eb] font-medium">(035) 123-4567</p>
                 </div>
               </div>
 
