@@ -37,7 +37,6 @@ export default function HRSidebar({ mobileOpen, onMobileClose }: HRSidebarProps)
     { name: 'Dashboard', href: '/hr/dashboard', icon: Home },
     { name: 'Job Postings', href: '/hr/jobs', icon: Briefcase },
     { name: 'Applications', href: '/hr/tag', icon: FileText },
-  
   ]
 
   const isActive = (href: string) => pathname === href
@@ -58,7 +57,7 @@ export default function HRSidebar({ mobileOpen, onMobileClose }: HRSidebarProps)
 
       <aside className={`
         fixed top-0 left-0 h-screen w-80 transform transition-transform duration-300 z-50
-        lg:z-30 lg:translate-x-0 lg:static lg:fixed
+        lg:z-30 lg:translate-x-0 lg:static lg:h-screen lg:sticky lg:top-0
         ${mobileOpen ? "translate-x-0" : "-translate-x-full"}
       `}>
         <div className="flex h-full flex-col bg-gradient-to-b from-slate-900 to-slate-800 border-r border-slate-700 overflow-y-auto">
@@ -74,9 +73,21 @@ export default function HRSidebar({ mobileOpen, onMobileClose }: HRSidebarProps)
                   className="rounded-xl mb-2"
                 />
                 <h1 className="text-base font-semibold text-center mb-1 text-white">NORSU HR Portal</h1>
-                <p className="text-xs text-gray-300 text-center">
-                  Welcome, {user?.email?.split('@')[0] || 'Admin'}
-                </p>
+                
+                {/* Profile Section - Moved below logo */}
+                <div className="flex items-center space-x-3 mt-3 px-2 py-2 bg-slate-800/30 rounded-lg w-full max-w-[200px]">
+                  <div className="w-8 h-8 bg-blue-600 rounded-full flex items-center justify-center border-2 border-blue-400 flex-shrink-0">
+                    <span className="text-xs font-bold text-white">
+                      {user?.email?.charAt(0).toUpperCase() || 'A'}
+                    </span>
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-xs font-semibold text-white truncate">
+                      {user?.email?.split('@')[0] || 'HR Manager'}
+                    </p>
+                    <p className="text-xs text-slate-300 truncate">Administrator</p>
+                  </div>
+                </div>
               </div>
               <button
                 onClick={onMobileClose}
@@ -110,21 +121,8 @@ export default function HRSidebar({ mobileOpen, onMobileClose }: HRSidebarProps)
             })}
           </nav>
 
-          {/* Footer Section */}
+          {/* Footer Section - Only Sign Out Button Now */}
           <div className="flex-shrink-0 p-4 border-t border-slate-700 bg-slate-800/50">
-            <div className="flex items-center space-x-3 mb-4 px-2">
-              <div className="w-10 h-10 bg-blue-600 rounded-full flex items-center justify-center border-2 border-blue-400">
-                <span className="text-sm font-bold text-white">
-                  {user?.email?.charAt(0).toUpperCase() || 'A'}
-                </span>
-              </div>
-              <div className="flex-1 min-w-0">
-                <p className="text-sm font-semibold text-white truncate">
-                  {user?.email || 'HR Manager'}
-                </p>
-                <p className="text-xs text-slate-300">Administrator</p>
-              </div>
-            </div>
             <Button
               onClick={handleSignOut}
               variant="outline"

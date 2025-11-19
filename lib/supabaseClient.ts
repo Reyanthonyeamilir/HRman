@@ -13,7 +13,7 @@ export const supabase = createClient(url, anon, {
     autoRefreshToken: true,
     detectSessionInUrl: true,
     flowType: 'pkce',
-    debug: false
+    debug: process.env.NODE_ENV === 'development'
   },
   global: {
     headers: {
@@ -27,8 +27,10 @@ export async function signUp({ email, password, phone }: {
   email: string; password: string; phone?: string
 }) {
   try {
+    console.log('🔄 Starting sign up process for:', email)
+    
     const { data: authData, error: authError } = await supabase.auth.signUp({
-      email, 
+      email: email.toLowerCase().trim(), 
       password, 
       options: { 
         data: phone ? { phone } : {},
@@ -36,23 +38,29 @@ export async function signUp({ email, password, phone }: {
       }
     })
     
-    if (authError) throw authError
+    if (authError) {
+      console.error('❌ Auth error during sign up:', authError)
+      throw new Error(authError.message)
+    }
 
     // If email confirmation is required, return early
     if (authData.user?.identities?.length === 0) {
+      console.log('📧 Email confirmation required')
       return { requiresEmailConfirmation: true as const }
     }
 
     if (!authData.user) {
-      throw new Error('User creation failed')
+      throw new Error('User creation failed - no user returned')
     }
+
+    console.log('✅ Auth user created:', authData.user.id)
 
     // Create profile
     const { error: profileError } = await supabase
       .from('profiles')
       .insert({
         id: authData.user.id, 
-        email, 
+        email: email.toLowerCase().trim(), 
         phone, 
         role: 'applicant'
       })
@@ -60,60 +68,132 @@ export async function signUp({ email, password, phone }: {
       .single()
 
     if (profileError) {
-      console.error('Profile creation error:', profileError)
+      console.error('❌ Profile creation error:', profileError)
       // Don't throw here - user account was created successfully
+      // We'll handle profile creation on first login
+    } else {
+      console.log('✅ Profile created successfully')
     }
 
     return { ok: true as const, user: authData.user }
   } catch (error) {
-    console.error('Sign up error:', error)
+    console.error('❌ Sign up error:', error)
     throw error
   }
 }
 
 export async function signIn({ email, password }: { email: string; password: string }) {
   try {
+    console.log('🔄 Attempting sign in for:', email)
+    
     const { data, error } = await supabase.auth.signInWithPassword({ 
-      email, 
+      email: email.toLowerCase().trim(), 
       password 
     })
     
-    if (error) throw error
-    
-    // Wait for session to be fully established
-    await new Promise(resolve => setTimeout(resolve, 1500))
-    
-    console.log('🔐 Sign in successful, user:', data.user?.email)
-    
-    // Check if user has a profile, create if not
-    if (data.user) {
-      const currentUser = await getCurrentUser()
-      if (currentUser && !currentUser.profile) {
-        console.log('🆕 Auto-creating profile for user...')
-        // Auto-assign role based on email
-        let role = 'applicant'
-        if (email.includes('admin') || email.includes('super')) {
-          role = 'super_admin'
-        } else if (email.includes('hr')) {
-          role = 'hr'
-        }
-        
-        await createOrUpdateProfile(data.user.id, email, role)
-      }
+    if (error) {
+      console.error('❌ Auth sign in error:', error)
+      throw new Error(getAuthErrorMessage(error))
     }
+    
+    if (!data.user) {
+      throw new Error('No user data returned')
+    }
+    
+    console.log('✅ Sign in successful, user:', data.user.email)
+    
+    // Check and create profile if needed
+    await ensureUserProfile(data.user)
     
     return { user: data.user, error: null }
   } catch (error: any) {
-    console.error('Sign in error:', error)
-    return { user: null, error }
+    console.error('❌ Sign in error:', error)
+    return { user: null, error: error.message || 'Sign in failed' }
+  }
+}
+
+// Helper function to ensure user has a profile
+async function ensureUserProfile(user: any) {
+  try {
+    console.log('🔍 Checking profile for user:', user.id)
+    
+    const { data: profile, error: profileError } = await supabase
+      .from('profiles')
+      .select('*')
+      .eq('id', user.id)
+      .single()
+
+    if (profileError) {
+      if (profileError.code === 'PGRST116') {
+        // Profile doesn't exist - create one
+        console.log('📝 Creating new profile for user...')
+        
+        // Auto-assign role based on email
+        let role = 'applicant'
+        const userEmail = user.email?.toLowerCase() || ''
+        
+        if (userEmail.includes('admin') || userEmail.includes('super')) {
+          role = 'super_admin'
+        } else if (userEmail.includes('hr')) {
+          role = 'hr'
+        }
+        
+        const { error: createError } = await supabase
+          .from('profiles')
+          .insert({
+            id: user.id,
+            email: user.email,
+            role: role,
+            created_at: new Date().toISOString()
+          })
+
+        if (createError) {
+          console.error('❌ Failed to create profile:', createError)
+        } else {
+          console.log('✅ Profile created with role:', role)
+        }
+      } else {
+        console.error('❌ Profile fetch error:', profileError)
+      }
+    } else {
+      console.log('✅ Profile exists:', profile.role)
+    }
+  } catch (error) {
+    console.error('❌ Error ensuring user profile:', error)
+  }
+}
+
+// Helper function to get user-friendly auth error messages
+function getAuthErrorMessage(error: any): string {
+  if (!error) return 'An unknown error occurred'
+  
+  switch (error.message) {
+    case 'Invalid login credentials':
+      return 'Invalid email or password. Please check your credentials and try again.'
+    case 'Email not confirmed':
+      return 'Please confirm your email address before signing in.'
+    case 'User already registered':
+      return 'An account with this email already exists.'
+    case 'Too many requests':
+      return 'Too many login attempts. Please try again later.'
+    default:
+      return error.message || 'Authentication failed. Please try again.'
   }
 }
 
 // Helper function to get current session
 export async function getCurrentSession() {
-  const { data: { session }, error } = await supabase.auth.getSession()
-  if (error) throw error
-  return session
+  try {
+    const { data: { session }, error } = await supabase.auth.getSession()
+    if (error) {
+      console.error('❌ Get session error:', error)
+      throw error
+    }
+    return session
+  } catch (error) {
+    console.error('❌ Error getting session:', error)
+    return null
+  }
 }
 
 // Helper function to get current user with profile
@@ -121,12 +201,12 @@ export async function getCurrentUser() {
   try {
     const { data: { user }, error } = await supabase.auth.getUser()
     if (error) {
-      console.error('Auth getUser error:', error)
-      throw error
+      console.error('❌ Auth getUser error:', error)
+      return null
     }
     
     if (!user) {
-      console.log('No authenticated user')
+      console.log('🔐 No authenticated user')
       return null
     }
 
@@ -142,17 +222,25 @@ export async function getCurrentUser() {
     // Handle case where profile doesn't exist
     if (profileError) {
       if (profileError.code === 'PGRST116') {
-        // No profile found - this is expected for new users
-        console.log('📝 No profile found for user, will create one')
-        return { ...user, profile: null }
+        // No profile found - create one
+        console.log('📝 No profile found for user, creating one...')
+        await ensureUserProfile(user)
+        
+        // Try to fetch profile again
+        const { data: newProfile } = await supabase
+          .from('profiles')
+          .select('*')
+          .eq('id', user.id)
+          .single()
+          
+        return { ...user, profile: newProfile }
       } else {
         console.error('❌ Profile fetch error:', profileError)
-        // For other errors, still return user but without profile
         return { ...user, profile: null }
       }
     }
 
-    console.log('✅ Profile found:', profile)
+    console.log('✅ Profile found:', profile?.role)
     return { ...user, profile }
   } catch (error) {
     console.error('❌ Error in getCurrentUser:', error)
@@ -169,7 +257,7 @@ export async function createOrUpdateProfile(userId: string, email: string, role:
       .from('profiles')
       .upsert({
         id: userId,
-        email: email,
+        email: email.toLowerCase().trim(),
         role: role,
         updated_at: new Date().toISOString()
       }, {
@@ -191,19 +279,75 @@ export async function createOrUpdateProfile(userId: string, email: string, role:
   }
 }
 
+// Sign out function
+export async function signOut() {
+  try {
+    console.log('🚪 Signing out...')
+    const { error } = await supabase.auth.signOut()
+    if (error) {
+      console.error('❌ Sign out error:', error)
+      throw error
+    }
+    console.log('✅ Signed out successfully')
+  } catch (error) {
+    console.error('❌ Error during sign out:', error)
+    throw error
+  }
+}
+
+// Reset password function
+export async function resetPassword(email: string) {
+  try {
+    const { error } = await supabase.auth.resetPasswordForEmail(
+      email.toLowerCase().trim(),
+      {
+        redirectTo: `${typeof window !== 'undefined' ? window.location.origin : ''}/auth/reset-password`,
+      }
+    )
+    
+    if (error) throw error
+    return { success: true }
+  } catch (error) {
+    console.error('❌ Reset password error:', error)
+    throw error
+  }
+}
+
+// Update password function
+export async function updatePassword(newPassword: string) {
+  try {
+    const { error } = await supabase.auth.updateUser({
+      password: newPassword
+    })
+    
+    if (error) throw error
+    return { success: true }
+  } catch (error) {
+    console.error('❌ Update password error:', error)
+    throw error
+  }
+}
+
 /* ---------------- Applicant APIs ---------------- */
 export async function listActiveJobs() {
   try {
+    console.log('📋 Fetching active jobs...')
+    
     const { data, error } = await supabase
       .from('job_postings')
       .select('id, job_title, department, location, job_description, date_posted, status, image_path')
       .eq('status', 'active')
       .order('date_posted', { ascending: false })
     
-    if (error) throw error
+    if (error) {
+      console.error('❌ List active jobs error:', error)
+      throw error
+    }
+    
+    console.log(`✅ Found ${data?.length || 0} active jobs`)
     return data || []
   } catch (error) {
-    console.error('List active jobs error:', error)
+    console.error('❌ List active jobs error:', error)
     throw error
   }
 }
@@ -218,6 +362,8 @@ export async function submitApplication({
   comment: string
 }) {
   try {
+    console.log('📤 Submitting application for job:', job_id)
+    
     const { data: { user }, error: userError } = await supabase.auth.getUser()
     if (userError) throw userError
     if (!user) throw new Error('Not authenticated')
@@ -238,7 +384,8 @@ export async function submitApplication({
         job_id, 
         applicant_id: user.id, 
         pdf_path: 'placeholder', 
-        comment 
+        comment,
+        status: 'for_review'
       })
       .select('*')
       .single()
@@ -264,9 +411,10 @@ export async function submitApplication({
     
     if (updErr) throw updErr
 
+    console.log('✅ Application submitted successfully, ID:', app.id)
     return app.id as number
   } catch (error) {
-    console.error('Submit application error:', error)
+    console.error('❌ Submit application error:', error)
     throw error
   }
 }
@@ -277,6 +425,8 @@ export async function listMyApplications() {
     if (userError) throw userError
     if (!user) throw new Error('Not authenticated')
 
+    console.log('📋 Fetching applications for user:', user.id)
+
     const { data, error } = await supabase
       .from('applications')
       .select(`
@@ -284,7 +434,8 @@ export async function listMyApplications() {
         job_id,
         pdf_path,
         comment,
-        created_at,
+        status,
+        submitted_at,
         job_postings (
           id,
           job_title,
@@ -292,41 +443,82 @@ export async function listMyApplications() {
         )
       `)
       .eq('applicant_id', user.id)
-      .order('created_at', { ascending: false })
+      .order('submitted_at', { ascending: false })
     
     if (error) throw error
 
-    return (data ?? []).map((row: any) => ({
+    const applications = (data ?? []).map((row: any) => ({
       id: row.id,
       job_id: row.job_id,
       job_title: row.job_postings?.job_title ?? '—',
       job_status: row.job_postings?.status ?? '—',
+      application_status: row.status || 'for_review',
       pdf_path: row.pdf_path,
       comment: row.comment ?? '',
-      submitted_at: row.created_at,
+      submitted_at: row.submitted_at,
     }))
+
+    console.log(`✅ Found ${applications.length} applications`)
+    return applications
   } catch (error) {
-    console.error('List applications error:', error)
+    console.error('❌ List applications error:', error)
     throw error
   }
 }
 
 export async function getSignedUrl(path: string) {
   try {
+    console.log('🔗 Generating signed URL for:', path)
+    
     const { data, error } = await supabase.storage
       .from('attachments')
-      .createSignedUrl(path, 60 * 10)
+      .createSignedUrl(path, 60 * 10) // 10 minutes
     
     if (error) throw error
+    
+    console.log('✅ Signed URL generated')
     return data.signedUrl
   } catch (error) {
-    console.error('Get signed URL error:', error)
+    console.error('❌ Get signed URL error:', error)
     throw error
   }
 }
 
-// Sign out function
-export async function signOut() {
-  const { error } = await supabase.auth.signOut()
-  if (error) throw error
+// Get application status for tracking
+export async function getApplicationStatus(applicationId: string) {
+  try {
+    const { data, error } = await supabase
+      .from('applications')
+      .select(`
+        id,
+        status,
+        comment,
+        submitted_at,
+        job_postings (
+          job_title,
+          department,
+          location
+        )
+      `)
+      .eq('id', applicationId)
+      .single()
+
+    if (error) throw error
+    return data
+  } catch (error) {
+    console.error('❌ Get application status error:', error)
+    throw error
+  }
+}
+
+// Health check function
+export async function healthCheck() {
+  try {
+    const { data, error } = await supabase.from('profiles').select('count').limit(1)
+    if (error) throw error
+    return { healthy: true }
+  } catch (error) {
+    console.error('❌ Health check failed:', error)
+    return { healthy: false, error }
+  }
 }

@@ -27,6 +27,7 @@ interface Application {
   applicant_id: string
   pdf_path: string
   comment?: string
+  status: 'for_review' | 'shortlisted' | 'hired' | 'rejected'
   submitted_at: string
   applicant: Applicant
   job_posting: JobPosting
@@ -38,6 +39,10 @@ export default function HRTagPage() {
   const [error, setError] = useState<string | null>(null)
   const [mobileOpen, setMobileOpen] = useState(false)
   const [selectedStatus, setSelectedStatus] = useState<string>('all')
+  const [selectedApplication, setSelectedApplication] = useState<Application | null>(null)
+  const [comment, setComment] = useState('')
+  const [status, setStatus] = useState<Application['status']>('for_review')
+  const [saving, setSaving] = useState(false)
 
   useEffect(() => {
     fetchApplications()
@@ -137,6 +142,7 @@ export default function HRTagPage() {
         applicant_id: app.applicant_id,
         pdf_path: app.pdf_path,
         comment: app.comment || undefined,
+        status: app.status || 'for_review',
         submitted_at: app.submitted_at,
         applicant: {
           id: applicant?.id || app.applicant_id,
@@ -154,6 +160,108 @@ export default function HRTagPage() {
         }
       }
     })
+  }
+
+  const sendEmailNotification = async (application: Application, newStatus: Application['status'], comment?: string) => {
+    try {
+      const statusMessages = {
+        for_review: 'Your application is under review',
+        shortlisted: 'Congratulations! Your application has been shortlisted',
+        hired: 'Congratulations! You have been hired for the position',
+        rejected: 'Update regarding your job application'
+      }
+
+      const emailData = {
+        to: application.applicant.email,
+        subject: `Application Update: ${application.job_posting.job_title}`,
+        html: `
+          <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+            <h2 style="color: #2f67ff;">NORSU HR Portal - Application Update</h2>
+            <p>Dear Applicant,</p>
+            <p>We would like to inform you about the status of your application for the position of <strong>${application.job_posting.job_title}</strong>.</p>
+            
+            <div style="background-color: #f8f9fa; padding: 15px; border-radius: 5px; margin: 20px 0;">
+              <h3 style="color: #2f67ff; margin-top: 0;">Status: ${newStatus.replace('_', ' ').toUpperCase()}</h3>
+              <p><strong>Message:</strong> ${statusMessages[newStatus]}</p>
+              ${comment ? `<p><strong>Comment from HR:</strong> ${comment}</p>` : ''}
+            </div>
+
+            <p>You can track your application status by logging into your applicant portal.</p>
+            
+            <div style="margin-top: 30px; padding-top: 20px; border-top: 1px solid #e0e0e0;">
+              <p style="color: #666; font-size: 14px;">
+                Best regards,<br>
+                NORSU Human Resource Management<br>
+                hr@norsu.edu.ph<br>
+                (035) 123-4567
+              </p>
+            </div>
+          </div>
+        `
+      }
+
+      // Send email using your preferred email service
+      // This is a placeholder - you'll need to implement your email service
+      console.log('Sending email notification:', emailData)
+      
+      // Example with fetch to your email API endpoint
+      const response = await fetch('/api/send-email', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(emailData),
+      })
+
+      if (!response.ok) {
+        throw new Error('Failed to send email notification')
+      }
+
+      return true
+    } catch (error) {
+      console.error('Error sending email notification:', error)
+      return false
+    }
+  }
+
+  const updateApplicationStatus = async (applicationId: string, newStatus: Application['status'], comment?: string) => {
+    try {
+      setSaving(true)
+      
+      // Update application in database
+      const { error: updateError } = await supabase
+        .from('applications')
+        .update({
+          status: newStatus,
+          comment: comment || null,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', applicationId)
+
+      if (updateError) throw updateError
+
+      // Find the application to get applicant email
+      const application = applications.find(app => app.id === applicationId)
+      if (!application) throw new Error('Application not found')
+
+      // Send email notification
+      await sendEmailNotification(application, newStatus, comment)
+
+      // Refresh applications
+      await fetchApplications()
+      
+      // Close modal
+      setSelectedApplication(null)
+      setComment('')
+      setStatus('for_review')
+
+      alert('Application status updated and notification sent!')
+    } catch (err) {
+      console.error('Error updating application:', err)
+      setError('Failed to update application status')
+    } finally {
+      setSaving(false)
+    }
   }
 
   const downloadResume = async (pdfPath: string, applicantName: string, jobTitle: string) => {
@@ -194,6 +302,16 @@ export default function HRTagPage() {
       case 'closed': return 'bg-slate-500/20 text-slate-700 border-slate-500/30'
       case 'draft': return 'bg-amber-500/20 text-amber-700 border-amber-500/30'
       default: return 'bg-blue-500/20 text-blue-700 border-blue-500/30'
+    }
+  }
+
+  const getApplicationStatusColor = (status: Application['status']) => {
+    switch (status) {
+      case 'for_review': return 'bg-blue-500/20 text-blue-700 border-blue-500/30'
+      case 'shortlisted': return 'bg-amber-500/20 text-amber-700 border-amber-500/30'
+      case 'hired': return 'bg-emerald-500/20 text-emerald-700 border-emerald-500/30'
+      case 'rejected': return 'bg-red-500/20 text-red-700 border-red-500/30'
+      default: return 'bg-gray-500/20 text-gray-700 border-gray-500/30'
     }
   }
 
@@ -378,9 +496,14 @@ export default function HRTagPage() {
                         </span>
                       </div>
                       
-                      <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full border ${getDepartmentColor(application.job_posting.department)}`}>
-                        {application.job_posting.department}
-                      </span>
+                      <div className="flex flex-wrap gap-2 mt-2">
+                        <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full border ${getDepartmentColor(application.job_posting.department)}`}>
+                          {application.job_posting.department}
+                        </span>
+                        <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full border ${getApplicationStatusColor(application.status)}`}>
+                          {application.status.replace('_', ' ').toUpperCase()}
+                        </span>
+                      </div>
                     </div>
 
                     {/* Card Body */}
@@ -411,7 +534,7 @@ export default function HRTagPage() {
 
                         {application.comment && (
                           <div className="text-sm">
-                            <p className="font-medium text-gray-700 mb-1">Comment:</p>
+                            <p className="font-medium text-gray-700 mb-1">HR Comment:</p>
                             <p className="text-gray-600 bg-blue-50 rounded-lg px-3 py-2 border border-blue-200">
                               {application.comment}
                             </p>
@@ -422,21 +545,35 @@ export default function HRTagPage() {
 
                     {/* Card Footer */}
                     <div className="p-4 lg:p-6 border-t border-blue-200 bg-blue-100/50 rounded-b-xl">
-                      <div className="flex justify-between items-center">
-                        <Button
-                          onClick={() => downloadResume(
-                            application.pdf_path,
-                            application.applicant.email,
-                            application.job_posting.job_title
-                          )}
-                          className="flex items-center bg-blue-600 hover:bg-blue-700 text-white border-0"
-                          size="sm"
-                        >
-                          <svg className="h-4 w-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                          </svg>
-                          View Resume
-                        </Button>
+                      <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3">
+                        <div className="flex gap-2">
+                          <Button
+                            onClick={() => downloadResume(
+                              application.pdf_path,
+                              application.applicant.email,
+                              application.job_posting.job_title
+                            )}
+                            className="flex items-center bg-blue-600 hover:bg-blue-700 text-white border-0"
+                            size="sm"
+                          >
+                            <svg className="h-4 w-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                            </svg>
+                            View Resume
+                          </Button>
+                          
+                          <Button
+                            onClick={() => {
+                              setSelectedApplication(application)
+                              setComment(application.comment || '')
+                              setStatus(application.status)
+                            }}
+                            variant="outline"
+                            size="sm"
+                          >
+                            Update Status
+                          </Button>
+                        </div>
                         
                         <span className="text-xs text-gray-500">
                           ID: {application.applicant.id.substring(0, 8)}...
@@ -450,6 +587,62 @@ export default function HRTagPage() {
           </div>
         </div>
       </div>
+
+      {/* Status Update Modal */}
+      {selectedApplication && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg max-w-md w-full p-6">
+            <h3 className="text-lg font-semibold mb-4">Update Application Status</h3>
+            
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Application Status
+                </label>
+                <select
+                  value={status}
+                  onChange={(e) => setStatus(e.target.value as Application['status'])}
+                  className="w-full p-2 border border-gray-300 rounded-md"
+                >
+                  <option value="for_review">For Review</option>
+                  <option value="shortlisted">Shortlisted</option>
+                  <option value="hired">Hired</option>
+                  <option value="rejected">Rejected</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Comment (Optional)
+                </label>
+                <textarea
+                  value={comment}
+                  onChange={(e) => setComment(e.target.value)}
+                  rows={4}
+                  className="w-full p-2 border border-gray-300 rounded-md"
+                  placeholder="Add a comment for the applicant..."
+                />
+              </div>
+
+              <div className="flex justify-end gap-3">
+                <Button
+                  onClick={() => setSelectedApplication(null)}
+                  variant="outline"
+                  disabled={saving}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  onClick={() => updateApplicationStatus(selectedApplication.id, status, comment)}
+                  disabled={saving}
+                >
+                  {saving ? 'Updating...' : 'Update Status'}
+                </Button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

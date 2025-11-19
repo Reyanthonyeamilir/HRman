@@ -149,27 +149,25 @@ function LogoutButton({ onNavigate }: { onNavigate?: () => void }) {
 
 function ProfileSection({ name, email }: { name: string; email: string }) {
   return (
-    <div className="border-t border-blue-800 pt-4 mt-4">
-      <div className="px-4 space-y-3">
-        <div className="flex items-center gap-3 p-3 bg-blue-900/30 rounded-lg border border-blue-700/50">
-          <div className="flex-shrink-0">
-            <div className="w-10 h-10 bg-blue-600 rounded-full flex items-center justify-center border-2 border-blue-400">
-              <User className="h-5 w-5 text-white" />
-            </div>
-          </div>
-          <div className="flex-1 min-w-0">
-            <p className="text-sm font-semibold text-white truncate">{name}</p>
-            <div className="flex items-center gap-1 mt-1">
-              <Mail className="h-3 w-3 text-blue-300" />
-              <p className="text-xs text-blue-200 truncate" title={email}>{email}</p>
-            </div>
+    <div className="px-4 py-3 bg-blue-900/20 border-b border-blue-800">
+      <div className="flex items-center gap-3 p-3 bg-blue-900/30 rounded-lg border border-blue-700/50">
+        <div className="flex-shrink-0">
+          <div className="w-10 h-10 bg-blue-600 rounded-full flex items-center justify-center border-2 border-blue-400">
+            <User className="h-5 w-5 text-white" />
           </div>
         </div>
-        <div className="bg-blue-900/20 rounded-lg p-2 border border-blue-700/30">
-          <p className="text-xs text-blue-200 text-center">
-            Signed in as Applicant
-          </p>
+        <div className="flex-1 min-w-0">
+          <p className="text-sm font-semibold text-white truncate">{name}</p>
+          <div className="flex items-center gap-1 mt-1">
+            <Mail className="h-3 w-3 text-blue-300" />
+            <p className="text-xs text-blue-200 truncate" title={email}>{email}</p>
+          </div>
         </div>
+      </div>
+      <div className="mt-2 bg-blue-900/20 rounded-lg p-2 border border-blue-700/30">
+        <p className="text-xs text-blue-200 text-center">
+          Signed in as Applicant
+        </p>
       </div>
     </div>
   )
@@ -228,11 +226,11 @@ export function ApplicantMobileTopbar() {
             <p className="text-xs text-gray-300 text-center">Welcome, {name}!</p>
           </div>
 
+          {/* Profile Section - MOVED TO TOP BELOW LOGO */}
+          <ProfileSection name={name} email={email} />
+
           {/* Navigation */}
           <NavList onNavigate={() => setMobileMenuOpen(false)} />
-
-          {/* Profile Section */}
-          <ProfileSection name={name} email={email} />
 
           {/* Logout Button */}
           <LogoutButton onNavigate={() => setMobileMenuOpen(false)} />
@@ -259,7 +257,7 @@ export default function ApplicantSidebar() {
 
   return (
     <aside className="hidden h-full min-h-screen w-72 border-r border-blue-800 bg-[#0b1b3b] text-white md:block">
-      {/* Desktop sidebar header with logo + greeting */}
+      {/* Desktop sidebar header with logo */}
       <div className="flex flex-col items-center justify-center border-b border-blue-800 bg-[#11214a] py-5 px-4">
         <Image
           src="/images/norsu.png"
@@ -272,10 +270,11 @@ export default function ApplicantSidebar() {
         <p className="text-xs text-gray-300 text-center">Welcome, {name}!</p>
       </div>
 
-      <NavList />
-
-      {/* Profile Section */}
+      {/* Profile Section - MOVED TO TOP BELOW LOGO */}
       <ProfileSection name={name} email={email} />
+
+      {/* Navigation */}
+      <NavList />
 
       {/* Logout Button */}
       <LogoutButton />

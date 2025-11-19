@@ -3,7 +3,7 @@
 import Link from 'next/link'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { useState, useEffect } from 'react'
-import { signIn, getCurrentUser, supabase, createOrUpdateProfile } from '@/lib/supabaseClient'
+import { signIn, getCurrentUser, supabase } from '@/lib/supabaseClient'
 import Image from 'next/image'
 
 export default function LoginPage() {
@@ -69,93 +69,28 @@ export default function LoginPage() {
       const { user: signedInUser, error } = await signIn({ email, password })
       
       if (error) {
-        throw new Error(error.message)
+        throw new Error(error)
       }
 
       if (!signedInUser) {
-        throw new Error('Failed to sign in')
+        throw new Error('Failed to sign in - no user returned')
       }
 
-      console.log('✅ Auth successful, waiting for session...')
+      console.log('✅ Auth successful, getting user profile...')
       
-      // Wait longer and retry if needed
-      let user = null
-      let attempts = 0
-      while (attempts < 5 && !user) {
-        await new Promise(resolve => setTimeout(resolve, 500))
-        user = await getCurrentUser()
-        attempts++
-        console.log(`🔄 Attempt ${attempts}:`, user ? 'User found' : 'User not found')
-      }
-
+      // Get user with profile - the fixed supabaseClient will handle profile creation
+      const user = await getCurrentUser()
+      
       if (!user) {
-        throw new Error('Failed to retrieve user information after multiple attempts')
+        throw new Error('Failed to retrieve user information')
       }
 
-      console.log('👤 User retrieved:', user)
+      console.log('👤 User retrieved:', user.email)
       console.log('🎭 User profile:', user.profile)
-      console.log('📊 Profile exists:', !!user.profile)
       console.log('🔑 User role:', user.profile?.role)
 
-      // Ensure profile exists and handle role assignment
-      let userRole = user.profile?.role
-      
-      if (!user.profile) {
-        console.log('🆕 Creating profile for user...')
-        
-        // Auto-assign roles based on email patterns - MATCHING YOUR SQL SCHEMA
-        if (email.includes('admin') || email.includes('super_admin')) {
-          userRole = 'super_admin'
-          console.log('🎯 Auto-assigning super_admin role based on email')
-        } else if (email.includes('hr')) {
-          userRole = 'hr'
-          console.log('🎯 Auto-assigning hr role based on email')
-        } else {
-          userRole = 'applicant'
-          console.log('🎯 Auto-assigning applicant role')
-        }
-
-        // Use the helper function to create profile - this matches your SQL schema
-        const profileData = {
-          id: user.id,
-          email: user.email!,
-          role: userRole,
-          // phone can be null according to your schema
-          phone: null,
-          created_at: new Date().toISOString()
-        }
-
-        console.log('📝 Creating profile with data:', profileData)
-
-        const { data: newProfile, error: profileError } = await supabase
-          .from('profiles')
-          .upsert(profileData, {
-            onConflict: 'id'
-          })
-          .select()
-          .single()
-
-        if (profileError) {
-          console.error('❌ Profile creation error:', profileError)
-          // If profile creation fails, use default role but don't block login
-          userRole = 'applicant'
-          console.warn('⚠️ Using default applicant role due to profile creation failure')
-        } else {
-          console.log('✅ Profile created successfully:', newProfile)
-          userRole = newProfile.role
-          
-          // Refresh user data after profile creation
-          await new Promise(resolve => setTimeout(resolve, 1000))
-          const refreshedUser = await getCurrentUser()
-          if (refreshedUser) {
-            user = refreshedUser
-            console.log('🔄 User data refreshed after profile creation')
-          }
-        }
-      }
-
       // Get the final role - ensure it matches your SQL enum values
-      let finalRole = (user.profile?.role || userRole || 'applicant') as 'applicant' | 'hr' | 'super_admin'
+      let finalRole = user.profile?.role || 'applicant'
 
       // Validate the role matches your SQL schema
       const validRoles = ['applicant', 'hr', 'super_admin']
@@ -191,19 +126,7 @@ export default function LoginPage() {
       
     } catch (err: any) {
       console.error('❌ Login error:', err)
-      let errorMessage = 'Failed to sign in. Please check your credentials.'
-      
-      if (err.message.includes('Invalid login credentials')) {
-        errorMessage = 'Invalid email or password. Please try again.'
-      } else if (err.message.includes('Email not confirmed')) {
-        errorMessage = 'Please verify your email address before logging in.'
-      } else if (err.message.includes('Too many requests')) {
-        errorMessage = 'Too many login attempts. Please try again later.'
-      } else if (err.message.includes('Failed to retrieve user')) {
-        errorMessage = 'Login successful, but there was an issue loading your profile. Please try again.'
-      } else {
-        errorMessage = err.message || errorMessage
-      }
+      let errorMessage = err.message || 'Failed to sign in. Please check your credentials.'
       
       setMsg(errorMessage)
     } finally {
@@ -217,13 +140,13 @@ export default function LoginPage() {
     console.log('🎯 Current user role for redirect:', role)
     
     // Map roles to dashboard paths - MATCHING YOUR SQL SCHEMA ROLES
-    const roleRedirects = {
-      'super_admin': '/admin/dashboard',
+    const roleRedirects: { [key: string]: string } = {
+      'super_admin': '/hr/dashboard', // or '/admin/dashboard' if you have an admin section
       'hr': '/hr/dashboard', 
       'applicant': '/applicant'
     }
     
-    let redirectPath = roleRedirects[role as keyof typeof roleRedirects] || '/applicant/dashboard'
+    let redirectPath = roleRedirects[role] || '/applicant/dashboard'
 
     console.log('🔄 Redirecting to:', redirectPath, 'for role:', role)
     console.log('📝 Next parameter:', next)
@@ -249,12 +172,41 @@ export default function LoginPage() {
         console.log('🔍 DEBUG - localStorage role:', localStorage.getItem('user_role'))
         console.log('🔍 DEBUG - localStorage user_id:', localStorage.getItem('user_id'))
       }
+
+      // Check session
+      const { data: { session } } = await supabase.auth.getSession()
+      console.log('🔍 DEBUG - Session exists:', !!session)
+      console.log('🔍 DEBUG - Session user:', session?.user)
     } catch (error) {
       console.error('🔍 DEBUG - Error:', error)
     }
   }
 
+  // Clear session for testing
+  const clearSession = async () => {
+    try {
+      await supabase.auth.signOut()
+      localStorage.clear()
+      console.log('🧹 Session and localStorage cleared')
+      setMsg('Session cleared. Please refresh the page.')
+    } catch (error) {
+      console.error('Error clearing session:', error)
+    }
+  }
+
   const canSubmit = email.trim() && password.trim() && !loading
+
+  // Show loading while checking session
+  if (isCheckingSession) {
+    return (
+      <main className="min-h-screen bg-gradient-to-br from-[#0a1630] via-[#0f2a5c] to-[#1a3f8a] flex items-center justify-center">
+        <div className="text-center text-white">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-white mx-auto mb-4"></div>
+          <p>Checking authentication...</p>
+        </div>
+      </main>
+    )
+  }
 
   return (
     <main className="min-h-screen bg-gradient-to-br from-[#0a1630] via-[#0f2a5c] to-[#1a3f8a]">
@@ -316,6 +268,15 @@ export default function LoginPage() {
                       • Use email containing "admin" for <strong>super_admin</strong> role<br/>
                       • Use email containing "hr" for <strong>hr</strong> role<br/>
                       • Other emails get <strong>applicant</strong> role
+                    </p>
+                  </div>
+
+                  {/* Demo Credentials */}
+                  <div className="mt-2 p-2 bg-green-50 border border-green-200 rounded text-xs">
+                    <p className="text-green-700">
+                      <strong>Demo Credentials:</strong><br/>
+                      • Email: <code>hr@norsu.edu.ph</code> / Password: <code>password</code><br/>
+                      • Email: <code>applicant@norsu.edu.ph</code> / Password: <code>password</code>
                     </p>
                   </div>
                 </div>
@@ -392,17 +353,17 @@ export default function LoginPage() {
 
                 {msg && (
                   <div className={`mt-3 p-3 rounded-lg text-sm ${
-                    msg.includes("Invalid") || msg.includes("Failed") || msg.includes("verify") || msg.includes("attempts") 
+                    msg.toLowerCase().includes("invalid") || msg.toLowerCase().includes("failed") || msg.toLowerCase().includes("error")
                       ? "bg-red-50 text-red-700 border border-red-200" 
                       : "bg-green-50 text-green-700 border border-green-200"
                   }`}>
                     <div className="flex items-center gap-2">
                       <svg className={`w-3 h-3 ${
-                        msg.includes("Invalid") || msg.includes("Failed") || msg.includes("verify") || msg.includes("attempts") 
+                        msg.toLowerCase().includes("invalid") || msg.toLowerCase().includes("failed") || msg.toLowerCase().includes("error")
                           ? "text-red-600" 
                           : "text-green-600"
                       }`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        {msg.includes("Invalid") || msg.includes("Failed") || msg.includes("verify") || msg.includes("attempts") ? (
+                        {msg.toLowerCase().includes("invalid") || msg.toLowerCase().includes("failed") || msg.toLowerCase().includes("error") ? (
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
                         ) : (
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
@@ -413,19 +374,32 @@ export default function LoginPage() {
                   </div>
                 )}
 
-                {/* Debug button - remove in production */}
-                <button 
-                  type="button" 
-                  onClick={debugUserRole}
-                  className="mt-4 p-2 bg-gray-200 text-xs w-full rounded hover:bg-gray-300 transition-colors"
-                >
-                  Debug User Role (Check Console)
-                </button>
+                {/* Debug buttons - remove in production */}
+                <div className="mt-4 flex gap-2">
+                  <button 
+                    type="button" 
+                    onClick={debugUserRole}
+                    className="flex-1 p-2 bg-gray-200 text-xs rounded hover:bg-gray-300 transition-colors text-gray-700"
+                  >
+                    Debug User (Console)
+                  </button>
+                  <button 
+                    type="button" 
+                    onClick={clearSession}
+                    className="flex-1 p-2 bg-red-200 text-xs rounded hover:bg-red-300 transition-colors text-red-700"
+                  >
+                    Clear Session
+                  </button>
+                </div>
 
                 <div className="mt-6 pt-4 border-t border-slate-200">
                   <p className="text-center text-xs text-slate-600">
                     Forgot your password?{' '}
                     <Link href="/forgot-password" className="text-blue-700 hover:text-blue-800 font-medium">Reset it here</Link>
+                  </p>
+                  <p className="text-center text-xs text-slate-600 mt-2">
+                    Don't have an account?{' '}
+                    <Link href="/signup" className="text-blue-700 hover:text-blue-800 font-medium">Sign up here</Link>
                   </p>
                 </div>
               </div>
@@ -441,16 +415,31 @@ export default function LoginPage() {
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 15.5c-.77.833.192 2.5 1.732 2.5z" />
                     </svg>
                   </div>
-                  <h2 className="text-xl md:text-2xl font-bold mb-3">New Here?</h2>
+                  <h2 className="text-xl md:text-2xl font-bold mb-3">NORSU HR Portal</h2>
                   <p className="text-sm text-white/90 mb-6 max-w-xs leading-relaxed">
-                    Don't have an account yet? Create one to access all HR services and job opportunities.
+                    Access the Human Resource Management System for job applications, employee services, and administrative functions.
                   </p>
-                  <Link 
-                    href="/signup" 
-                    className="inline-flex items-center justify-center rounded-full border-2 border-white bg-transparent px-6 py-2.5 font-semibold hover:bg-white hover:text-blue-800 transition-all duration-300 shadow-lg hover:shadow-xl text-sm"
-                  >
-                    CREATE ACCOUNT
-                  </Link>
+                  
+                  <div className="space-y-3 text-left text-sm">
+                    <div className="flex items-center gap-2">
+                      <svg className="h-4 w-4 text-green-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                      </svg>
+                      <span>Job Application Tracking</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <svg className="h-4 w-4 text-green-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                      </svg>
+                      <span>HR Management Tools</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <svg className="h-4 w-4 text-green-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                      </svg>
+                      <span>Real-time Notifications</span>
+                    </div>
+                  </div>
                 </div>
 
                 {/* University Info */}
@@ -459,8 +448,9 @@ export default function LoginPage() {
                     <div className="bg-white/20 p-1.5 rounded-lg">
                       <Image src="/images/norsu.png" alt="NORSU" width={16} height={16} />
                     </div>
-                    <span className="text-xs font-semibold">NORSU • HRM</span>
+                    <span className="text-xs font-semibold">Negros Oriental State University</span>
                   </div>
+                  <p className="text-center text-xs text-white/60 mt-1">Human Resource Management</p>
                 </div>
               </div>
             </div>
