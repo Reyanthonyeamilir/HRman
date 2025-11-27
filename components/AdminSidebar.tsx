@@ -10,6 +10,19 @@ function cn(...a: Array<string | false | null | undefined>) {
   return a.filter(Boolean).join(' ')
 }
 
+interface UserData {
+  id: string
+  email?: string
+  role?: string
+  name: string
+}
+
+interface AdminSidebarProps {
+  open: boolean
+  setOpen: (v: boolean) => void
+  user?: UserData | null
+}
+
 const NAV = [
   { label: 'Dashboard', href: '/admin/dashboard', icon: LayoutDashboard },
   { label: 'Job Posting', href: '/admin/jobposting', icon: Briefcase },
@@ -19,10 +32,8 @@ const NAV = [
 export default function AdminSidebar({
   open,
   setOpen,
-}: {
-  open: boolean
-  setOpen: (v: boolean) => void
-}) {
+  user
+}: AdminSidebarProps) {
   const pathname = usePathname()
 
   return (
@@ -52,6 +63,14 @@ export default function AdminSidebar({
             className="rounded-xl mb-2"
           />
           <h1 className="text-base font-semibold text-center">NORSU HR Admin</h1>
+          {user && (
+            <div className="mt-2 text-center">
+              <p className="text-xs text-blue-200">Welcome, {user.name}</p>
+              <span className="inline-block px-2 py-1 mt-1 text-xs font-medium bg-blue-600 text-white rounded-full">
+                {user.role?.toUpperCase() || 'SUPER ADMIN'}
+              </span>
+            </div>
+          )}
         </div>
 
         {/* --- Close Button Mobile --- */}

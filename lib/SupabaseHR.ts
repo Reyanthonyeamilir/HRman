@@ -1,7 +1,41 @@
 import { createClient } from '@supabase/supabase-js'
+import { User } from '@supabase/supabase-js'
+
+// Define types based on your database schema
+interface Profile {
+  id: string
+  email: string
+  phone?: string
+  role: 'applicant' | 'hr' | 'super_admin'
+  created_at: string
+  user_data?: any
+}
+
+interface JobPosting {
+  id: string
+  created_by: string
+  job_title: string
+  department?: string
+  location?: string
+  job_description?: string
+  image_path?: string
+  date_posted: string
+  status: 'active' | 'closed'
+}
+
+interface Application {
+  id: string
+  job_id: string
+  applicant_id: string
+  pdf_path: string
+  comment?: string
+  submitted_at: string
+  status: 'for_review' | 'shortlisted' | 'hired' | 'rejected'
+  updated_at?: string
+}
 
 export class SupabaseHR {
-  private supabase
+  public supabase
 
   constructor() {
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
@@ -24,7 +58,6 @@ export class SupabaseHR {
    */
   async getCurrentUser() {
     try {
-      console.log('Getting current user...')
       const { data: { user }, error } = await this.supabase.auth.getUser()
       
       if (error) {
@@ -35,7 +68,6 @@ export class SupabaseHR {
         }
       }
 
-      console.log('Current user:', user?.id)
       return {
         user,
         error: null
@@ -54,8 +86,6 @@ export class SupabaseHR {
    */
   async getUserProfile(userId: string) {
     try {
-      console.log('Getting user profile for:', userId)
-      
       if (!userId) {
         return {
           profile: null,
@@ -77,7 +107,6 @@ export class SupabaseHR {
         }
       }
 
-      console.log('User profile found:', profile?.id)
       return {
         profile,
         error: null
@@ -92,54 +121,132 @@ export class SupabaseHR {
   }
 
   /**
-   * Get all applications with applicant and job posting details
+   * Get dashboard statistics
    */
-  async getApplicationsWithDetails() {
+  async getDashboardStats() {
     try {
-      console.log('Fetching applications with details...')
+      // Get total applications
+      const { count: totalApplicants, error: applicantsError } = await this.supabase
+        .from('applications')
+        .select('*', { count: 'exact', head: true })
+
+      // Get active candidates (last 30 days)
+      const thirtyDaysAgo = new Date()
+      thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30)
       
+      const { count: activeCandidates, error: activeError } = await this.supabase
+        .from('applications')
+        .select('*', { count: 'exact', head: true })
+        .gte('submitted_at', thirtyDaysAgo.toISOString())
+
+      // Get open positions
+      const { count: openPositions, error: jobsError } = await this.supabase
+        .from('job_postings')
+        .select('*', { count: 'exact', head: true })
+        .eq('status', 'active')
+
+      // Get pending reviews
+      const { count: pendingReviews, error: reviewsError } = await this.supabase
+        .from('applications')
+        .select('*', { count: 'exact', head: true })
+        .eq('status', 'for_review')
+
+      if (applicantsError || activeError || jobsError || reviewsError) {
+        console.error('Error fetching dashboard stats:', { applicantsError, activeError, jobsError, reviewsError })
+        throw new Error('Failed to fetch dashboard statistics')
+      }
+
+      return {
+        totalApplicants: totalApplicants || 0,
+        activeCandidates: activeCandidates || 0,
+        openPositions: openPositions || 0,
+        pendingReviews: pendingReviews || 0
+      }
+    } catch (error: any) {
+      console.error('Error in getDashboardStats:', error)
+      return {
+        totalApplicants: 0,
+        activeCandidates: 0,
+        openPositions: 0,
+        pendingReviews: 0
+      }
+    }
+  }
+
+  /**
+   * Get recent activity for dashboard - SIMPLIFIED VERSION
+   */
+  async getRecentActivity() {
+    try {
+      // Get recent applications with basic info
       const { data: applications, error } = await this.supabase
         .from('applications')
-        .select(`
-          *,
-          applicant:profiles!applications_applicant_id_fkey(
-            id,
-            email,
-            phone,
-            role,
-            created_at,
-            user_data
-          ),
-          job_posting:job_postings!applications_job_id_fkey(
-            id,
-            job_title,
-            department,
-            location,
-            status,
-            job_description
-          )
-        `)
+        .select('*')
         .order('submitted_at', { ascending: false })
+        .limit(5)
 
       if (error) {
         console.error('Error fetching applications:', error)
-        return {
-          applications: [],
-          error: new Error(error.message)
+        return []
+      }
+
+      if (!applications || applications.length === 0) return []
+
+      // Get job titles for these applications
+      const jobIds = applications.map(app => app.job_id).filter(Boolean)
+      let jobs: any[] = []
+      
+      if (jobIds.length > 0) {
+        const { data: jobsData, error: jobsError } = await this.supabase
+          .from('job_postings')
+          .select('id, job_title')
+          .in('id', jobIds)
+
+        if (!jobsError && jobsData) {
+          jobs = jobsData
         }
       }
 
-      console.log(`Found ${applications?.length || 0} applications`)
-      return {
-        applications: applications || [],
-        error: null
+      // Get applicant info
+      const applicantIds = applications.map(app => app.applicant_id).filter(Boolean)
+      let profiles: any[] = []
+      
+      if (applicantIds.length > 0) {
+        const { data: profilesData, error: profilesError } = await this.supabase
+          .from('profiles')
+          .select('id, email, user_data')
+          .in('id', applicantIds)
+
+        if (!profilesError && profilesData) {
+          profiles = profilesData
+        }
       }
-    } catch (error: any) {
-      console.error('Unexpected error in getApplicationsWithDetails:', error)
-      return {
-        applications: [],
-        error: error instanceof Error ? error : new Error('Failed to fetch applications')
-      }
+
+      // Combine the data
+      return applications.map(app => {
+        const job = jobs.find(j => j.id === app.job_id)
+        const profile = profiles.find(p => p.id === app.applicant_id)
+        
+        const applicantName = profile?.user_data?.name || 
+                             profile?.email?.split('@')[0] || 
+                             'Applicant'
+        
+        return {
+          id: app.id,
+          applicant_name: applicantName,
+          job_title: job?.job_title || 'Unknown Position',
+          action: 'Applied for position',
+          timestamp: new Date(app.submitted_at).toLocaleDateString('en-US', {
+            month: 'short',
+            day: 'numeric',
+            year: 'numeric'
+          }),
+          status: app.status
+        }
+      })
+    } catch (error) {
+      console.error('Error in getRecentActivity:', error)
+      return []
     }
   }
 
@@ -148,16 +255,13 @@ export class SupabaseHR {
    */
   async updateApplicationStatus(applicationId: string, status: string) {
     try {
-      console.log(`Updating application ${applicationId} to status: ${status}`)
-      
       if (!applicationId || !status) {
         return {
           error: new Error('applicationId and status are required')
         }
       }
 
-      // Validate status
-      const validStatuses = ['pending', 'reviewed', 'accepted', 'rejected']
+      const validStatuses = ['for_review', 'shortlisted', 'hired', 'rejected']
       if (!validStatuses.includes(status)) {
         return {
           error: new Error(`Invalid status. Must be one of: ${validStatuses.join(', ')}`)
@@ -179,7 +283,6 @@ export class SupabaseHR {
         }
       }
 
-      console.log('Application status updated successfully')
       return {
         error: null
       }
@@ -187,101 +290,6 @@ export class SupabaseHR {
       console.error('Unexpected error in updateApplicationStatus:', error)
       return {
         error: error instanceof Error ? error : new Error('Failed to update application status')
-      }
-    }
-  }
-
-  /**
-   * Get applications by status
-   */
-  async getApplicationsByStatus(status: string) {
-    try {
-      const { data: applications, error } = await this.supabase
-        .from('applications')
-        .select(`
-          *,
-          applicant:profiles!applications_applicant_id_fkey(
-            id,
-            email,
-            phone,
-            role,
-            created_at,
-            user_data
-          ),
-          job_posting:job_postings!applications_job_id_fkey(
-            id,
-            job_title,
-            department,
-            location,
-            status
-          )
-        `)
-        .eq('status', status)
-        .order('submitted_at', { ascending: false })
-
-      if (error) {
-        return {
-          applications: [],
-          error: new Error(error.message)
-        }
-      }
-
-      return {
-        applications: applications || [],
-        error: null
-      }
-    } catch (error: any) {
-      return {
-        applications: [],
-        error: error instanceof Error ? error : new Error(`Failed to fetch ${status} applications`)
-      }
-    }
-  }
-
-  /**
-   * Get application by ID with full details
-   */
-  async getApplicationById(applicationId: string) {
-    try {
-      const { data: application, error } = await this.supabase
-        .from('applications')
-        .select(`
-          *,
-          applicant:profiles!applications_applicant_id_fkey(
-            id,
-            email,
-            phone,
-            role,
-            created_at,
-            user_data
-          ),
-          job_posting:job_postings!applications_job_id_fkey(
-            id,
-            job_title,
-            department,
-            location,
-            status,
-            job_description
-          )
-        `)
-        .eq('id', applicationId)
-        .single()
-
-      if (error) {
-        return {
-          application: null,
-          error: new Error(error.message)
-        }
-      }
-
-      return {
-        application,
-        error: null
-      }
-    } catch (error: any) {
-      return {
-        application: null,
-        error: error instanceof Error ? error : new Error('Failed to fetch application')
       }
     }
   }
@@ -318,197 +326,6 @@ export class SupabaseHR {
       return {
         jobPostings: [],
         error: error instanceof Error ? error : new Error('Failed to fetch job postings')
-      }
-    }
-  }
-
-  /**
-   * Get job posting by ID
-   */
-  async getJobPostingById(jobId: string) {
-    try {
-      const { data: jobPosting, error } = await this.supabase
-        .from('job_postings')
-        .select(`
-          *,
-          created_by:profiles!job_postings_created_by_fkey(
-            id,
-            email,
-            role
-          )
-        `)
-        .eq('id', jobId)
-        .single()
-
-      if (error) {
-        return {
-          jobPosting: null,
-          error: new Error(error.message)
-        }
-      }
-
-      return {
-        jobPosting,
-        error: null
-      }
-    } catch (error: any) {
-      return {
-        jobPosting: null,
-        error: error instanceof Error ? error : new Error('Failed to fetch job posting')
-      }
-    }
-  }
-
-  /**
-   * Get applications for a specific job posting
-   */
-  async getApplicationsByJobId(jobId: string) {
-    try {
-      const { data: applications, error } = await this.supabase
-        .from('applications')
-        .select(`
-          *,
-          applicant:profiles!applications_applicant_id_fkey(
-            id,
-            email,
-            phone,
-            role,
-            created_at,
-            user_data
-          )
-        `)
-        .eq('job_id', jobId)
-        .order('submitted_at', { ascending: false })
-
-      if (error) {
-        return {
-          applications: [],
-          error: new Error(error.message)
-        }
-      }
-
-      return {
-        applications: applications || [],
-        error: null
-      }
-    } catch (error: any) {
-      return {
-        applications: [],
-        error: error instanceof Error ? error : new Error('Failed to fetch applications for job')
-      }
-    }
-  }
-
-  /**
-   * Add comment to application
-   */
-  async addApplicationComment(applicationId: string, comment: string) {
-    try {
-      const { error } = await this.supabase
-        .from('applications')
-        .update({ 
-          comment,
-          updated_at: new Date().toISOString()
-        })
-        .eq('id', applicationId)
-
-      if (error) {
-        return {
-          error: new Error(error.message)
-        }
-      }
-
-      return {
-        error: null
-      }
-    } catch (error: any) {
-      return {
-        error: error instanceof Error ? error : new Error('Failed to add comment')
-      }
-    }
-  }
-
-  /**
-   * Get application statistics
-   */
-  async getApplicationStats() {
-    try {
-      // Get total applications
-      const { count: total, error: totalError } = await this.supabase
-        .from('applications')
-        .select('*', { count: 'exact', head: true })
-
-      // Get applications by status
-      const { data: statusCounts, error: statusError } = await this.supabase
-        .from('applications')
-        .select('status')
-
-      if (totalError || statusError) {
-        throw new Error('Failed to fetch application statistics')
-      }
-
-      // Count applications by status
-      const statusStats = statusCounts?.reduce((acc, app) => {
-        acc[app.status] = (acc[app.status] || 0) + 1
-        return acc
-      }, {} as Record<string, number>) || {}
-
-      return {
-        stats: {
-          total: total || 0,
-          byStatus: statusStats
-        },
-        error: null
-      }
-    } catch (error: any) {
-      return {
-        stats: {
-          total: 0,
-          byStatus: {}
-        },
-        error: error instanceof Error ? error : new Error('Failed to fetch application statistics')
-      }
-    }
-  }
-
-  /**
-   * Download file from storage (for PDFs)
-   */
-  async downloadFile(bucket: string, path: string) {
-    try {
-      const { data, error } = await this.supabase.storage
-        .from(bucket)
-        .download(path)
-
-      return {
-        data,
-        error: error ? new Error(error.message) : null
-      }
-    } catch (error) {
-      return {
-        data: null,
-        error: error instanceof Error ? error : new Error('Failed to download file')
-      }
-    }
-  }
-
-  /**
-   * Get signed URL for file download
-   */
-  async getSignedUrl(bucket: string, path: string, expiresIn: number = 60) {
-    try {
-      const { data, error } = await this.supabase.storage
-        .from(bucket)
-        .createSignedUrl(path, expiresIn)
-
-      return {
-        url: data?.signedUrl || null,
-        error: error ? new Error(error.message) : null
-      }
-    } catch (error) {
-      return {
-        url: null,
-        error: error instanceof Error ? error : new Error('Failed to generate signed URL')
       }
     }
   }

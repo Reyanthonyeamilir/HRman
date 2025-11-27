@@ -141,7 +141,7 @@ export default function LoginPage() {
     
     // Map roles to dashboard paths - MATCHING YOUR SQL SCHEMA ROLES
     const roleRedirects: { [key: string]: string } = {
-      'super_admin': '/hr/dashboard', // or '/admin/dashboard' if you have an admin section
+      'super_admin': '/admin/dashboard', // or '/admin/dashboard' if you have an admin section
       'hr': '/hr/dashboard', 
       'applicant': '/applicant'
     }
