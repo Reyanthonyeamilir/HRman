@@ -261,24 +261,9 @@ export default function LoginPage() {
                   <h2 className="text-2xl md:text-3xl font-bold text-slate-900 mb-2">Sign In</h2>
                   <p className="text-sm text-slate-600">Use your email and password to access your account</p>
                   
-                  {/* Role testing hint - UPDATED TO MATCH YOUR SQL SCHEMA */}
-                  <div className="mt-3 p-2 bg-blue-50 border border-blue-200 rounded text-xs">
-                    <p className="text-blue-700">
-                      <strong>Role Testing (Based on your SQL schema):</strong><br/>
-                      • Use email containing "admin" for <strong>super_admin</strong> role<br/>
-                      • Use email containing "hr" for <strong>hr</strong> role<br/>
-                      • Other emails get <strong>applicant</strong> role
-                    </p>
-                  </div>
+                
 
-                  {/* Demo Credentials */}
-                  <div className="mt-2 p-2 bg-green-50 border border-green-200 rounded text-xs">
-                    <p className="text-green-700">
-                      <strong>Demo Credentials:</strong><br/>
-                      • Email: <code>hr@norsu.edu.ph</code> / Password: <code>password</code><br/>
-                      • Email: <code>applicant@norsu.edu.ph</code> / Password: <code>password</code>
-                    </p>
-                  </div>
+                 
                 </div>
                 
                 <form onSubmit={onSubmit} className="space-y-4">
@@ -378,13 +363,6 @@ export default function LoginPage() {
                 <div className="mt-4 flex gap-2">
                   <button 
                     type="button" 
-                    onClick={debugUserRole}
-                    className="flex-1 p-2 bg-gray-200 text-xs rounded hover:bg-gray-300 transition-colors text-gray-700"
-                  >
-                    Debug User (Console)
-                  </button>
-                  <button 
-                    type="button" 
                     onClick={clearSession}
                     className="flex-1 p-2 bg-red-200 text-xs rounded hover:bg-red-300 transition-colors text-red-700"
                   >
@@ -393,10 +371,6 @@ export default function LoginPage() {
                 </div>
 
                 <div className="mt-6 pt-4 border-t border-slate-200">
-                  <p className="text-center text-xs text-slate-600">
-                    Forgot your password?{' '}
-                    <Link href="/forgot-password" className="text-blue-700 hover:text-blue-800 font-medium">Reset it here</Link>
-                  </p>
                   <p className="text-center text-xs text-slate-600 mt-2">
                     Don't have an account?{' '}
                     <Link href="/signup" className="text-blue-700 hover:text-blue-800 font-medium">Sign up here</Link>
