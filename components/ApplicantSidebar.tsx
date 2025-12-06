@@ -4,16 +4,22 @@ import * as React from 'react'
 import Link from 'next/link'
 import Image from 'next/image'
 import { usePathname, useRouter } from 'next/navigation'
-import { Menu, LayoutDashboard, Briefcase, ClipboardList, Compass, X, Mail, User, LogOut } from 'lucide-react'
+import { 
+  Menu, LayoutDashboard, Briefcase, ClipboardList, 
+  Compass, X, Mail, User as UserIcon, LogOut, User 
+} from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import { getCurrentUser, signOut } from '@/lib/supabaseClient'
 
+// ADD PROFILE LINK HERE:
 const links = [
+  { label: 'Profile', href: '/applicant/profile', icon: User },
   { label: 'Dashboard', href: '/applicant', icon: LayoutDashboard },
   { label: 'Job Posting', href: '/applicant/job-postings', icon: Briefcase },
   { label: 'Requirements', href: '/applicant/requirements', icon: ClipboardList },
   { label: 'Track Application', href: '/applicant/track', icon: Compass },
+
 ]
 
 function useApplicantProfile() {
@@ -153,7 +159,7 @@ function ProfileSection({ name, email }: { name: string; email: string }) {
       <div className="flex items-center gap-3 p-3 bg-blue-900/30 rounded-lg border border-blue-700/50">
         <div className="flex-shrink-0">
           <div className="w-10 h-10 bg-blue-600 rounded-full flex items-center justify-center border-2 border-blue-400">
-            <User className="h-5 w-5 text-white" />
+            <UserIcon className="h-5 w-5 text-white" />
           </div>
         </div>
         <div className="flex-1 min-w-0">
