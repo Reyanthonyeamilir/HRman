@@ -78,7 +78,7 @@ export default function LoginPage() {
 
       console.log('✅ Auth successful, getting user profile...')
       
-      // Get user with profile - the fixed supabaseClient will handle profile creation
+      // Get user with profile
       const user = await getCurrentUser()
       
       if (!user) {
@@ -89,7 +89,7 @@ export default function LoginPage() {
       console.log('🎭 User profile:', user.profile)
       console.log('🔑 User role:', user.profile?.role)
 
-      // Get the final role - ensure it matches your SQL enum values
+      // Get the final role
       let finalRole = user.profile?.role || 'applicant'
 
       // Validate the role matches your SQL schema
@@ -101,7 +101,7 @@ export default function LoginPage() {
 
       console.log('🔐 Login successful, final user role:', finalRole)
       
-      // STORE USER DATA IN LOCALSTORAGE - WITH SAFETY CHECKS
+      // STORE USER DATA IN LOCALSTORAGE
       if (typeof window !== 'undefined' && user) {
         try {
           localStorage.setItem('applicant_name', user.email?.split('@')[0] || 'Applicant')
@@ -115,7 +115,6 @@ export default function LoginPage() {
           console.log('  - Email:', user.email)
         } catch (storageError) {
           console.error('❌ LocalStorage error:', storageError)
-          // Don't throw here - localStorage failure shouldn't block login
         }
       }
       
@@ -138,15 +137,16 @@ export default function LoginPage() {
     const next = search.get('next')
     
     console.log('🎯 Current user role for redirect:', role)
+    console.log('📁 Your dashboard is at: /app/administrator/dashboard/page.tsx')
+    console.log('✅ Redirecting to: /administrator/dashboard (lowercase)')
     
-    // Map roles to dashboard paths - MATCHING YOUR SQL SCHEMA ROLES
-    const roleRedirects: { [key: string]: string } = {
-      'super_admin': '/admin/dashboard', // or '/admin/dashboard' if you have an admin section
-      'hr': '/hr/dashboard', 
-      'applicant': '/applicant'
-    }
-    
-    let redirectPath = roleRedirects[role] || '/applicant/dashboard'
+   // In your login page - Line 125-127:
+const roleRedirects: { [key: string]: string } = {
+  'super_admin': '/administrator/dashboard', // UPPERCASE - CORRECT
+  'hr': '/administrator/dashboard',         // UPPERCASE - CORRECT
+  'applicant': '/applicant'
+}
+    let redirectPath = roleRedirects[role] || '/applicant'
 
     console.log('🔄 Redirecting to:', redirectPath, 'for role:', role)
     console.log('📝 Next parameter:', next)
@@ -260,10 +260,6 @@ export default function LoginPage() {
                   </div>
                   <h2 className="text-2xl md:text-3xl font-bold text-slate-900 mb-2">Sign In</h2>
                   <p className="text-sm text-slate-600">Use your email and password to access your account</p>
-                  
-                
-
-                 
                 </div>
                 
                 <form onSubmit={onSubmit} className="space-y-4">
@@ -368,6 +364,13 @@ export default function LoginPage() {
                   >
                     Clear Session
                   </button>
+                  <button 
+                    type="button" 
+                    onClick={debugUserRole}
+                    className="flex-1 p-2 bg-blue-200 text-xs rounded hover:bg-blue-300 transition-colors text-blue-700"
+                  >
+                    Debug Role
+                  </button>
                 </div>
 
                 <div className="mt-6 pt-4 border-t border-slate-200">
@@ -385,7 +388,7 @@ export default function LoginPage() {
                 
                 <div className="relative z-10 text-center">
                   <div className="bg-white/20 p-3 rounded-xl inline-flex mb-4">
-                   <svg className="h-6 w-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">=
+                    <svg className="h-6 w-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 15.5c-.77.833.192 2.5 1.732 2.5z" />
                     </svg>
                   </div>
@@ -407,7 +410,6 @@ export default function LoginPage() {
                       </svg>
                       <span>HR Management Tools</span>
                     </div>
-                
                   </div>
                 </div>
 

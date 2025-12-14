@@ -285,12 +285,12 @@ export async function signOut() {
     console.log('🚪 Signing out...')
     const { error } = await supabase.auth.signOut()
     if (error) {
-      console.error('❌ Sign out error:', error)
+      console.error(' Sign out error:', error)
       throw error
     }
-    console.log('✅ Signed out successfully')
+    console.log('Signed out successfully')
   } catch (error) {
-    console.error('❌ Error during sign out:', error)
+    console.error(' Error during sign out:', error)
     throw error
   }
 }
@@ -308,7 +308,7 @@ export async function resetPassword(email: string) {
     if (error) throw error
     return { success: true }
   } catch (error) {
-    console.error('❌ Reset password error:', error)
+    console.error(' Reset password error:', error)
     throw error
   }
 }
@@ -323,7 +323,7 @@ export async function updatePassword(newPassword: string) {
     if (error) throw error
     return { success: true }
   } catch (error) {
-    console.error('❌ Update password error:', error)
+    console.error(' Update password error:', error)
     throw error
   }
 }
@@ -331,7 +331,7 @@ export async function updatePassword(newPassword: string) {
 /* ---------------- Applicant APIs ---------------- */
 export async function listActiveJobs() {
   try {
-    console.log('📋 Fetching active jobs...')
+    console.log(' Fetching active jobs...')
     
     const { data, error } = await supabase
       .from('job_postings')
@@ -340,14 +340,14 @@ export async function listActiveJobs() {
       .order('date_posted', { ascending: false })
     
     if (error) {
-      console.error('❌ List active jobs error:', error)
+      console.error(' List active jobs error:', error)
       throw error
     }
     
-    console.log(`✅ Found ${data?.length || 0} active jobs`)
+    console.log(` Found ${data?.length || 0} active jobs`)
     return data || []
   } catch (error) {
-    console.error('❌ List active jobs error:', error)
+    console.error(' List active jobs error:', error)
     throw error
   }
 }
@@ -362,7 +362,7 @@ export async function submitApplication({
   comment: string
 }) {
   try {
-    console.log('📤 Submitting application for job:', job_id)
+    console.log(' Submitting application for job:', job_id)
     
     const { data: { user }, error: userError } = await supabase.auth.getUser()
     if (userError) throw userError
@@ -411,10 +411,10 @@ export async function submitApplication({
     
     if (updErr) throw updErr
 
-    console.log('✅ Application submitted successfully, ID:', app.id)
+    console.log(' Application submitted successfully, ID:', app.id)
     return app.id as number
   } catch (error) {
-    console.error('❌ Submit application error:', error)
+    console.error(' Submit application error:', error)
     throw error
   }
 }
@@ -425,7 +425,7 @@ export async function listMyApplications() {
     if (userError) throw userError
     if (!user) throw new Error('Not authenticated')
 
-    console.log('📋 Fetching applications for user:', user.id)
+    console.log(' Fetching applications for user:', user.id)
 
     const { data, error } = await supabase
       .from('applications')
@@ -458,10 +458,10 @@ export async function listMyApplications() {
       submitted_at: row.submitted_at,
     }))
 
-    console.log(`✅ Found ${applications.length} applications`)
+    console.log(` Found ${applications.length} applications`)
     return applications
   } catch (error) {
-    console.error('❌ List applications error:', error)
+    console.error(' List applications error:', error)
     throw error
   }
 }
@@ -476,10 +476,10 @@ export async function getSignedUrl(path: string) {
     
     if (error) throw error
     
-    console.log('✅ Signed URL generated')
+    console.log(' Signed URL generated')
     return data.signedUrl
   } catch (error) {
-    console.error('❌ Get signed URL error:', error)
+    console.error(' Get signed URL error:', error)
     throw error
   }
 }
@@ -506,7 +506,7 @@ export async function getApplicationStatus(applicationId: string) {
     if (error) throw error
     return data
   } catch (error) {
-    console.error('❌ Get application status error:', error)
+    console.error(' Get application status error:', error)
     throw error
   }
 }
@@ -518,7 +518,7 @@ export async function healthCheck() {
     if (error) throw error
     return { healthy: true }
   } catch (error) {
-    console.error('❌ Health check failed:', error)
+    console.error(' Health check failed:', error)
     return { healthy: false, error }
   }
 }

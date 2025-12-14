@@ -1,7 +1,8 @@
+// app/administrator/applications/page.tsx
 'use client'
 
 import { useState, useEffect } from 'react'
-import HRSidebar from '@/components/HRSidebar'
+import AdminHRSidebar, { MobileTopbar } from '@/components/adminhrsidebar' // Fixed import name
 import { Button } from "@/components/ui/button"
 import { supabase } from '@/lib/supabaseClient'
 
@@ -37,7 +38,7 @@ export default function HRTagPage() {
   const [applications, setApplications] = useState<Application[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [mobileOpen, setMobileOpen] = useState(false)
+  const [sidebarOpen, setSidebarOpen] = useState(false) // Changed from mobileOpen to sidebarOpen
   const [selectedStatus, setSelectedStatus] = useState<string>('all')
   const [selectedApplication, setSelectedApplication] = useState<Application | null>(null)
   const [comment, setComment] = useState('')
@@ -200,11 +201,8 @@ export default function HRTagPage() {
         `
       }
 
-      // Send email using your preferred email service
-      // This is a placeholder - you'll need to implement your email service
       console.log('Sending email notification:', emailData)
       
-      // Example with fetch to your email API endpoint
       const response = await fetch('/api/send-email', {
         method: 'POST',
         headers: {
@@ -228,7 +226,6 @@ export default function HRTagPage() {
     try {
       setSaving(true)
       
-      // Update application in database
       const { error: updateError } = await supabase
         .from('applications')
         .update({
@@ -240,17 +237,13 @@ export default function HRTagPage() {
 
       if (updateError) throw updateError
 
-      // Find the application to get applicant email
       const application = applications.find(app => app.id === applicationId)
       if (!application) throw new Error('Application not found')
 
-      // Send email notification
       await sendEmailNotification(application, newStatus, comment)
 
-      // Refresh applications
       await fetchApplications()
       
-      // Close modal
       setSelectedApplication(null)
       setComment('')
       setStatus('for_review')
@@ -335,45 +328,37 @@ export default function HRTagPage() {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-gray-50 flex">
-        <HRSidebar />
-        <div className="flex-1 flex items-center justify-center">
-          <div className="text-center">
-            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto"></div>
-            <p className="text-lg mt-4 text-gray-600">Loading applications...</p>
-          </div>
+      <div className="min-h-screen bg-gray-50">
+        <AdminHRSidebar 
+          mobileOpen={sidebarOpen}
+          onMobileClose={() => setSidebarOpen(false)}
+        />
+        <div className="lg:pl-64">
+          <MobileTopbar onMenu={() => setSidebarOpen(true)} />
+          <main className="p-6">
+            <div className="flex items-center justify-center h-64">
+              <div className="text-center">
+                <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto"></div>
+                <p className="text-lg mt-4 text-gray-600">Loading applications...</p>
+              </div>
+            </div>
+          </main>
         </div>
       </div>
     )
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 flex">
-      <HRSidebar 
-        mobileOpen={mobileOpen}
-        onMobileClose={() => setMobileOpen(false)}
+    <div className="min-h-screen bg-gray-50">
+      <AdminHRSidebar 
+        mobileOpen={sidebarOpen}
+        onMobileClose={() => setSidebarOpen(false)}
       />
       
-      {/* Main Content */}
-      <div className="flex-1 lg:ml-0">
-        {/* Mobile Header */}
-        <div className="lg:hidden bg-white border-b p-4">
-          <div className="flex items-center justify-between">
-            <button
-              onClick={() => setMobileOpen(true)}
-              className="p-2 rounded-md text-gray-600 hover:bg-gray-100"
-            >
-              <svg className="h-6 w-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
-              </svg>
-            </button>
-            <h1 className="text-lg font-semibold text-gray-900">Application Management</h1>
-            <div className="w-6"></div>
-          </div>
-        </div>
-
-        {/* Content */}
-        <div className="p-4 lg:p-6">
+      <div className="lg:pl-64">
+        <MobileTopbar onMenu={() => setSidebarOpen(true)} />
+        
+        <main className="p-4 md:p-6">
           {/* Header Section */}
           <div className="mb-6">
             <h1 className="text-2xl lg:text-3xl font-bold text-gray-900">Application Management</h1>
@@ -585,7 +570,7 @@ export default function HRTagPage() {
               </div>
             )}
           </div>
-        </div>
+        </main>
       </div>
 
       {/* Status Update Modal */}

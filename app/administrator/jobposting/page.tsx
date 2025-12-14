@@ -1,24 +1,44 @@
+// app/administrator/jobposting/page.tsx
 'use client'
+
 import React, { useState, useEffect, useRef } from 'react'
 import Link from 'next/link'
-import AdminSidebar, { MobileTopbar } from '@/components/AdminSidebar'
+import AdminHRSidebar, { MobileTopbar } from '@/components/adminhrsidebar'
 import { supabase } from '@/lib/supabaseClient'
-import { Plus, Search, Edit, Trash2, Eye, MoreVertical, Briefcase, MapPin, Calendar, Users, X, Building, Image as ImageIcon, XCircle } from 'lucide-react'
+import { 
+  Plus, Search, Edit, Trash2, Eye, MoreVertical, Briefcase, 
+  MapPin, Calendar, Users, X, Building, Image as ImageIcon, 
+  XCircle, Lock, UserCheck 
+} from 'lucide-react'
+
+// Utility function for class names
+function cn(...classes: Array<string | false | null | undefined>) {
+  return classes.filter(Boolean).join(' ')
+}
 
 // Types based on your schema
 type JobStatus = 'active' | 'closed'
+type UserRole = 'applicant' | 'hr' | 'super_admin'
 
 interface JobPosting {
   id: string
   job_title: string
   department: string | null
   location: string | null
-  job_description: string | null // FIX: Make this nullable
+  job_description: string | null
   image_path: string | null
   date_posted: string
   status: JobStatus
   created_by: string
   applications_count?: number
+  can_edit?: boolean
+  creator_email?: string
+}
+
+interface UserProfile {
+  id: string
+  role: UserRole
+  email: string
 }
 
 export default function JobPostingsPage() {
@@ -30,7 +50,9 @@ export default function JobPostingsPage() {
   const [departmentFilter, setDepartmentFilter] = useState('all')
   const [showAddForm, setShowAddForm] = useState(false)
   const [formLoading, setFormLoading] = useState(false)
-  const [isClient, setIsClient] = useState(false) // ADD: Client state for hydration
+  const [isClient, setIsClient] = useState(false)
+  const [currentUser, setCurrentUser] = useState<UserProfile | null>(null)
+  const [loadingUser, setLoadingUser] = useState(true)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   const [formData, setFormData] = useState({
@@ -45,33 +67,89 @@ export default function JobPostingsPage() {
 
   useEffect(() => {
     setIsClient(true)
-    fetchJobs()
+    fetchCurrentUser()
   }, [])
 
+  useEffect(() => {
+    if (currentUser) {
+      fetchJobs()
+    }
+  }, [currentUser])
+
+  const fetchCurrentUser = async () => {
+    try {
+      setLoadingUser(true)
+      const { data: { user } } = await supabase.auth.getUser()
+      
+      if (!user) {
+        console.error('No user logged in')
+        setLoadingUser(false)
+        return
+      }
+
+      const { data: profile, error } = await supabase
+        .from('profiles')
+        .select('id, role, email')
+        .eq('id', user.id)
+        .single()
+
+      if (error) throw error
+
+      setCurrentUser(profile)
+    } catch (error) {
+      console.error('Error fetching user:', error)
+    } finally {
+      setLoadingUser(false)
+    }
+  }
+
   const fetchJobs = async () => {
+    if (!currentUser) return
+
     try {
       setLoading(true)
       
-      // Fetch job postings with applications count
+      // First fetch all jobs with creator info
       const { data: jobsData, error: jobsError } = await supabase
         .from('job_postings')
         .select(`
           *,
-          applications (
-            id
+          profiles!job_postings_created_by_fkey (
+            email
           )
         `)
         .order('date_posted', { ascending: false })
 
       if (jobsError) throw jobsError
 
-      // Transform the data to include applications count
-      const jobsWithCounts = jobsData?.map(job => ({
-        ...job,
-        applications_count: job.applications?.length || 0
-      })) || []
+      // Then fetch applications count separately
+      const { data: applicationsData, error: appsError } = await supabase
+        .from('applications')
+        .select('job_id')
 
-      setJobs(jobsWithCounts)
+      if (appsError) throw appsError
+
+      // Count applications per job
+      const applicationCounts: Record<string, number> = {}
+      applicationsData?.forEach(app => {
+        applicationCounts[app.job_id] = (applicationCounts[app.job_id] || 0) + 1
+      })
+
+      // Process jobs with permissions and counts
+      const processedJobs = jobsData?.map(job => {
+        const isCreator = job.created_by === currentUser.id
+        const canEdit = currentUser.role === 'super_admin' || 
+                       (currentUser.role === 'hr' && isCreator)
+
+        return {
+          ...job,
+          applications_count: applicationCounts[job.id] || 0,
+          can_edit: canEdit,
+          creator_email: job.profiles?.email || 'Unknown'
+        }
+      }) || []
+
+      setJobs(processedJobs)
     } catch (error) {
       console.error('Error fetching jobs:', error)
       alert('Error fetching job postings')
@@ -80,7 +158,6 @@ export default function JobPostingsPage() {
     }
   }
 
-  // Upload image to Supabase Storage
   const uploadImage = async (file: File): Promise<string | null> => {
     try {
       const fileExt = file.name.split('.').pop()
@@ -93,7 +170,6 @@ export default function JobPostingsPage() {
 
       if (error) throw error
 
-      // Get public URL
       const { data: { publicUrl } } = supabase.storage
         .from('job-images')
         .getPublicUrl(filePath)
@@ -105,13 +181,11 @@ export default function JobPostingsPage() {
     }
   }
 
-  // CREATE - Add new job posting with image upload
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setFormLoading(true)
 
     try {
-      // Validate form data
       if (!formData.job_title.trim()) {
         throw new Error('Job title is required')
       }
@@ -119,18 +193,14 @@ export default function JobPostingsPage() {
         throw new Error('Job description is required')
       }
 
-      // Get current user
-      const { data: { user } } = await supabase.auth.getUser()
-      if (!user) throw new Error('You must be logged in to create job postings')
+      if (!currentUser) throw new Error('You must be logged in to create job postings')
 
       let imagePath = null
 
-      // Upload image if selected
       if (formData.image_file) {
         imagePath = await uploadImage(formData.image_file)
       }
 
-      // Insert new job posting
       const { data, error } = await supabase
         .from('job_postings')
         .insert({
@@ -140,16 +210,14 @@ export default function JobPostingsPage() {
           job_description: formData.job_description,
           image_path: imagePath,
           status: formData.status,
-          created_by: user.id
+          created_by: currentUser.id
         })
         .select()
 
       if (error) throw error
 
-      // Refresh jobs list
       await fetchJobs()
       
-      // Reset form and close
       setFormData({
         job_title: '',
         department: '',
@@ -171,7 +239,7 @@ export default function JobPostingsPage() {
     }
   }
 
-  const toggleJobStatus = async (jobId: string, currentStatus: JobStatus) => {
+  const toggleJobStatus = async (jobId: string, currentStatus: JobStatus, jobTitle: string) => {
     try {
       const newStatus: JobStatus = currentStatus === 'active' ? 'closed' : 'active'
       
@@ -182,12 +250,11 @@ export default function JobPostingsPage() {
 
       if (error) throw error
 
-      // Update local state
       setJobs(jobs.map(job => 
         job.id === jobId ? { ...job, status: newStatus } : job
       ))
       
-      alert(`Job ${newStatus === 'active' ? 'reopened' : 'closed'} successfully!`)
+      alert(`Job "${jobTitle}" ${newStatus === 'active' ? 'reopened' : 'closed'} successfully!`)
     } catch (error) {
       console.error('Error updating job status:', error)
       alert('Error updating job status')
@@ -198,10 +265,8 @@ export default function JobPostingsPage() {
     if (!confirm(`Are you sure you want to delete "${jobTitle}"? This action cannot be undone.`)) return
     
     try {
-      // Get job to check for image
       const job = jobs.find(j => j.id === jobId)
       
-      // First check if there are applications for this job
       const { data: applications, error: appsError } = await supabase
         .from('applications')
         .select('id')
@@ -214,7 +279,6 @@ export default function JobPostingsPage() {
           return
         }
 
-        // Delete applications first (due to foreign key constraint)
         const { error: deleteAppsError } = await supabase
           .from('applications')
           .delete()
@@ -223,7 +287,6 @@ export default function JobPostingsPage() {
         if (deleteAppsError) throw deleteAppsError
       }
 
-      // Delete image from storage if exists
       if (job?.image_path) {
         try {
           const imagePath = job.image_path.split('/').pop()
@@ -234,11 +297,9 @@ export default function JobPostingsPage() {
           }
         } catch (error) {
           console.error('Error deleting image:', error)
-          // Continue with job deletion even if image deletion fails
         }
       }
 
-      // Delete the job posting
       const { error } = await supabase
         .from('job_postings')
         .delete()
@@ -246,7 +307,6 @@ export default function JobPostingsPage() {
 
       if (error) throw error
 
-      // Update local state
       setJobs(jobs.filter(job => job.id !== jobId))
       alert('Job posting deleted successfully!')
     } catch (error) {
@@ -255,7 +315,6 @@ export default function JobPostingsPage() {
     }
   }
 
-  // Form handler
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
     setFormData(prev => ({
       ...prev,
@@ -263,17 +322,14 @@ export default function JobPostingsPage() {
     }))
   }
 
-  // File handler
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     if (file) {
-      // Validate file type
       if (!file.type.startsWith('image/')) {
         alert('Please select an image file')
         return
       }
 
-      // Validate file size (max 5MB)
       if (file.size > 5 * 1024 * 1024) {
         alert('Image size should be less than 5MB')
         return
@@ -301,7 +357,8 @@ export default function JobPostingsPage() {
   const filteredJobs = jobs.filter(job => {
     const matchesSearch = job.job_title.toLowerCase().includes(searchTerm.toLowerCase()) ||
                          job.department?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                         job.location?.toLowerCase().includes(searchTerm.toLowerCase())
+                         job.location?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                         job.creator_email?.toLowerCase().includes(searchTerm.toLowerCase())
     const matchesStatus = statusFilter === 'all' || job.status === statusFilter
     const matchesDepartment = departmentFilter === 'all' || job.department === departmentFilter
     
@@ -310,29 +367,40 @@ export default function JobPostingsPage() {
 
   const departments = Array.from(new Set(jobs.map(job => job.department).filter(Boolean))) as string[]
 
-  // FIX: Check both client readiness and loading state
-  if (!isClient || loading) {
+  // Show loading state
+  if (!isClient || loading || loadingUser) {
     return (
-      <div className="flex h-screen bg-gray-50/30">
-        <AdminSidebar open={sidebarOpen} setOpen={setSidebarOpen} />
-        <div className="flex-1 flex flex-col overflow-hidden">
+      <div className="min-h-screen bg-gray-50">
+        <AdminHRSidebar 
+          mobileOpen={sidebarOpen} 
+          onMobileClose={() => setSidebarOpen(false)} 
+        />
+        <div className="lg:pl-64">
           <MobileTopbar onMenu={() => setSidebarOpen(true)} />
-          <div className="flex items-center justify-center min-h-screen">
-            <div className="text-lg">Loading job postings...</div>
-          </div>
+          <main className="p-6">
+            <div className="flex items-center justify-center h-64">
+              <div className="text-gray-500">Loading job postings...</div>
+            </div>
+          </main>
         </div>
       </div>
     )
   }
 
+  // Check if user can create jobs
+  const canCreateJobs = currentUser?.role === 'super_admin' || currentUser?.role === 'hr'
+
   return (
-    <div className="flex h-screen bg-gray-50/30">
-      <AdminSidebar open={sidebarOpen} setOpen={setSidebarOpen} />
+    <div className="min-h-screen bg-gray-50">
+      <AdminHRSidebar 
+        mobileOpen={sidebarOpen} 
+        onMobileClose={() => setSidebarOpen(false)} 
+      />
       
-      <div className="flex-1 flex flex-col overflow-hidden">
+      <div className="lg:pl-64">
         <MobileTopbar onMenu={() => setSidebarOpen(true)} />
         
-        <main className="flex-1 overflow-y-auto p-4 md:p-6">
+        <main className="p-4 md:p-6">
           {/* Header */}
           <div className="mb-6 flex justify-between items-center">
             <div>
@@ -340,15 +408,44 @@ export default function JobPostingsPage() {
                 <Briefcase className="h-8 w-8 text-blue-600" />
                 Job Postings
               </h1>
-              <p className="text-gray-600 mt-1">Manage and track all job positions</p>
+              <p className="text-gray-600 mt-1">
+                {currentUser?.role === 'super_admin' 
+                  ? 'You have full administrative access to all job postings'
+                  : currentUser?.role === 'hr'
+                  ? 'You can manage jobs you created'
+                  : 'View only access'}
+              </p>
             </div>
-            <button
-              onClick={() => setShowAddForm(true)}
-              className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors flex items-center gap-2"
-            >
-              <Plus className="h-4 w-4" />
-              New Job Posting
-            </button>
+            
+            {canCreateJobs && (
+              <button
+                onClick={() => setShowAddForm(true)}
+                className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors flex items-center gap-2"
+              >
+                <Plus className="h-4 w-4" />
+                New Job Posting
+              </button>
+            )}
+          </div>
+
+          {/* User Role Badge */}
+          <div className="mb-6">
+            <div className={cn(
+              "inline-flex items-center gap-2 px-3 py-1 rounded-full text-sm font-medium",
+              currentUser?.role === 'super_admin' 
+                ? "bg-purple-100 text-purple-800"
+                : currentUser?.role === 'hr'
+                ? "bg-blue-100 text-blue-800"
+                : "bg-gray-100 text-gray-800"
+            )}>
+              <UserCheck className="h-3 w-3" />
+              {currentUser?.role === 'super_admin' 
+                ? 'Super Administrator' 
+                : currentUser?.role === 'hr'
+                ? 'HR Manager'
+                : 'Viewer'}
+              {currentUser?.role === 'hr' && ' (Can only edit your own jobs)'}
+            </div>
           </div>
 
           {/* Add Job Posting Form */}
@@ -477,7 +574,7 @@ export default function JobPostingsPage() {
                     rows={6}
                     value={formData.job_description}
                     onChange={handleChange}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm resize-vertical"
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm"
                     placeholder="Describe the job responsibilities, requirements, and benefits..."
                   />
                 </div>
@@ -520,7 +617,7 @@ export default function JobPostingsPage() {
                 <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
                 <input
                   type="text"
-                  placeholder="Search jobs, departments, or locations..."
+                  placeholder="Search jobs, departments, locations, or creators..."
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
                   className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm"
@@ -569,7 +666,7 @@ export default function JobPostingsPage() {
                   >
                     Clear filters
                   </button>
-                ) : (
+                ) : canCreateJobs && (
                   <button
                     onClick={() => setShowAddForm(true)}
                     className="mt-4 inline-flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors text-sm"
@@ -584,6 +681,7 @@ export default function JobPostingsPage() {
                 <JobCard
                   key={job.id}
                   job={job}
+                  currentUser={currentUser}
                   onToggleStatus={toggleJobStatus}
                   onDelete={deleteJob}
                 />
@@ -596,13 +694,16 @@ export default function JobPostingsPage() {
   )
 }
 
+// JobCard component with permission-based UI
 function JobCard({ 
   job, 
+  currentUser,
   onToggleStatus, 
   onDelete 
 }: { 
   job: JobPosting
-  onToggleStatus: (jobId: string, currentStatus: JobStatus) => void
+  currentUser: UserProfile | null
+  onToggleStatus: (jobId: string, currentStatus: JobStatus, jobTitle: string) => void
   onDelete: (jobId: string, jobTitle: string) => void
 }) {
   const [showMenu, setShowMenu] = useState(false)
@@ -621,15 +722,52 @@ function JobCard({
     })
   }
 
-  // FIX: Handle null description
   const truncateDescription = (text: string | null, maxLength: number = 120) => {
     if (!text) return 'No description provided'
     if (text.length <= maxLength) return text
     return text.substring(0, maxLength) + '...'
   }
 
+  const isCreator = currentUser?.id === job.created_by
+  const canEdit = job.can_edit || currentUser?.role === 'super_admin'
+  const isHRUser = currentUser?.role === 'hr'
+  const isSuperAdmin = currentUser?.role === 'super_admin'
+
+  const handleEditClick = (e: React.MouseEvent) => {
+    if (!canEdit && isHRUser) {
+      e.preventDefault()
+      alert(`You can only edit job postings you created.\n\nThis job was created by: ${job.creator_email}`)
+      return false
+    }
+    return true
+  }
+
+  const handleDeleteClick = () => {
+    if (!canEdit && isHRUser) {
+      alert(`You can only delete job postings you created.\n\nThis job was created by: ${job.creator_email}`)
+      return
+    }
+    onDelete(job.id, job.job_title)
+  }
+
+  const handleToggleStatus = () => {
+    if (!canEdit && isHRUser) {
+      alert(`You can only update job postings you created.\n\nThis job was created by: ${job.creator_email}`)
+      return
+    }
+    onToggleStatus(job.id, job.status, job.job_title)
+  }
+
   return (
-    <div className="bg-white rounded-lg border p-6 hover:shadow-md transition-shadow">
+    <div className="bg-white rounded-lg border p-6 hover:shadow-md transition-shadow relative">
+      {/* Creator Indicator */}
+      {isHRUser && !isCreator && (
+        <div className="absolute top-4 right-4 flex items-center gap-1 text-gray-400 text-xs">
+          <Lock className="h-3 w-3" />
+          <span>Created by: {job.creator_email}</span>
+        </div>
+      )}
+
       <div className="flex flex-col lg:flex-row lg:items-start justify-between gap-4">
         <div className="flex-1 space-y-3">
           <div className="flex items-start justify-between">
@@ -643,7 +781,15 @@ function JobCard({
                   />
                 )}
                 <div className="flex-1">
-                  <h3 className="text-lg font-semibold text-gray-900">{job.job_title}</h3>
+                  <div className="flex items-start gap-2">
+                    <h3 className="text-lg font-semibold text-gray-900">{job.job_title}</h3>
+                    {isHRUser && !isCreator && (
+                      <span className="inline-flex items-center gap-1 bg-gray-100 text-gray-500 text-xs px-2 py-1 rounded">
+                        <Lock className="h-3 w-3" />
+                        Read-only
+                      </span>
+                    )}
+                  </div>
                   <div className="flex flex-wrap items-center gap-2 mt-2 text-sm text-gray-600">
                     {job.department && (
                       <span className="flex items-center gap-1 bg-gray-100 px-2 py-1 rounded text-xs font-medium">
@@ -674,13 +820,16 @@ function JobCard({
             <div className="lg:hidden relative">
               <button
                 onClick={() => setShowMenu(!showMenu)}
-                className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
+                className={cn(
+                  "p-2 rounded-lg transition-colors",
+                  canEdit ? "hover:bg-gray-100" : "text-gray-400 cursor-default"
+                )}
+                disabled={!canEdit}
               >
                 <MoreVertical className="h-4 w-4" />
               </button>
 
-              {/* Mobile Menu Dropdown */}
-              {showMenu && (
+              {showMenu && canEdit && (
                 <div className="absolute right-0 top-full mt-1 bg-white border rounded-lg shadow-lg py-2 z-10 min-w-[160px]">
                   <Link
                     href={`/admin/job-postings/${job.id}/applications`}
@@ -693,14 +842,14 @@ function JobCard({
                   <Link
                     href={`/admin/job-postings/${job.id}/edit`}
                     className="flex items-center gap-2 px-4 py-2 text-sm text-blue-700 hover:bg-blue-50 transition-colors"
-                    onClick={() => setShowMenu(false)}
+                    onClick={(e) => handleEditClick(e) && setShowMenu(false)}
                   >
                     <Edit className="h-4 w-4" />
                     Edit
                   </Link>
                   <button
                     onClick={() => {
-                      onToggleStatus(job.id, job.status)
+                      handleToggleStatus()
                       setShowMenu(false)
                     }}
                     className={cn(
@@ -714,7 +863,7 @@ function JobCard({
                   </button>
                   <button
                     onClick={() => {
-                      onDelete(job.id, job.job_title)
+                      handleDeleteClick()
                       setShowMenu(false)
                     }}
                     className="flex items-center gap-2 w-full px-4 py-2 text-sm text-red-700 hover:bg-red-50 transition-colors"
@@ -727,7 +876,6 @@ function JobCard({
             </div>
           </div>
 
-          {/* FIX: Pass the nullable description */}
           <p className="text-gray-600 text-sm leading-relaxed">
             {truncateDescription(job.job_description)}
           </p>
@@ -741,6 +889,11 @@ function JobCard({
               <span className="flex items-center gap-1">
                 <Users className="h-3 w-3" />
                 {job.applications_count} application{job.applications_count !== 1 ? 's' : ''}
+              </span>
+            )}
+            {isHRUser && (
+              <span className="flex items-center gap-1 text-gray-400">
+                Created by: {job.creator_email}
               </span>
             )}
           </div>
@@ -758,38 +911,54 @@ function JobCard({
           
           <Link
             href={`/admin/job-postings/${job.id}/edit`}
-            className="inline-flex items-center gap-2 px-3 py-2 text-sm text-blue-700 hover:bg-blue-50 rounded-lg transition-colors"
+            onClick={handleEditClick}
+            className={cn(
+              "inline-flex items-center gap-2 px-3 py-2 text-sm rounded-lg transition-colors",
+              canEdit
+                ? "text-blue-700 hover:bg-blue-50"
+                : "text-gray-400 cursor-not-allowed bg-gray-100"
+            )}
+            title={!canEdit && isHRUser ? `Created by: ${job.creator_email}` : ""}
           >
             <Edit className="h-4 w-4" />
             Edit
+            {!canEdit && isHRUser && " (Not Yours)"}
           </Link>
 
           <button
-            onClick={() => onToggleStatus(job.id, job.status)}
+            onClick={handleToggleStatus}
             className={cn(
               'inline-flex items-center gap-2 px-3 py-2 text-sm rounded-lg transition-colors',
-              job.status === 'active'
-                ? 'text-orange-700 hover:bg-orange-50'
-                : 'text-green-700 hover:bg-green-50'
+              canEdit 
+                ? job.status === 'active'
+                  ? 'text-orange-700 hover:bg-orange-50'
+                  : 'text-green-700 hover:bg-green-50'
+                : 'text-gray-400 cursor-not-allowed bg-gray-100'
             )}
+            disabled={!canEdit}
+            title={!canEdit && isHRUser ? `Created by: ${job.creator_email}` : ""}
           >
             {job.status === 'active' ? 'Close Job' : 'Reopen Job'}
+            {!canEdit && isHRUser && " (Not Yours)"}
           </button>
 
           <button
-            onClick={() => onDelete(job.id, job.job_title)}
-            className="inline-flex items-center gap-2 px-3 py-2 text-sm text-red-700 hover:bg-red-50 rounded-lg transition-colors"
+            onClick={handleDeleteClick}
+            className={cn(
+              "inline-flex items-center gap-2 px-3 py-2 text-sm rounded-lg transition-colors",
+              canEdit
+                ? "text-red-700 hover:bg-red-50"
+                : "text-gray-400 cursor-not-allowed bg-gray-100"
+            )}
+            disabled={!canEdit}
+            title={!canEdit && isHRUser ? `Created by: ${job.creator_email}` : ""}
           >
             <Trash2 className="h-4 w-4" />
             Delete
+            {!canEdit && isHRUser && " (Not Yours)"}
           </button>
         </div>
       </div>
     </div>
   )
-}
-
-// Utility function (same as in your sidebar)
-function cn(...a: Array<string | false | null | undefined>) {
-  return a.filter(Boolean).join(' ')
 }
