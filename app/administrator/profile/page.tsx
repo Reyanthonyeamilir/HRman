@@ -41,7 +41,6 @@ interface UserProfile {
   updated_at: string | null
 }
 
-// Main Profile Page Component with Layout
 export default function ProfilePage() {
   return (
     <AdminLayout>
@@ -50,7 +49,6 @@ export default function ProfilePage() {
   )
 }
 
-// Create the main profile content component
 function ProfileContent() {
   const router = useRouter()
   const [loading, setLoading] = useState(true)
@@ -59,9 +57,7 @@ function ProfileContent() {
   const [activeTab, setActiveTab] = useState<'profile' | 'password'>('profile')
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null)
   const [copiedId, setCopiedId] = useState(false)
-  const [storageError, setStorageError] = useState<string | null>(null)
   
-  // Password visibility states
   const [showCurrentPassword, setShowCurrentPassword] = useState(false)
   const [showNewPassword, setShowNewPassword] = useState(false)
   const [showConfirmPassword, setShowConfirmPassword] = useState(false)
@@ -72,10 +68,8 @@ function ProfileContent() {
     confirmPassword: ''
   })
   
-  // Updated to include 'info' type
   const [message, setMessage] = useState<{ type: 'success' | 'error' | 'info', text: string } | null>(null)
   
-  // Profile form state
   const [formData, setFormData] = useState({
     first_name: '',
     middle_name: '',
@@ -85,42 +79,92 @@ function ProfileContent() {
     address: ''
   })
 
-  useEffect(() => {
-    fetchUserProfile()
-    testStorageConnection()
-  }, [])
+  // Helper functions
+  const getDisplayName = () => {
+    if (userProfile?.first_name && userProfile?.last_name) {
+      return `${userProfile.first_name} ${userProfile.last_name}`
+    }
+    return userProfile?.email?.split('@')[0] || 'User'
+  }
 
-  const testStorageConnection = async () => {
+  const getRoleDisplay = () => {
+    if (userProfile?.role === 'super_admin') {
+      return 'Super Administrator'
+    } else if (userProfile?.role === 'hr') {
+      return 'HR Manager'
+    }
+    return 'User'
+  }
+
+  const formatFullDate = (dateString: string | null | undefined) => {
+    if (!dateString) return 'Not set'
     try {
-      console.log('🔍 Testing storage connection...')
-      
-      // List all buckets to see what's available
-      const { data: buckets, error } = await supabase.storage.listBuckets()
-      
-      if (error) {
-        console.error('❌ Error listing buckets:', error)
-        setStorageError(`Storage error: ${error.message}`)
-        return
-      }
-      
-      console.log('📦 Available buckets:', buckets?.map(b => b.name))
-      
-      // Check if 'profile' bucket exists
-      const profileBucket = buckets?.find(b => b.name === 'profile')
-      
-      if (!profileBucket) {
-        console.error('❌ "profile" bucket not found!')
-        setStorageError('"profile" storage bucket not found. Please create it in Supabase Storage first.')
-      } else {
-        console.log('✅ "profile" bucket found:', profileBucket)
-        setStorageError(null)
-      }
-      
-    } catch (error: any) {
-      console.error('💥 Error testing storage:', error)
-      setStorageError(`Storage connection failed: ${error.message}`)
+      const date = new Date(dateString)
+      return date.toLocaleDateString('en-US', {
+        year: 'numeric',
+        month: 'long',
+        day: 'numeric'
+      })
+    } catch {
+      return 'Invalid date'
     }
   }
+
+  const formatShortDate = (dateString: string) => {
+    try {
+      const date = new Date(dateString)
+      return date.toLocaleDateString('en-US', {
+        month: 'short',
+        year: 'numeric'
+      })
+    } catch {
+      return 'Invalid date'
+    }
+  }
+
+  const formatMonthDay = (dateString: string) => {
+    try {
+      const date = new Date(dateString)
+      return date.toLocaleDateString('en-US', {
+        month: 'short',
+        day: 'numeric'
+      })
+    } catch {
+      return 'Invalid date'
+    }
+  }
+
+  const getInitials = () => {
+    if (userProfile?.first_name && userProfile?.last_name) {
+      return `${userProfile.first_name.charAt(0)}${userProfile.last_name.charAt(0)}`.toUpperCase()
+    }
+    return userProfile?.email?.charAt(0).toUpperCase() || 'U'
+  }
+
+  const getPasswordStrength = (password: string) => {
+    if (!password) return { score: 0, color: 'bg-gray-200', text: 'Empty' }
+    
+    let score = 0
+    if (password.length >= 8) score++
+    if (/[A-Z]/.test(password)) score++
+    if (/[0-9]/.test(password)) score++
+    if (/[^A-Za-z0-9]/.test(password)) score++
+    
+    const colors = ['bg-red-500', 'bg-orange-500', 'bg-yellow-500', 'bg-green-500', 'bg-green-600']
+    const texts = ['Very Weak', 'Weak', 'Fair', 'Good', 'Strong']
+    
+    const safeScore = Math.min(Math.max(score, 0), 4)
+    
+    return {
+      score: safeScore,
+      color: colors[safeScore],
+      text: texts[safeScore]
+    }
+  }
+
+  useEffect(() => {
+    fetchUserProfile()
+  }, [])
 
   const fetchUserProfile = async () => {
     try {
@@ -202,49 +246,27 @@ function ProfileContent() {
       // Generate unique filename
       const fileExt = file.name.split('.').pop()
       const fileName = `avatar-${userProfile.id}-${Date.now()}.${fileExt}`
-      
-      console.log('📤 Uploading file to "profile" bucket:', fileName)
 
-      // Try direct upload first
-      let uploadError = null
-      let uploadData = null
-      
-      try {
-        const { data, error } = await supabase.storage
-          .from('profile')
-          .upload(fileName, file, {
-            contentType: file.type,
-            upsert: true,
-            cacheControl: '3600'
-          })
-        
-        uploadError = error
-        uploadData = data
-      } catch (uploadException: any) {
-        console.error('Direct upload exception:', uploadException)
-        uploadError = uploadException
-      }
+      // Upload to storage
+      const { data: uploadData, error: uploadError } = await supabase.storage
+        .from('profile')
+        .upload(fileName, file, {
+          contentType: file.type,
+          upsert: true,
+          cacheControl: '3600'
+        })
 
       if (uploadError) {
-        console.error('❌ Upload error details:', uploadError)
-        
-        // Try alternative approach if direct upload fails
-        if (uploadError.message?.includes('not found') || uploadError.message?.includes('does not exist')) {
-          throw new Error('Storage bucket "profile" not found. Please create it in Supabase Storage.')
-        }
-        throw uploadError
+        console.error('Upload error:', uploadError)
+        throw new Error(`Upload failed: ${uploadError.message}`)
       }
-
-      console.log('✅ Upload successful:', uploadData)
 
       // Get public URL
       const { data: { publicUrl } } = supabase.storage
         .from('profile')
         .getPublicUrl(fileName)
 
-      console.log('🔗 Generated URL:', publicUrl)
-
-      // Update profile with new avatar URL
+      // Update profile in database
       const { error: updateError } = await supabase
         .from('profiles')
         .update({ 
@@ -263,21 +285,21 @@ function ProfileContent() {
         avatar_url: publicUrl,
         updated_at: new Date().toISOString()
       } : null)
-      
+
       setMessage({ type: 'success', text: 'Profile picture updated successfully!' })
       
       setTimeout(() => {
         setMessage(null)
       }, 3000)
     } catch (error: any) {
-      console.error('❌ Avatar upload error:', error)
+      console.error('Avatar upload error:', error)
       
       let errorMessage = 'Failed to upload profile picture. '
       
       if (error.message?.includes('not found') || error.message?.includes('does not exist')) {
-        errorMessage += 'Storage bucket "profile" not found. Please create it in Supabase Storage.'
+        errorMessage += 'Storage bucket "profile" not found. Please check storage configuration.'
       } else if (error.message?.includes('permission')) {
-        errorMessage += 'Permission denied. Make sure the bucket is public.'
+        errorMessage += 'Permission denied. Please try again.'
       } else if (error.message?.includes('Payload too large')) {
         errorMessage += 'File is too large. Maximum size is 5MB.'
       } else if (error.message?.includes('Invalid file type')) {
@@ -429,68 +451,6 @@ function ProfileContent() {
     }
   }
 
-  const getDisplayName = () => {
-    if (userProfile?.first_name && userProfile?.last_name) {
-      return `${userProfile.first_name} ${userProfile.last_name}`
-    }
-    return userProfile?.email?.split('@')[0] || 'User'
-  }
-
-  const getRoleDisplay = () => {
-    if (userProfile?.role === 'super_admin') {
-      return 'Super Administrator'
-    } else if (userProfile?.role === 'hr') {
-      return 'HR Manager'
-    }
-    return 'User'
-  }
-
-  // Date formatting functions
-  const formatFullDate = (dateString: string | null | undefined) => {
-    if (!dateString) return 'Not set'
-    try {
-      const date = new Date(dateString)
-      return date.toLocaleDateString('en-US', {
-        year: 'numeric',
-        month: 'long',
-        day: 'numeric'
-      })
-    } catch {
-      return 'Invalid date'
-    }
-  }
-
-  const formatShortDate = (dateString: string) => {
-    try {
-      const date = new Date(dateString)
-      return date.toLocaleDateString('en-US', {
-        month: 'short',
-        year: 'numeric'
-      })
-    } catch {
-      return 'Invalid date'
-    }
-  }
-
-  const formatMonthDay = (dateString: string) => {
-    try {
-      const date = new Date(dateString)
-      return date.toLocaleDateString('en-US', {
-        month: 'short',
-        day: 'numeric'
-      })
-    } catch {
-      return 'Invalid date'
-    }
-  }
-
-  const getInitials = () => {
-    if (userProfile?.first_name && userProfile?.last_name) {
-      return `${userProfile.first_name.charAt(0)}${userProfile.last_name.charAt(0)}`.toUpperCase()
-    }
-    return userProfile?.email?.charAt(0).toUpperCase() || 'U'
-  }
-
   const copyUserId = async () => {
     if (userProfile?.id) {
       try {
@@ -500,56 +460,6 @@ function ProfileContent() {
       } catch (error) {
         console.error('Failed to copy:', error)
       }
-    }
-  }
-
-  // Password strength checker
-  const getPasswordStrength = (password: string) => {
-    if (!password) return { score: 0, color: 'bg-gray-200', text: 'Empty' }
-    
-    let score = 0
-    if (password.length >= 8) score++
-    if (/[A-Z]/.test(password)) score++
-    if (/[0-9]/.test(password)) score++
-    if (/[^A-Za-z0-9]/.test(password)) score++
-    
-    const colors = ['bg-red-500', 'bg-orange-500', 'bg-yellow-500', 'bg-green-500', 'bg-green-600']
-    const texts = ['Very Weak', 'Weak', 'Fair', 'Good', 'Strong']
-    
-    const safeScore = Math.min(Math.max(score, 0), 4)
-    
-    return {
-      score: safeScore,
-      color: colors[safeScore],
-      text: texts[safeScore]
-    }
-  }
-
-  // Quick storage test function
-  const testStorageManually = async () => {
-    try {
-      setMessage({ type: 'info', text: 'Testing storage connection...' })
-      
-      // List buckets
-      const { data: buckets, error } = await supabase.storage.listBuckets()
-      
-      if (error) {
-        console.error('Bucket list error:', error)
-        setMessage({ type: 'error', text: `Storage error: ${error.message}` })
-        return
-      }
-      
-      console.log('Available buckets:', buckets)
-      
-      if (!buckets?.find(b => b.name === 'profile')) {
-        setMessage({ type: 'error', text: '❌ "profile" bucket not found. Please create it in Supabase Storage.' })
-      } else {
-        setMessage({ type: 'success', text: '✅ "profile" bucket found! Storage is working.' })
-      }
-      
-    } catch (error: any) {
-      console.error('Storage test error:', error)
-      setMessage({ type: 'error', text: `Test failed: ${error.message}` })
     }
   }
 
@@ -596,36 +506,6 @@ function ProfileContent() {
         </div>
       </div>
 
-      {/* Storage Warning */}
-      {storageError && (
-        <div className="rounded-lg border border-yellow-200 bg-yellow-50 p-4">
-          <div className="flex items-start gap-3">
-            <AlertTriangle className="h-5 w-5 text-yellow-600 flex-shrink-0 mt-0.5" />
-            <div className="flex-1">
-              <p className="text-sm font-medium text-yellow-800">Storage Configuration Required</p>
-              <p className="text-sm text-yellow-700 mt-1">{storageError}</p>
-              <div className="mt-3 space-y-2">
-                <p className="text-sm font-medium">To fix this:</p>
-                <ol className="text-sm text-yellow-800 space-y-1 list-decimal list-inside">
-                  <li>Go to your Supabase Dashboard</li>
-                  <li>Click on "Storage" in the left sidebar</li>
-                  <li>Click "Create a new bucket"</li>
-                  <li>Name it exactly: <code className="bg-yellow-100 px-2 py-1 rounded">profile</code></li>
-                  <li>Make sure "Public" is selected</li>
-                  <li>Click "Create bucket"</li>
-                </ol>
-                <button
-                  onClick={testStorageManually}
-                  className="mt-2 px-3 py-1 bg-yellow-600 text-white text-sm rounded hover:bg-yellow-700 transition-colors"
-                >
-                  Test Storage Connection
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
       {/* Message Alert */}
       {message && (
         <div className={cn(
@@ -634,7 +514,7 @@ function ProfileContent() {
             ? 'bg-green-50 border-green-200 text-green-800' 
             : message.type === 'error'
             ? 'bg-red-50 border-red-200 text-red-800'
-            : 'bg-blue-50 border-blue-200 text-blue-800' // For 'info' type
+            : 'bg-blue-50 border-blue-200 text-blue-800'
         )}>
           {message.type === 'success' ? (
             <CheckCircle className="h-5 w-5 flex-shrink-0 mt-0.5" />
@@ -683,7 +563,7 @@ function ProfileContent() {
 
       {/* Main Content */}
       <div className="grid gap-6 lg:grid-cols-3">
-        {/* Left Column - Profile Card (Always Visible) */}
+        {/* Left Column - Profile Card */}
         <div className="lg:col-span-1">
           <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
             {/* Profile Header */}
@@ -696,6 +576,17 @@ function ProfileContent() {
                         src={userProfile.avatar_url}
                         alt="Profile"
                         className="w-full h-full object-cover"
+                        onError={(e) => {
+                          // Fallback to initials if image fails to load
+                          const target = e.target as HTMLImageElement
+                          target.style.display = 'none'
+                          const parent = target.parentElement
+                          if (parent) {
+                            parent.innerHTML = `<div class="w-full h-full bg-gradient-to-br from-blue-400 to-blue-600 flex items-center justify-center">
+                              <span class="text-3xl font-bold text-white">${getInitials()}</span>
+                            </div>`
+                          }
+                        }}
                       />
                     ) : (
                       <div className="w-full h-full bg-gradient-to-br from-blue-400 to-blue-600 flex items-center justify-center">
@@ -715,8 +606,7 @@ function ProfileContent() {
                       accept="image/jpeg,image/jpg,image/png,image/gif,image/webp"
                       onChange={handleAvatarUpload}
                       className="hidden"
-                      disabled={uploadingAvatar || !!storageError}
-                      title={storageError ? "Storage not configured" : "Change profile picture"}
+                      disabled={uploadingAvatar}
                     />
                   </label>
                 </div>
