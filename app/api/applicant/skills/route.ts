@@ -31,7 +31,7 @@ export async function GET(request: NextRequest) {
 
     if (id) {
       const { data, error } = await supabase
-        .from('educations')
+        .from('skills')
         .select('*')
         .eq('id', id)
         .eq('profile_id', user.id)
@@ -39,7 +39,7 @@ export async function GET(request: NextRequest) {
 
       if (error) {
         return NextResponse.json(
-          { error: 'Education not found' },
+          { error: 'Skill not found' },
           { status: 404 }
         )
       }
@@ -48,13 +48,13 @@ export async function GET(request: NextRequest) {
     }
 
     const { data, error } = await supabase
-      .from('educations')
+      .from('skills')
       .select('*')
       .eq('profile_id', user.id)
 
     if (error) {
       return NextResponse.json(
-        { error: 'Failed to fetch educations' },
+        { error: 'Failed to fetch skills' },
         { status: 500 }
       )
     }
@@ -62,7 +62,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.json(data || [])
 
   } catch (error: any) {
-    console.error('Error in education GET:', error)
+    console.error('Error in skills GET:', error)
     return NextResponse.json(
       { error: 'Internal server error' },
       { status: 500 }
@@ -92,34 +92,28 @@ export async function POST(request: NextRequest) {
 
     const body = await request.json()
     
-    if (!body.course_qualification || !body.institution) {
+    if (!body.skill_name) {
       return NextResponse.json(
-        { error: 'Course qualification and institution are required' },
+        { error: 'Skill name is required' },
         { status: 400 }
       )
     }
 
     const { data, error } = await supabase
-      .from('educations')
+      .from('skills')
       .insert({
         profile_id: user.id,
-        course_qualification: body.course_qualification,
-        institution: body.institution,
-        expected_finish: body.expected_finish || null,
-        course_highlights: body.course_highlights || null,
-        degree_level: body.degree_level || null,
-        year_graduated: body.year_graduated || null,
-        degree_name: body.degree_name || null,
-        gpa: body.gpa || null,
-        honors_awards: body.honors_awards || null
+        skill_name: body.skill_name,
+        proficiency: body.proficiency || null,
+        years_of_experience: body.years_of_experience || null
       })
       .select()
       .single()
 
     if (error) {
-      console.error('Education POST error:', error)
+      console.error('Skills POST error:', error)
       return NextResponse.json(
-        { error: 'Failed to create education' },
+        { error: 'Failed to create skill' },
         { status: 500 }
       )
     }
@@ -127,7 +121,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json(data, { status: 201 })
 
   } catch (error: any) {
-    console.error('Education POST error:', error)
+    console.error('Skills POST error:', error)
     return NextResponse.json(
       { error: 'Internal server error' },
       { status: 500 }
@@ -159,23 +153,17 @@ export async function PUT(request: NextRequest) {
     
     if (!body.id) {
       return NextResponse.json(
-        { error: 'Education ID is required' },
+        { error: 'Skill ID is required' },
         { status: 400 }
       )
     }
 
     const { data, error } = await supabase
-      .from('educations')
+      .from('skills')
       .update({
-        course_qualification: body.course_qualification,
-        institution: body.institution,
-        expected_finish: body.expected_finish || null,
-        course_highlights: body.course_highlights || null,
-        degree_level: body.degree_level || null,
-        year_graduated: body.year_graduated || null,
-        degree_name: body.degree_name || null,
-        gpa: body.gpa || null,
-        honors_awards: body.honors_awards || null
+        skill_name: body.skill_name,
+        proficiency: body.proficiency || null,
+        years_of_experience: body.years_of_experience || null
       })
       .eq('id', body.id)
       .eq('profile_id', user.id)
@@ -183,9 +171,9 @@ export async function PUT(request: NextRequest) {
       .single()
 
     if (error) {
-      console.error('Education PUT error:', error)
+      console.error('Skills PUT error:', error)
       return NextResponse.json(
-        { error: 'Failed to update education' },
+        { error: 'Failed to update skill' },
         { status: 500 }
       )
     }
@@ -193,7 +181,7 @@ export async function PUT(request: NextRequest) {
     return NextResponse.json(data)
 
   } catch (error: any) {
-    console.error('Education PUT error:', error)
+    console.error('Skills PUT error:', error)
     return NextResponse.json(
       { error: 'Internal server error' },
       { status: 500 }
@@ -226,21 +214,21 @@ export async function DELETE(request: NextRequest) {
 
     if (!id) {
       return NextResponse.json(
-        { error: 'Education ID is required' },
+        { error: 'Skill ID is required' },
         { status: 400 }
       )
     }
 
     const { error } = await supabase
-      .from('educations')
+      .from('skills')
       .delete()
       .eq('id', id)
       .eq('profile_id', user.id)
 
     if (error) {
-      console.error('Education DELETE error:', error)
+      console.error('Skills DELETE error:', error)
       return NextResponse.json(
-        { error: 'Failed to delete education' },
+        { error: 'Failed to delete skill' },
         { status: 500 }
       )
     }
@@ -248,7 +236,7 @@ export async function DELETE(request: NextRequest) {
     return NextResponse.json({ success: true })
 
   } catch (error: any) {
-    console.error('Education DELETE error:', error)
+    console.error('Skills DELETE error:', error)
     return NextResponse.json(
       { error: 'Internal server error' },
       { status: 500 }

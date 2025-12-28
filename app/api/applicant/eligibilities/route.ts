@@ -31,7 +31,7 @@ export async function GET(request: NextRequest) {
 
     if (id) {
       const { data, error } = await supabase
-        .from('educations')
+        .from('eligibilities')
         .select('*')
         .eq('id', id)
         .eq('profile_id', user.id)
@@ -39,7 +39,7 @@ export async function GET(request: NextRequest) {
 
       if (error) {
         return NextResponse.json(
-          { error: 'Education not found' },
+          { error: 'Eligibility not found' },
           { status: 404 }
         )
       }
@@ -48,13 +48,13 @@ export async function GET(request: NextRequest) {
     }
 
     const { data, error } = await supabase
-      .from('educations')
+      .from('eligibilities')
       .select('*')
       .eq('profile_id', user.id)
 
     if (error) {
       return NextResponse.json(
-        { error: 'Failed to fetch educations' },
+        { error: 'Failed to fetch eligibilities' },
         { status: 500 }
       )
     }
@@ -62,7 +62,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.json(data || [])
 
   } catch (error: any) {
-    console.error('Error in education GET:', error)
+    console.error('Error in eligibilities GET:', error)
     return NextResponse.json(
       { error: 'Internal server error' },
       { status: 500 }
@@ -92,34 +92,31 @@ export async function POST(request: NextRequest) {
 
     const body = await request.json()
     
-    if (!body.course_qualification || !body.institution) {
+    if (!body.eligibility_name) {
       return NextResponse.json(
-        { error: 'Course qualification and institution are required' },
+        { error: 'Eligibility name is required' },
         { status: 400 }
       )
     }
 
     const { data, error } = await supabase
-      .from('educations')
+      .from('eligibilities')
       .insert({
         profile_id: user.id,
-        course_qualification: body.course_qualification,
-        institution: body.institution,
-        expected_finish: body.expected_finish || null,
-        course_highlights: body.course_highlights || null,
-        degree_level: body.degree_level || null,
-        year_graduated: body.year_graduated || null,
-        degree_name: body.degree_name || null,
-        gpa: body.gpa || null,
-        honors_awards: body.honors_awards || null
+        eligibility_name: body.eligibility_name,
+        license_number: body.license_number || null,
+        rating: body.rating || null,
+        date_issued: body.date_issued || null,
+        expiry_date: body.expiry_date || null,
+        issuing_authority: body.issuing_authority || null
       })
       .select()
       .single()
 
     if (error) {
-      console.error('Education POST error:', error)
+      console.error('Eligibilities POST error:', error)
       return NextResponse.json(
-        { error: 'Failed to create education' },
+        { error: 'Failed to create eligibility' },
         { status: 500 }
       )
     }
@@ -127,7 +124,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json(data, { status: 201 })
 
   } catch (error: any) {
-    console.error('Education POST error:', error)
+    console.error('Eligibilities POST error:', error)
     return NextResponse.json(
       { error: 'Internal server error' },
       { status: 500 }
@@ -159,23 +156,20 @@ export async function PUT(request: NextRequest) {
     
     if (!body.id) {
       return NextResponse.json(
-        { error: 'Education ID is required' },
+        { error: 'Eligibility ID is required' },
         { status: 400 }
       )
     }
 
     const { data, error } = await supabase
-      .from('educations')
+      .from('eligibilities')
       .update({
-        course_qualification: body.course_qualification,
-        institution: body.institution,
-        expected_finish: body.expected_finish || null,
-        course_highlights: body.course_highlights || null,
-        degree_level: body.degree_level || null,
-        year_graduated: body.year_graduated || null,
-        degree_name: body.degree_name || null,
-        gpa: body.gpa || null,
-        honors_awards: body.honors_awards || null
+        eligibility_name: body.eligibility_name,
+        license_number: body.license_number || null,
+        rating: body.rating || null,
+        date_issued: body.date_issued || null,
+        expiry_date: body.expiry_date || null,
+        issuing_authority: body.issuing_authority || null
       })
       .eq('id', body.id)
       .eq('profile_id', user.id)
@@ -183,9 +177,9 @@ export async function PUT(request: NextRequest) {
       .single()
 
     if (error) {
-      console.error('Education PUT error:', error)
+      console.error('Eligibilities PUT error:', error)
       return NextResponse.json(
-        { error: 'Failed to update education' },
+        { error: 'Failed to update eligibility' },
         { status: 500 }
       )
     }
@@ -193,7 +187,7 @@ export async function PUT(request: NextRequest) {
     return NextResponse.json(data)
 
   } catch (error: any) {
-    console.error('Education PUT error:', error)
+    console.error('Eligibilities PUT error:', error)
     return NextResponse.json(
       { error: 'Internal server error' },
       { status: 500 }
@@ -226,21 +220,21 @@ export async function DELETE(request: NextRequest) {
 
     if (!id) {
       return NextResponse.json(
-        { error: 'Education ID is required' },
+        { error: 'Eligibility ID is required' },
         { status: 400 }
       )
     }
 
     const { error } = await supabase
-      .from('educations')
+      .from('eligibilities')
       .delete()
       .eq('id', id)
       .eq('profile_id', user.id)
 
     if (error) {
-      console.error('Education DELETE error:', error)
+      console.error('Eligibilities DELETE error:', error)
       return NextResponse.json(
-        { error: 'Failed to delete education' },
+        { error: 'Failed to delete eligibility' },
         { status: 500 }
       )
     }
@@ -248,7 +242,7 @@ export async function DELETE(request: NextRequest) {
     return NextResponse.json({ success: true })
 
   } catch (error: any) {
-    console.error('Education DELETE error:', error)
+    console.error('Eligibilities DELETE error:', error)
     return NextResponse.json(
       { error: 'Internal server error' },
       { status: 500 }

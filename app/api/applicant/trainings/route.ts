@@ -31,7 +31,7 @@ export async function GET(request: NextRequest) {
 
     if (id) {
       const { data, error } = await supabase
-        .from('educations')
+        .from('trainings')
         .select('*')
         .eq('id', id)
         .eq('profile_id', user.id)
@@ -39,7 +39,7 @@ export async function GET(request: NextRequest) {
 
       if (error) {
         return NextResponse.json(
-          { error: 'Education not found' },
+          { error: 'Training not found' },
           { status: 404 }
         )
       }
@@ -48,13 +48,13 @@ export async function GET(request: NextRequest) {
     }
 
     const { data, error } = await supabase
-      .from('educations')
+      .from('trainings')
       .select('*')
       .eq('profile_id', user.id)
 
     if (error) {
       return NextResponse.json(
-        { error: 'Failed to fetch educations' },
+        { error: 'Failed to fetch trainings' },
         { status: 500 }
       )
     }
@@ -62,7 +62,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.json(data || [])
 
   } catch (error: any) {
-    console.error('Error in education GET:', error)
+    console.error('Error in trainings GET:', error)
     return NextResponse.json(
       { error: 'Internal server error' },
       { status: 500 }
@@ -92,34 +92,32 @@ export async function POST(request: NextRequest) {
 
     const body = await request.json()
     
-    if (!body.course_qualification || !body.institution) {
+    if (!body.training_name || !body.institution) {
       return NextResponse.json(
-        { error: 'Course qualification and institution are required' },
+        { error: 'Training name and institution are required' },
         { status: 400 }
       )
     }
 
     const { data, error } = await supabase
-      .from('educations')
+      .from('trainings')
       .insert({
         profile_id: user.id,
-        course_qualification: body.course_qualification,
+        training_name: body.training_name,
         institution: body.institution,
-        expected_finish: body.expected_finish || null,
-        course_highlights: body.course_highlights || null,
-        degree_level: body.degree_level || null,
-        year_graduated: body.year_graduated || null,
-        degree_name: body.degree_name || null,
-        gpa: body.gpa || null,
-        honors_awards: body.honors_awards || null
+        start_date: body.start_date || null,
+        end_date: body.end_date || null,
+        duration_hours: body.duration_hours || null,
+        certificate_id: body.certificate_id || null,
+        skills_learned: body.skills_learned || null
       })
       .select()
       .single()
 
     if (error) {
-      console.error('Education POST error:', error)
+      console.error('Trainings POST error:', error)
       return NextResponse.json(
-        { error: 'Failed to create education' },
+        { error: 'Failed to create training' },
         { status: 500 }
       )
     }
@@ -127,7 +125,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json(data, { status: 201 })
 
   } catch (error: any) {
-    console.error('Education POST error:', error)
+    console.error('Trainings POST error:', error)
     return NextResponse.json(
       { error: 'Internal server error' },
       { status: 500 }
@@ -159,23 +157,21 @@ export async function PUT(request: NextRequest) {
     
     if (!body.id) {
       return NextResponse.json(
-        { error: 'Education ID is required' },
+        { error: 'Training ID is required' },
         { status: 400 }
       )
     }
 
     const { data, error } = await supabase
-      .from('educations')
+      .from('trainings')
       .update({
-        course_qualification: body.course_qualification,
+        training_name: body.training_name,
         institution: body.institution,
-        expected_finish: body.expected_finish || null,
-        course_highlights: body.course_highlights || null,
-        degree_level: body.degree_level || null,
-        year_graduated: body.year_graduated || null,
-        degree_name: body.degree_name || null,
-        gpa: body.gpa || null,
-        honors_awards: body.honors_awards || null
+        start_date: body.start_date || null,
+        end_date: body.end_date || null,
+        duration_hours: body.duration_hours || null,
+        certificate_id: body.certificate_id || null,
+        skills_learned: body.skills_learned || null
       })
       .eq('id', body.id)
       .eq('profile_id', user.id)
@@ -183,9 +179,9 @@ export async function PUT(request: NextRequest) {
       .single()
 
     if (error) {
-      console.error('Education PUT error:', error)
+      console.error('Trainings PUT error:', error)
       return NextResponse.json(
-        { error: 'Failed to update education' },
+        { error: 'Failed to update training' },
         { status: 500 }
       )
     }
@@ -193,7 +189,7 @@ export async function PUT(request: NextRequest) {
     return NextResponse.json(data)
 
   } catch (error: any) {
-    console.error('Education PUT error:', error)
+    console.error('Trainings PUT error:', error)
     return NextResponse.json(
       { error: 'Internal server error' },
       { status: 500 }
@@ -226,21 +222,21 @@ export async function DELETE(request: NextRequest) {
 
     if (!id) {
       return NextResponse.json(
-        { error: 'Education ID is required' },
+        { error: 'Training ID is required' },
         { status: 400 }
       )
     }
 
     const { error } = await supabase
-      .from('educations')
+      .from('trainings')
       .delete()
       .eq('id', id)
       .eq('profile_id', user.id)
 
     if (error) {
-      console.error('Education DELETE error:', error)
+      console.error('Trainings DELETE error:', error)
       return NextResponse.json(
-        { error: 'Failed to delete education' },
+        { error: 'Failed to delete training' },
         { status: 500 }
       )
     }
@@ -248,7 +244,7 @@ export async function DELETE(request: NextRequest) {
     return NextResponse.json({ success: true })
 
   } catch (error: any) {
-    console.error('Education DELETE error:', error)
+    console.error('Trainings DELETE error:', error)
     return NextResponse.json(
       { error: 'Internal server error' },
       { status: 500 }

@@ -3,12 +3,13 @@
 import React, { useState, useEffect } from 'react'
 import { 
   User, Mail, Phone, Calendar, MapPin, Briefcase, 
-  GraduationCap, Edit, Save, X, Plus, Trash2, Upload, Bug 
+  GraduationCap, Edit, Save, X, Plus, Trash2, Upload, Bug,
+  Award, BookOpen, Target
 } from 'lucide-react'
 import Image from 'next/image'
 import { supabase, getCurrentUser } from '@/lib/supabaseClient'
 
-// Keep interfaces
+// Interfaces
 interface Education {
   id: string;
   profile_id: string;
@@ -17,6 +18,11 @@ interface Education {
   expected_finish?: string;
   course_highlights?: string;
   created_at: string;
+  degree_level?: string;
+  year_graduated?: number;
+  degree_name?: string;
+  gpa?: number;
+  honors_awards?: string;
 }
 
 interface WorkExperience {
@@ -28,6 +34,43 @@ interface WorkExperience {
   end_date?: string;
   currently_working: boolean;
   description?: string;
+  created_at: string;
+}
+
+interface Skill {
+  id: string;
+  profile_id: string;
+  skill_name: string;
+  proficiency?: 'Beginner' | 'Intermediate' | 'Advanced' | 'Expert';
+  years_of_experience?: number;
+  verified: boolean;
+  created_at: string;
+}
+
+interface Eligibility {
+  id: string;
+  profile_id: string;
+  eligibility_name: string;
+  license_number?: string;
+  rating?: string;
+  date_issued?: string;
+  expiry_date?: string;
+  issuing_authority?: string;
+  document_path?: string;
+  created_at: string;
+}
+
+interface Training {
+  id: string;
+  profile_id: string;
+  training_name: string;
+  institution: string;
+  start_date?: string;
+  end_date?: string;
+  duration_hours?: number;
+  certificate_id?: string;
+  certificate_path?: string;
+  skills_learned?: string;
   created_at: string;
 }
 
@@ -50,55 +93,29 @@ interface Profile {
 interface ProfileWithDetails extends Profile {
   educations: Education[];
   work_experiences: WorkExperience[];
+  skills: Skill[];
+  eligibilities: Eligibility[];
+  trainings: Training[];
 }
 
 export default function ApplicantProfileContent() {
   const [profile, setProfile] = useState<ProfileWithDetails | null>(null)
   const [isEditing, setIsEditing] = useState(false)
   const [isLoading, setIsLoading] = useState(true)
+  
+  // Section visibility states
   const [showAddEducation, setShowAddEducation] = useState(false)
   const [showAddExperience, setShowAddExperience] = useState(false)
+  const [showAddSkill, setShowAddSkill] = useState(false)
+  const [showAddEligibility, setShowAddEligibility] = useState(false)
+  const [showAddTraining, setShowAddTraining] = useState(false)
+  
+  // Avatar states
   const [avatarFile, setAvatarFile] = useState<File | null>(null)
   const [avatarPreview, setAvatarPreview] = useState<string | null>(null)
   const [isUploading, setIsUploading] = useState(false)
   
-  // For adding new education
-  const [newEducation, setNewEducation] = useState({
-    course_qualification: '',
-    institution: '',
-    expected_finish: '',
-    course_highlights: ''
-  })
-  
-  // For editing existing education
-  const [editingEducation, setEditingEducation] = useState<string | null>(null)
-  const [editEducationData, setEditEducationData] = useState({
-    course_qualification: '',
-    institution: '',
-    expected_finish: '',
-    course_highlights: ''
-  })
-  
-  // For editing existing work experience
-  const [editingExperience, setEditingExperience] = useState<string | null>(null)
-  const [editExperienceData, setEditExperienceData] = useState({
-    job_title: '',
-    company: '',
-    start_date: '',
-    end_date: '',
-    currently_working: false,
-    description: ''
-  })
-  
-  const [newWorkExperience, setNewWorkExperience] = useState({
-    job_title: '',
-    company: '',
-    start_date: '',
-    end_date: '',
-    currently_working: false,
-    description: ''
-  })
-
+  // Form data for profile
   const [formData, setFormData] = useState({
     first_name: '',
     middle_name: '',
@@ -110,15 +127,121 @@ export default function ApplicantProfileContent() {
     avatar_url: ''
   })
 
-  useEffect(() => {
-    fetchProfile()
-  }, [])
+  // New education form
+  const [newEducation, setNewEducation] = useState({
+    course_qualification: '',
+    institution: '',
+    expected_finish: '',
+    course_highlights: '',
+    degree_level: '',
+    year_graduated: '',
+    degree_name: '',
+    gpa: '',
+    honors_awards: ''
+  })
+
+  // Edit education states
+  const [editingEducation, setEditingEducation] = useState<string | null>(null)
+  const [editEducationData, setEditEducationData] = useState({
+    course_qualification: '',
+    institution: '',
+    expected_finish: '',
+    course_highlights: '',
+    degree_level: '',
+    year_graduated: '',
+    degree_name: '',
+    gpa: '',
+    honors_awards: ''
+  })
+
+  // New work experience form
+  const [newWorkExperience, setNewWorkExperience] = useState({
+    job_title: '',
+    company: '',
+    start_date: '',
+    end_date: '',
+    currently_working: false,
+    description: ''
+  })
+
+  // Edit work experience states
+  const [editingExperience, setEditingExperience] = useState<string | null>(null)
+  const [editExperienceData, setEditExperienceData] = useState({
+    job_title: '',
+    company: '',
+    start_date: '',
+    end_date: '',
+    currently_working: false,
+    description: ''
+  })
+
+  // New skill form
+  const [newSkill, setNewSkill] = useState({
+    skill_name: '',
+    proficiency: 'Beginner' as Skill['proficiency'],
+    years_of_experience: '',
+  })
+
+  // Edit skill states
+  const [editingSkill, setEditingSkill] = useState<string | null>(null)
+  const [editSkillData, setEditSkillData] = useState({
+    skill_name: '',
+    proficiency: 'Beginner' as Skill['proficiency'],
+    years_of_experience: '',
+  })
+
+  // New eligibility form
+  const [newEligibility, setNewEligibility] = useState({
+    eligibility_name: '',
+    license_number: '',
+    rating: '',
+    date_issued: '',
+    expiry_date: '',
+    issuing_authority: '',
+  })
+
+  // Edit eligibility states
+  const [editingEligibility, setEditingEligibility] = useState<string | null>(null)
+  const [editEligibilityData, setEditEligibilityData] = useState({
+    eligibility_name: '',
+    license_number: '',
+    rating: '',
+    date_issued: '',
+    expiry_date: '',
+    issuing_authority: '',
+  })
+
+  // New training form
+  const [newTraining, setNewTraining] = useState({
+    training_name: '',
+    institution: '',
+    start_date: '',
+    end_date: '',
+    duration_hours: '',
+    certificate_id: '',
+    skills_learned: '',
+  })
+
+  // Edit training states
+  const [editingTraining, setEditingTraining] = useState<string | null>(null)
+  const [editTrainingData, setEditTrainingData] = useState({
+    training_name: '',
+    institution: '',
+    start_date: '',
+    end_date: '',
+    duration_hours: '',
+    certificate_id: '',
+    skills_learned: '',
+  })
+
+  // ==================== API FUNCTIONS ====================
 
   const getSessionToken = async () => {
     const { data: { session } } = await supabase.auth.getSession()
     return session?.access_token
   }
 
+  // Fetch profile with all data
   const fetchProfile = async () => {
     try {
       setIsLoading(true)
@@ -134,7 +257,8 @@ export default function ApplicantProfileContent() {
         return
       }
 
-      const response = await fetch(`/api/applicant/profile?userId=${user.id}`, {
+      // Fetch profile with all related data
+      const response = await fetch(`/api/applicant/profile?userId=${user.id}&includeAll=true`, {
         headers: {
           'Authorization': `Bearer ${token}`
         }
@@ -165,209 +289,7 @@ export default function ApplicantProfileContent() {
     }
   }
 
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0]
-    if (file) {
-      // Validate file
-      const allowedTypes = ['image/jpeg', 'image/png', 'image/gif', 'image/webp', 'image/jpg']
-      if (!allowedTypes.includes(file.type.toLowerCase())) {
-        alert('Please select a valid image file (JPG, PNG, GIF, or WebP)')
-        return
-      }
-      
-      if (file.size > 5 * 1024 * 1024) {
-        alert('File size must be less than 5MB')
-        return
-      }
-      
-      setAvatarFile(file)
-      const reader = new FileReader()
-      reader.onloadend = () => {
-        setAvatarPreview(reader.result as string)
-      }
-      reader.readAsDataURL(file)
-    }
-  }
-
-  // ==================== UPLOAD FUNCTION (FIXED) ====================
-  const uploadAvatar = async (): Promise<string | null> => {
-    if (!avatarFile) return null
-
-    try {
-      setIsUploading(true)
-      console.log('🚀 Starting avatar upload...')
-      
-      const token = await getSessionToken()
-      if (!token) {
-        console.error('❌ No session token')
-        alert('Session expired, please login again')
-        return null
-      }
-
-      console.log('📋 File details:', {
-        name: avatarFile.name,
-        type: avatarFile.type,
-        size: avatarFile.size,
-        lastModified: avatarFile.lastModified
-      })
-
-      const formData = new FormData()
-      formData.append('file', avatarFile)
-      
-      console.log('📤 Sending to /api/upload...')
-      
-      const response = await fetch('/api/upload', {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${token}`
-        },
-        body: formData,
-      })
-      
-      console.log('📥 Response status:', response.status, response.statusText)
-      
-      const result = await response.json()
-      console.log('📄 Response data:', result)
-      
-      if (!response.ok) {
-        console.error('❌ API error:', result.error)
-        throw new Error(result.error || `Upload failed: ${response.status}`)
-      }
-      
-      if (!result.url) {
-        throw new Error('No URL returned from server')
-      }
-      
-      console.log('✅ Upload successful! URL:', result.url)
-      return result.url
-      
-    } catch (error: any) {
-      console.error('💥 Upload error:', error)
-      alert(`Upload failed: ${error.message}`)
-      return null
-    } finally {
-      setIsUploading(false)
-    }
-  }
-
-  // ==================== ALTERNATIVE DIRECT UPLOAD ====================
-  const uploadAvatarDirect = async (): Promise<string | null> => {
-    if (!avatarFile) return null
-
-    try {
-      setIsUploading(true)
-      console.log('🚀 Direct upload to Supabase...')
-      
-      // Get current session
-      const { data: { session } } = await supabase.auth.getSession()
-      if (!session?.user) {
-        alert('Session expired, please login again')
-        return null
-      }
-
-      // Generate simple filename
-      const fileExt = avatarFile.name.split('.').pop()?.toLowerCase() || 'jpg'
-      const fileName = `avatar-${session.user.id}-${Date.now()}.${fileExt}`
-      
-      console.log('📁 Uploading:', fileName)
-
-      // Upload directly
-      const { data, error } = await supabase.storage
-        .from('profile')
-        .upload(fileName, avatarFile, {
-          contentType: avatarFile.type,
-          upsert: true,
-          cacheControl: '3600'
-        })
-
-      if (error) {
-        console.error('❌ Supabase upload error:', error)
-        throw new Error(`Supabase error: ${error.message}`)
-      }
-
-      console.log('✅ Upload data:', data)
-
-      // Get public URL
-      const { data: { publicUrl } } = supabase.storage
-        .from('profile')
-        .getPublicUrl(data.path)
-
-      console.log('🔗 Public URL:', publicUrl)
-      return publicUrl
-
-    } catch (error: any) {
-      console.error('💥 Direct upload error:', error)
-      alert(`Upload failed: ${error.message}`)
-      return null
-    } finally {
-      setIsUploading(false)
-    }
-  }
-
-  // ==================== DEBUG FUNCTION ====================
-  const debugStorage = async () => {
-    try {
-      console.log('🔍 Starting storage debug...')
-      
-      const { data: { session } } = await supabase.auth.getSession()
-      console.log('👤 User session:', session?.user?.id)
-      
-      // Check buckets
-      const { data: buckets, error: bucketError } = await supabase.storage.listBuckets()
-      console.log('📦 All buckets:', buckets)
-      
-      if (bucketError) {
-        console.error('❌ Bucket error:', bucketError)
-        alert(`Bucket error: ${bucketError.message}`)
-        return
-      }
-      
-      const profileBucket = buckets?.find(b => b.id === 'profile')
-      console.log('🎯 Profile bucket:', profileBucket)
-      
-      if (!profileBucket) {
-        alert('❌ "profile" bucket not found! Create it in Supabase Storage.')
-        return
-      }
-      
-      // Test upload with tiny file
-      const testBlob = new Blob(['test'], { type: 'image/jpeg' })
-      const testFile = new File([testBlob], 'debug-test.jpg', { type: 'image/jpeg' })
-      
-      console.log('🧪 Testing direct upload...')
-      const { data, error } = await supabase.storage
-        .from('profile')
-        .upload(`debug-${Date.now()}.jpg`, testFile, {
-          contentType: 'image/jpeg'
-        })
-      
-      if (error) {
-        console.error('❌ Direct upload failed:', error.message)
-        alert(`Direct upload failed: ${error.message}`)
-      } else {
-        console.log('✅ Direct upload worked!', data)
-        
-        // Get URL
-        const { data: { publicUrl } } = supabase.storage
-          .from('profile')
-          .getPublicUrl(data.path)
-        
-        console.log('🔗 Public URL:', publicUrl)
-        
-        // Clean up
-        await supabase.storage
-          .from('profile')
-          .remove([data.path])
-        
-        alert(`✅ Storage is working!\n\nBucket: ${profileBucket?.id}\nPublic: ${profileBucket?.public}\n\nTest file uploaded and deleted successfully.`)
-      }
-      
-    } catch (error: any) {
-      console.error('💥 Debug error:', error)
-      alert('Debug failed: ' + error.message)
-    }
-  }
-
+  // Update profile
   const handleSaveProfile = async () => {
     try {
       const user = await getCurrentUser()
@@ -382,33 +304,29 @@ export default function ApplicantProfileContent() {
         return
       }
 
-      // Upload avatar first if changed
+      // Upload avatar if changed
       let avatarUrl = formData.avatar_url
       if (avatarFile) {
-        console.log('🔄 Uploading avatar...')
+        setIsUploading(true)
+        const formData = new FormData()
+        formData.append('file', avatarFile)
         
-        // Try API method first
-        let uploadedUrl = await uploadAvatar()
-        
-        // If API fails, try direct method
-        if (!uploadedUrl) {
-          console.log('🔄 API failed, trying direct upload...')
-          uploadedUrl = await uploadAvatarDirect()
-        }
-        
-        if (uploadedUrl) {
-          avatarUrl = uploadedUrl
-          console.log('✅ New avatar URL:', avatarUrl)
+        const uploadResponse = await fetch('/api/upload', {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${token}`
+          },
+          body: formData,
+        })
+
+        if (uploadResponse.ok) {
+          const result = await uploadResponse.json()
+          avatarUrl = result.url
         } else {
           alert('Avatar upload failed. Profile saved without new avatar.')
         }
+        setIsUploading(false)
       }
-
-      console.log('Updating profile with data:', {
-        first_name: formData.first_name,
-        last_name: formData.last_name,
-        avatar_url: avatarUrl
-      })
 
       const response = await fetch('/api/applicant/profile', {
         method: 'PUT',
@@ -429,7 +347,6 @@ export default function ApplicantProfileContent() {
       })
 
       const responseData = await response.json()
-      console.log('Update response:', responseData)
 
       if (response.ok) {
         await fetchProfile()
@@ -442,10 +359,10 @@ export default function ApplicantProfileContent() {
     } catch (error: any) {
       console.error('Error updating profile:', error)
       alert(`Failed to update profile: ${error.message || 'Unknown error'}`)
-    } finally {
-      setIsUploading(false)
     }
   }
+
+  // ==================== EDUCATION API HANDLERS ====================
 
   const handleAddEducation = async () => {
     if (!newEducation.course_qualification || !newEducation.institution) {
@@ -460,14 +377,23 @@ export default function ApplicantProfileContent() {
         return
       }
 
-      // FIXED: Updated API path to match your route
       const response = await fetch('/api/applicant/education', {
         method: 'POST',
         headers: { 
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${token}`
         },
-        body: JSON.stringify(newEducation)
+        body: JSON.stringify({
+          course_qualification: newEducation.course_qualification,
+          institution: newEducation.institution,
+          expected_finish: newEducation.expected_finish || null,
+          course_highlights: newEducation.course_highlights || null,
+          degree_level: newEducation.degree_level || null,
+          year_graduated: newEducation.year_graduated || null,
+          degree_name: newEducation.degree_name || null,
+          gpa: newEducation.gpa || null,
+          honors_awards: newEducation.honors_awards || null
+        })
       })
 
       const responseData = await response.json()
@@ -477,7 +403,12 @@ export default function ApplicantProfileContent() {
           course_qualification: '',
           institution: '',
           expected_finish: '',
-          course_highlights: ''
+          course_highlights: '',
+          degree_level: '',
+          year_graduated: '',
+          degree_name: '',
+          gpa: '',
+          honors_awards: ''
         })
         setShowAddEducation(false)
         await fetchProfile()
@@ -504,7 +435,6 @@ export default function ApplicantProfileContent() {
         return
       }
 
-      // FIXED: Updated API path to match your route
       const response = await fetch('/api/applicant/education', {
         method: 'PUT',
         headers: { 
@@ -513,7 +443,15 @@ export default function ApplicantProfileContent() {
         },
         body: JSON.stringify({
           id,
-          ...editEducationData
+          course_qualification: editEducationData.course_qualification,
+          institution: editEducationData.institution,
+          expected_finish: editEducationData.expected_finish || null,
+          course_highlights: editEducationData.course_highlights || null,
+          degree_level: editEducationData.degree_level || null,
+          year_graduated: editEducationData.year_graduated || null,
+          degree_name: editEducationData.degree_name || null,
+          gpa: editEducationData.gpa || null,
+          honors_awards: editEducationData.honors_awards || null
         })
       })
 
@@ -521,12 +459,6 @@ export default function ApplicantProfileContent() {
       
       if (response.ok) {
         setEditingEducation(null)
-        setEditEducationData({
-          course_qualification: '',
-          institution: '',
-          expected_finish: '',
-          course_highlights: ''
-        })
         await fetchProfile()
         alert('Education updated successfully!')
       } else {
@@ -548,7 +480,6 @@ export default function ApplicantProfileContent() {
         return
       }
 
-      // FIXED: Updated API path to match your route
       const response = await fetch(`/api/applicant/education?id=${id}`, {
         method: 'DELETE',
         headers: {
@@ -570,6 +501,8 @@ export default function ApplicantProfileContent() {
     }
   }
 
+  // ==================== WORK EXPERIENCE API HANDLERS ====================
+
   const handleAddWorkExperience = async () => {
     if (!newWorkExperience.job_title || !newWorkExperience.company || !newWorkExperience.start_date) {
       alert('Job title, company, and start date are required')
@@ -583,7 +516,6 @@ export default function ApplicantProfileContent() {
         return
       }
 
-      // FIXED: Changed from /api/applicant/profile/experience to /api/applicant/experience
       const response = await fetch('/api/applicant/experience', {
         method: 'POST',
         headers: { 
@@ -629,7 +561,6 @@ export default function ApplicantProfileContent() {
         return
       }
 
-      // FIXED: Changed from /api/applicant/profile/experience to /api/applicant/experience
       const response = await fetch('/api/applicant/experience', {
         method: 'PUT',
         headers: { 
@@ -646,14 +577,6 @@ export default function ApplicantProfileContent() {
       
       if (response.ok) {
         setEditingExperience(null)
-        setEditExperienceData({
-          job_title: '',
-          company: '',
-          start_date: '',
-          end_date: '',
-          currently_working: false,
-          description: ''
-        })
         await fetchProfile()
         alert('Work experience updated successfully!')
       } else {
@@ -675,7 +598,6 @@ export default function ApplicantProfileContent() {
         return
       }
 
-      // FIXED: Changed from /api/applicant/profile/experience to /api/applicant/experience
       const response = await fetch(`/api/applicant/experience?id=${id}`, {
         method: 'DELETE',
         headers: {
@@ -697,13 +619,427 @@ export default function ApplicantProfileContent() {
     }
   }
 
+  // ==================== SKILLS API HANDLERS ====================
+
+  const handleAddSkill = async () => {
+    if (!newSkill.skill_name) {
+      alert('Skill name is required')
+      return
+    }
+
+    try {
+      const token = await getSessionToken()
+      if (!token) {
+        alert('Session expired, please login again')
+        return
+      }
+
+      const response = await fetch('/api/applicant/skills', {
+        method: 'POST',
+        headers: { 
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          skill_name: newSkill.skill_name,
+          proficiency: newSkill.proficiency || null,
+          years_of_experience: newSkill.years_of_experience || null
+        })
+      })
+
+      const responseData = await response.json()
+      
+      if (response.ok) {
+        setNewSkill({
+          skill_name: '',
+          proficiency: 'Beginner',
+          years_of_experience: '',
+        })
+        setShowAddSkill(false)
+        await fetchProfile()
+        alert('Skill added successfully!')
+      } else {
+        alert(`Failed to add skill: ${responseData.error || 'Unknown error'}`)
+      }
+    } catch (error: any) {
+      console.error('Error adding skill:', error)
+      alert(`Failed to add skill: ${error.message || 'Unknown error'}`)
+    }
+  }
+
+  const handleEditSkill = async (id: string) => {
+    if (!editSkillData.skill_name) {
+      alert('Skill name is required')
+      return
+    }
+
+    try {
+      const token = await getSessionToken()
+      if (!token) {
+        alert('Session expired, please login again')
+        return
+      }
+
+      const response = await fetch('/api/applicant/skills', {
+        method: 'PUT',
+        headers: { 
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          id,
+          skill_name: editSkillData.skill_name,
+          proficiency: editSkillData.proficiency || null,
+          years_of_experience: editSkillData.years_of_experience || null
+        })
+      })
+
+      const responseData = await response.json()
+      
+      if (response.ok) {
+        setEditingSkill(null)
+        await fetchProfile()
+        alert('Skill updated successfully!')
+      } else {
+        alert(`Failed to update skill: ${responseData.error || 'Unknown error'}`)
+      }
+    } catch (error: any) {
+      console.error('Error updating skill:', error)
+      alert(`Failed to update skill: ${error.message || 'Unknown error'}`)
+    }
+  }
+
+  const handleDeleteSkill = async (id: string) => {
+    if (!confirm('Are you sure you want to delete this skill?')) return
+    
+    try {
+      const token = await getSessionToken()
+      if (!token) {
+        alert('Session expired, please login again')
+        return
+      }
+
+      const response = await fetch(`/api/applicant/skills?id=${id}`, {
+        method: 'DELETE',
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      })
+
+      const responseData = await response.json()
+      
+      if (response.ok) {
+        await fetchProfile()
+        alert('Skill deleted successfully!')
+      } else {
+        alert(`Failed to delete skill: ${responseData.error || 'Unknown error'}`)
+      }
+    } catch (error: any) {
+      console.error('Error deleting skill:', error)
+      alert(`Failed to delete skill: ${error.message || 'Unknown error'}`)
+    }
+  }
+
+  // ==================== ELIGIBILITIES API HANDLERS ====================
+
+  const handleAddEligibility = async () => {
+    if (!newEligibility.eligibility_name) {
+      alert('Eligibility name is required')
+      return
+    }
+
+    try {
+      const token = await getSessionToken()
+      if (!token) {
+        alert('Session expired, please login again')
+        return
+      }
+
+      const response = await fetch('/api/applicant/eligibilities', {
+        method: 'POST',
+        headers: { 
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          eligibility_name: newEligibility.eligibility_name,
+          license_number: newEligibility.license_number || null,
+          rating: newEligibility.rating || null,
+          date_issued: newEligibility.date_issued || null,
+          expiry_date: newEligibility.expiry_date || null,
+          issuing_authority: newEligibility.issuing_authority || null
+        })
+      })
+
+      const responseData = await response.json()
+      
+      if (response.ok) {
+        setNewEligibility({
+          eligibility_name: '',
+          license_number: '',
+          rating: '',
+          date_issued: '',
+          expiry_date: '',
+          issuing_authority: '',
+        })
+        setShowAddEligibility(false)
+        await fetchProfile()
+        alert('Eligibility added successfully!')
+      } else {
+        alert(`Failed to add eligibility: ${responseData.error || 'Unknown error'}`)
+      }
+    } catch (error: any) {
+      console.error('Error adding eligibility:', error)
+      alert(`Failed to add eligibility: ${error.message || 'Unknown error'}`)
+    }
+  }
+
+  const handleEditEligibility = async (id: string) => {
+    if (!editEligibilityData.eligibility_name) {
+      alert('Eligibility name is required')
+      return
+    }
+
+    try {
+      const token = await getSessionToken()
+      if (!token) {
+        alert('Session expired, please login again')
+        return
+      }
+
+      const response = await fetch('/api/applicant/eligibilities', {
+        method: 'PUT',
+        headers: { 
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          id,
+          eligibility_name: editEligibilityData.eligibility_name,
+          license_number: editEligibilityData.license_number || null,
+          rating: editEligibilityData.rating || null,
+          date_issued: editEligibilityData.date_issued || null,
+          expiry_date: editEligibilityData.expiry_date || null,
+          issuing_authority: editEligibilityData.issuing_authority || null
+        })
+      })
+
+      const responseData = await response.json()
+      
+      if (response.ok) {
+        setEditingEligibility(null)
+        await fetchProfile()
+        alert('Eligibility updated successfully!')
+      } else {
+        alert(`Failed to update eligibility: ${responseData.error || 'Unknown error'}`)
+      }
+    } catch (error: any) {
+      console.error('Error updating eligibility:', error)
+      alert(`Failed to update eligibility: ${error.message || 'Unknown error'}`)
+    }
+  }
+
+  const handleDeleteEligibility = async (id: string) => {
+    if (!confirm('Are you sure you want to delete this eligibility?')) return
+    
+    try {
+      const token = await getSessionToken()
+      if (!token) {
+        alert('Session expired, please login again')
+        return
+      }
+
+      const response = await fetch(`/api/applicant/eligibilities?id=${id}`, {
+        method: 'DELETE',
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      })
+
+      const responseData = await response.json()
+      
+      if (response.ok) {
+        await fetchProfile()
+        alert('Eligibility deleted successfully!')
+      } else {
+        alert(`Failed to delete eligibility: ${responseData.error || 'Unknown error'}`)
+      }
+    } catch (error: any) {
+      console.error('Error deleting eligibility:', error)
+      alert(`Failed to delete eligibility: ${error.message || 'Unknown error'}`)
+    }
+  }
+
+  // ==================== TRAININGS API HANDLERS ====================
+
+  const handleAddTraining = async () => {
+    if (!newTraining.training_name || !newTraining.institution) {
+      alert('Training name and institution are required')
+      return
+    }
+
+    try {
+      const token = await getSessionToken()
+      if (!token) {
+        alert('Session expired, please login again')
+        return
+      }
+
+      const response = await fetch('/api/applicant/trainings', {
+        method: 'POST',
+        headers: { 
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          training_name: newTraining.training_name,
+          institution: newTraining.institution,
+          start_date: newTraining.start_date || null,
+          end_date: newTraining.end_date || null,
+          duration_hours: newTraining.duration_hours || null,
+          certificate_id: newTraining.certificate_id || null,
+          skills_learned: newTraining.skills_learned || null
+        })
+      })
+
+      const responseData = await response.json()
+      
+      if (response.ok) {
+        setNewTraining({
+          training_name: '',
+          institution: '',
+          start_date: '',
+          end_date: '',
+          duration_hours: '',
+          certificate_id: '',
+          skills_learned: '',
+        })
+        setShowAddTraining(false)
+        await fetchProfile()
+        alert('Training added successfully!')
+      } else {
+        alert(`Failed to add training: ${responseData.error || 'Unknown error'}`)
+      }
+    } catch (error: any) {
+      console.error('Error adding training:', error)
+      alert(`Failed to add training: ${error.message || 'Unknown error'}`)
+    }
+  }
+
+  const handleEditTraining = async (id: string) => {
+    if (!editTrainingData.training_name || !editTrainingData.institution) {
+      alert('Training name and institution are required')
+      return
+    }
+
+    try {
+      const token = await getSessionToken()
+      if (!token) {
+        alert('Session expired, please login again')
+        return
+      }
+
+      const response = await fetch('/api/applicant/trainings', {
+        method: 'PUT',
+        headers: { 
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          id,
+          training_name: editTrainingData.training_name,
+          institution: editTrainingData.institution,
+          start_date: editTrainingData.start_date || null,
+          end_date: editTrainingData.end_date || null,
+          duration_hours: editTrainingData.duration_hours || null,
+          certificate_id: editTrainingData.certificate_id || null,
+          skills_learned: editTrainingData.skills_learned || null
+        })
+      })
+
+      const responseData = await response.json()
+      
+      if (response.ok) {
+        setEditingTraining(null)
+        await fetchProfile()
+        alert('Training updated successfully!')
+      } else {
+        alert(`Failed to update training: ${responseData.error || 'Unknown error'}`)
+      }
+    } catch (error: any) {
+      console.error('Error updating training:', error)
+      alert(`Failed to update training: ${error.message || 'Unknown error'}`)
+    }
+  }
+
+  const handleDeleteTraining = async (id: string) => {
+    if (!confirm('Are you sure you want to delete this training?')) return
+    
+    try {
+      const token = await getSessionToken()
+      if (!token) {
+        alert('Session expired, please login again')
+        return
+      }
+
+      const response = await fetch(`/api/applicant/trainings?id=${id}`, {
+        method: 'DELETE',
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      })
+
+      const responseData = await response.json()
+      
+      if (response.ok) {
+        await fetchProfile()
+        alert('Training deleted successfully!')
+      } else {
+        alert(`Failed to delete training: ${responseData.error || 'Unknown error'}`)
+      }
+    } catch (error: any) {
+      console.error('Error deleting training:', error)
+      alert(`Failed to delete training: ${error.message || 'Unknown error'}`)
+    }
+  }
+
+  // ==================== HELPER FUNCTIONS ====================
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (file) {
+      const allowedTypes = ['image/jpeg', 'image/png', 'image/gif', 'image/webp', 'image/jpg']
+      if (!allowedTypes.includes(file.type.toLowerCase())) {
+        alert('Please select a valid image file (JPG, PNG, GIF, or WebP)')
+        return
+      }
+      
+      if (file.size > 5 * 1024 * 1024) {
+        alert('File size must be less than 5MB')
+        return
+      }
+      
+      setAvatarFile(file)
+      const reader = new FileReader()
+      reader.onloadend = () => {
+        setAvatarPreview(reader.result as string)
+      }
+      reader.readAsDataURL(file)
+    }
+  }
+
   const startEditingEducation = (edu: Education) => {
     setEditingEducation(edu.id)
     setEditEducationData({
-      course_qualification: edu.course_qualification,
-      institution: edu.institution,
+      course_qualification: edu.course_qualification || '',
+      institution: edu.institution || '',
       expected_finish: edu.expected_finish || '',
-      course_highlights: edu.course_highlights || ''
+      course_highlights: edu.course_highlights || '',
+      degree_level: edu.degree_level || '',
+      year_graduated: edu.year_graduated?.toString() || '',
+      degree_name: edu.degree_name || '',
+      gpa: edu.gpa?.toString() || '',
+      honors_awards: edu.honors_awards || ''
     })
   }
 
@@ -719,6 +1055,58 @@ export default function ApplicantProfileContent() {
     })
   }
 
+  const startEditingSkill = (skill: Skill) => {
+    setEditingSkill(skill.id)
+    setEditSkillData({
+      skill_name: skill.skill_name,
+      proficiency: skill.proficiency || 'Beginner',
+      years_of_experience: skill.years_of_experience?.toString() || '',
+    })
+  }
+
+  const startEditingEligibility = (eligibility: Eligibility) => {
+    setEditingEligibility(eligibility.id)
+    setEditEligibilityData({
+      eligibility_name: eligibility.eligibility_name,
+      license_number: eligibility.license_number || '',
+      rating: eligibility.rating || '',
+      date_issued: eligibility.date_issued || '',
+      expiry_date: eligibility.expiry_date || '',
+      issuing_authority: eligibility.issuing_authority || '',
+    })
+  }
+
+  const startEditingTraining = (training: Training) => {
+    setEditingTraining(training.id)
+    setEditTrainingData({
+      training_name: training.training_name,
+      institution: training.institution,
+      start_date: training.start_date || '',
+      end_date: training.end_date || '',
+      duration_hours: training.duration_hours?.toString() || '',
+      certificate_id: training.certificate_id || '',
+      skills_learned: training.skills_learned || '',
+    })
+  }
+
+  const debugStorage = async () => {
+    try {
+      console.log('Debug storage...')
+      // Your debug logic here
+    } catch (error: any) {
+      console.error('Debug error:', error)
+      alert('Debug failed: ' + error.message)
+    }
+  }
+
+  // ==================== USE EFFECT ====================
+
+  useEffect(() => {
+    fetchProfile()
+  }, [])
+
+  // ==================== RENDER LOADING ====================
+
   if (isLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center">
@@ -726,6 +1114,8 @@ export default function ApplicantProfileContent() {
       </div>
     )
   }
+
+  // ==================== MAIN RENDER ====================
 
   return (
     <main className="flex-1 p-4 md:p-8">
@@ -871,7 +1261,7 @@ export default function ApplicantProfileContent() {
                 </h2>
                 
                 <div className="inline-block px-3 py-1 mt-2 bg-blue-100 text-blue-800 rounded-full text-sm font-medium">
-                  APPLICANT
+                  {profile?.role?.toUpperCase() || 'APPLICANT'}
                 </div>
               </div>
 
@@ -970,7 +1360,7 @@ export default function ApplicantProfileContent() {
             </div>
           </div>
 
-          {/* Right Column - Education & Experience */}
+          {/* Right Column - All Sections */}
           <div className="lg:col-span-2 space-y-8">
             {/* Education Section */}
             <div className="bg-white rounded-xl shadow-lg p-6">
@@ -1017,7 +1407,25 @@ export default function ApplicantProfileContent() {
                       />
                     </div>
                     <div>
-                      <label className="block text-sm font-medium mb-1">Expected Finish (Optional)</label>
+                      <label className="block text-sm font-medium mb-1">Degree Level</label>
+                      <select
+                        value={newEducation.degree_level}
+                        onChange={(e) => setNewEducation({...newEducation, degree_level: e.target.value})}
+                        className="w-full px-3 py-2 border rounded-lg"
+                      >
+                        <option value="">Select Level</option>
+                        <option value="Elementary">Elementary</option>
+                        <option value="High School">High School</option>
+                        <option value="Vocational">Vocational</option>
+                        <option value="Associate">Associate</option>
+                        <option value="Bachelors">Bachelors</option>
+                        <option value="Masters">Masters</option>
+                        <option value="Doctorate">Doctorate</option>
+                        <option value="Post-Doctorate">Post-Doctorate</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium mb-1">Expected Finish</label>
                       <input
                         type="date"
                         value={newEducation.expected_finish}
@@ -1026,13 +1434,58 @@ export default function ApplicantProfileContent() {
                       />
                     </div>
                     <div>
-                      <label className="block text-sm font-medium mb-1">Course Highlights (Optional)</label>
+                      <label className="block text-sm font-medium mb-1">Year Graduated</label>
+                      <input
+                        type="number"
+                        value={newEducation.year_graduated}
+                        onChange={(e) => setNewEducation({...newEducation, year_graduated: e.target.value})}
+                        className="w-full px-3 py-2 border rounded-lg"
+                        min="1900"
+                        max={new Date().getFullYear()}
+                        placeholder="e.g., 2023"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium mb-1">GPA</label>
+                      <input
+                        type="number"
+                        step="0.01"
+                        value={newEducation.gpa}
+                        onChange={(e) => setNewEducation({...newEducation, gpa: e.target.value})}
+                        className="w-full px-3 py-2 border rounded-lg"
+                        min="0"
+                        max="4.0"
+                        placeholder="e.g., 3.5"
+                      />
+                    </div>
+                    <div className="md:col-span-2">
+                      <label className="block text-sm font-medium mb-1">Degree Name</label>
                       <input
                         type="text"
+                        value={newEducation.degree_name}
+                        onChange={(e) => setNewEducation({...newEducation, degree_name: e.target.value})}
+                        className="w-full px-3 py-2 border rounded-lg"
+                        placeholder="e.g., Bachelor of Science"
+                      />
+                    </div>
+                    <div className="md:col-span-2">
+                      <label className="block text-sm font-medium mb-1">Course Highlights</label>
+                      <textarea
                         value={newEducation.course_highlights}
                         onChange={(e) => setNewEducation({...newEducation, course_highlights: e.target.value})}
+                        rows={2}
                         className="w-full px-3 py-2 border rounded-lg"
-                        placeholder="e.g., Dean's Lister, Magna Cum Laude"
+                        placeholder="e.g., Dean's Lister, Magna Cum Laude, Special Awards"
+                      />
+                    </div>
+                    <div className="md:col-span-2">
+                      <label className="block text-sm font-medium mb-1">Honors & Awards</label>
+                      <textarea
+                        value={newEducation.honors_awards}
+                        onChange={(e) => setNewEducation({...newEducation, honors_awards: e.target.value})}
+                        rows={2}
+                        className="w-full px-3 py-2 border rounded-lg"
+                        placeholder="e.g., Summa Cum Laude, President's Lister"
                       />
                     </div>
                   </div>
@@ -1084,7 +1537,25 @@ export default function ApplicantProfileContent() {
                                   />
                                 </div>
                                 <div>
-                                  <label className="block text-sm font-medium mb-1">Expected Finish (Optional)</label>
+                                  <label className="block text-sm font-medium mb-1">Degree Level</label>
+                                  <select
+                                    value={editEducationData.degree_level}
+                                    onChange={(e) => setEditEducationData({...editEducationData, degree_level: e.target.value})}
+                                    className="w-full px-3 py-2 border rounded-lg"
+                                  >
+                                    <option value="">Select Level</option>
+                                    <option value="Elementary">Elementary</option>
+                                    <option value="High School">High School</option>
+                                    <option value="Vocational">Vocational</option>
+                                    <option value="Associate">Associate</option>
+                                    <option value="Bachelors">Bachelors</option>
+                                    <option value="Masters">Masters</option>
+                                    <option value="Doctorate">Doctorate</option>
+                                    <option value="Post-Doctorate">Post-Doctorate</option>
+                                  </select>
+                                </div>
+                                <div>
+                                  <label className="block text-sm font-medium mb-1">Expected Finish</label>
                                   <input
                                     type="date"
                                     value={editEducationData.expected_finish}
@@ -1093,11 +1564,48 @@ export default function ApplicantProfileContent() {
                                   />
                                 </div>
                                 <div>
-                                  <label className="block text-sm font-medium mb-1">Course Highlights (Optional)</label>
+                                  <label className="block text-sm font-medium mb-1">Year Graduated</label>
+                                  <input
+                                    type="number"
+                                    value={editEducationData.year_graduated}
+                                    onChange={(e) => setEditEducationData({...editEducationData, year_graduated: e.target.value})}
+                                    className="w-full px-3 py-2 border rounded-lg"
+                                  />
+                                </div>
+                                <div>
+                                  <label className="block text-sm font-medium mb-1">GPA</label>
+                                  <input
+                                    type="number"
+                                    step="0.01"
+                                    value={editEducationData.gpa}
+                                    onChange={(e) => setEditEducationData({...editEducationData, gpa: e.target.value})}
+                                    className="w-full px-3 py-2 border rounded-lg"
+                                  />
+                                </div>
+                                <div className="md:col-span-2">
+                                  <label className="block text-sm font-medium mb-1">Degree Name</label>
                                   <input
                                     type="text"
+                                    value={editEducationData.degree_name}
+                                    onChange={(e) => setEditEducationData({...editEducationData, degree_name: e.target.value})}
+                                    className="w-full px-3 py-2 border rounded-lg"
+                                  />
+                                </div>
+                                <div className="md:col-span-2">
+                                  <label className="block text-sm font-medium mb-1">Course Highlights</label>
+                                  <textarea
                                     value={editEducationData.course_highlights}
                                     onChange={(e) => setEditEducationData({...editEducationData, course_highlights: e.target.value})}
+                                    rows={2}
+                                    className="w-full px-3 py-2 border rounded-lg"
+                                  />
+                                </div>
+                                <div className="md:col-span-2">
+                                  <label className="block text-sm font-medium mb-1">Honors & Awards</label>
+                                  <textarea
+                                    value={editEducationData.honors_awards}
+                                    onChange={(e) => setEditEducationData({...editEducationData, honors_awards: e.target.value})}
+                                    rows={2}
                                     className="w-full px-3 py-2 border rounded-lg"
                                   />
                                 </div>
@@ -1116,7 +1624,12 @@ export default function ApplicantProfileContent() {
                                       course_qualification: '',
                                       institution: '',
                                       expected_finish: '',
-                                      course_highlights: ''
+                                      course_highlights: '',
+                                      degree_level: '',
+                                      year_graduated: '',
+                                      degree_name: '',
+                                      gpa: '',
+                                      honors_awards: ''
                                     })
                                   }}
                                   className="px-4 py-2 border rounded-lg hover:bg-gray-50 flex-1"
@@ -1129,15 +1642,36 @@ export default function ApplicantProfileContent() {
                             <>
                               <h4 className="font-bold text-gray-900">{edu.course_qualification}</h4>
                               <p className="text-gray-700">{edu.institution}</p>
-                              <p className="text-sm text-gray-600 mt-1">
-                                {edu.expected_finish 
-                                  ? `Expected Finish: ${new Date(edu.expected_finish).toLocaleDateString()}`
-                                  : 'No expected finish date'
-                                }
-                              </p>
+                              <div className="flex flex-wrap gap-2 mt-2">
+                                {edu.degree_level && (
+                                  <span className="px-2 py-1 bg-blue-100 text-blue-800 text-xs rounded-full">
+                                    {edu.degree_level}
+                                  </span>
+                                )}
+                                {edu.year_graduated && (
+                                  <span className="px-2 py-1 bg-gray-100 text-gray-800 text-xs rounded-full">
+                                    Graduated: {edu.year_graduated}
+                                  </span>
+                                )}
+                                {edu.gpa && (
+                                  <span className="px-2 py-1 bg-green-100 text-green-800 text-xs rounded-full">
+                                    GPA: {edu.gpa}
+                                  </span>
+                                )}
+                              </div>
+                              {edu.expected_finish && (
+                                <p className="text-sm text-gray-600 mt-1">
+                                  Expected Finish: {new Date(edu.expected_finish).toLocaleDateString()}
+                                </p>
+                              )}
                               {edu.course_highlights && (
                                 <p className="text-gray-600 mt-2 text-sm bg-gray-50 p-2 rounded">
                                   <span className="font-medium">Highlights:</span> {edu.course_highlights}
+                                </p>
+                              )}
+                              {edu.honors_awards && (
+                                <p className="text-gray-600 mt-2 text-sm bg-yellow-50 p-2 rounded">
+                                  <span className="font-medium">Awards:</span> {edu.honors_awards}
                                 </p>
                               )}
                             </>
@@ -1443,6 +1977,753 @@ export default function ApplicantProfileContent() {
                     className="mt-3 text-green-600 hover:text-green-800 font-medium"
                   >
                     Add your first work experience
+                  </button>
+                </div>
+              )}
+            </div>
+
+            {/* Skills Section */}
+            <div className="bg-white rounded-xl shadow-lg p-6">
+              <div className="flex flex-col md:flex-row md:items-center justify-between mb-6 gap-4">
+                <div className="flex items-center gap-3">
+                  <Target className="w-6 h-6 text-purple-600 flex-shrink-0" />
+                  <h3 className="text-xl font-bold text-gray-900">Skills</h3>
+                </div>
+                <button 
+                  onClick={() => setShowAddSkill(true)}
+                  disabled={isUploading}
+                  className="flex items-center justify-center gap-2 px-3 py-2 text-sm bg-purple-600 text-white rounded-lg hover:bg-purple-700 w-full md:w-auto disabled:opacity-50"
+                >
+                  <Plus size={16} />
+                  Add Skill
+                </button>
+              </div>
+
+              {/* Add Skill Form */}
+              {showAddSkill && (
+                <div className="mb-6 p-4 bg-gray-50 rounded-lg border">
+                  <h4 className="font-bold mb-4">Add Skill</h4>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-sm font-medium mb-1">Skill Name *</label>
+                      <input
+                        type="text"
+                        value={newSkill.skill_name}
+                        onChange={(e) => setNewSkill({...newSkill, skill_name: e.target.value})}
+                        className="w-full px-3 py-2 border rounded-lg"
+                        required
+                        placeholder="e.g., JavaScript, Project Management"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium mb-1">Proficiency Level</label>
+                      <select
+                        value={newSkill.proficiency}
+                        onChange={(e) => setNewSkill({...newSkill, proficiency: e.target.value as Skill['proficiency']})}
+                        className="w-full px-3 py-2 border rounded-lg"
+                      >
+                        <option value="Beginner">Beginner</option>
+                        <option value="Intermediate">Intermediate</option>
+                        <option value="Advanced">Advanced</option>
+                        <option value="Expert">Expert</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium mb-1">Years of Experience (Optional)</label>
+                      <input
+                        type="number"
+                        value={newSkill.years_of_experience}
+                        onChange={(e) => setNewSkill({...newSkill, years_of_experience: e.target.value})}
+                        className="w-full px-3 py-2 border rounded-lg"
+                        min="0"
+                        max="50"
+                        placeholder="e.g., 3"
+                      />
+                    </div>
+                  </div>
+                  <div className="flex flex-col sm:flex-row gap-2 mt-4">
+                    <button 
+                      onClick={handleAddSkill}
+                      className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 flex-1"
+                    >
+                      Save Skill
+                    </button>
+                    <button 
+                      onClick={() => setShowAddSkill(false)}
+                      className="px-4 py-2 border rounded-lg hover:bg-gray-50 flex-1"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* Skills List */}
+              {profile?.skills && profile.skills.length > 0 ? (
+                <div className="space-y-4">
+                  {profile.skills.map((skill) => (
+                    <div key={skill.id} className="border-l-4 border-purple-500 pl-4 py-3 relative group">
+                      <div className="flex justify-between items-start">
+                        <div className="flex-1 min-w-0">
+                          {editingSkill === skill.id ? (
+                            <div className="space-y-4">
+                              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                <div>
+                                  <label className="block text-sm font-medium mb-1">Skill Name *</label>
+                                  <input
+                                    type="text"
+                                    value={editSkillData.skill_name}
+                                    onChange={(e) => setEditSkillData({...editSkillData, skill_name: e.target.value})}
+                                    className="w-full px-3 py-2 border rounded-lg"
+                                    required
+                                  />
+                                </div>
+                                <div>
+                                  <label className="block text-sm font-medium mb-1">Proficiency Level</label>
+                                  <select
+                                    value={editSkillData.proficiency}
+                                    onChange={(e) => setEditSkillData({...editSkillData, proficiency: e.target.value as Skill['proficiency']})}
+                                    className="w-full px-3 py-2 border rounded-lg"
+                                  >
+                                    <option value="Beginner">Beginner</option>
+                                    <option value="Intermediate">Intermediate</option>
+                                    <option value="Advanced">Advanced</option>
+                                    <option value="Expert">Expert</option>
+                                  </select>
+                                </div>
+                                <div>
+                                  <label className="block text-sm font-medium mb-1">Years of Experience (Optional)</label>
+                                  <input
+                                    type="number"
+                                    value={editSkillData.years_of_experience}
+                                    onChange={(e) => setEditSkillData({...editSkillData, years_of_experience: e.target.value})}
+                                    className="w-full px-3 py-2 border rounded-lg"
+                                    min="0"
+                                    max="50"
+                                  />
+                                </div>
+                              </div>
+                              <div className="flex gap-2">
+                                <button 
+                                  onClick={() => handleEditSkill(skill.id)}
+                                  className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 flex-1"
+                                >
+                                  Save Changes
+                                </button>
+                                <button 
+                                  onClick={() => {
+                                    setEditingSkill(null)
+                                    setEditSkillData({
+                                      skill_name: '',
+                                      proficiency: 'Beginner',
+                                      years_of_experience: '',
+                                    })
+                                  }}
+                                  className="px-4 py-2 border rounded-lg hover:bg-gray-50 flex-1"
+                                >
+                                  Cancel
+                                </button>
+                              </div>
+                            </div>
+                          ) : (
+                            <>
+                              <div className="flex flex-col md:flex-row md:items-center gap-2">
+                                <h4 className="font-bold text-gray-900">{skill.skill_name}</h4>
+                                {skill.proficiency && (
+                                  <span className={`px-2 py-1 text-xs rounded-full ${
+                                    skill.proficiency === 'Beginner' ? 'bg-blue-100 text-blue-800' :
+                                    skill.proficiency === 'Intermediate' ? 'bg-yellow-100 text-yellow-800' :
+                                    skill.proficiency === 'Advanced' ? 'bg-orange-100 text-orange-800' :
+                                    'bg-red-100 text-red-800'
+                                  }`}>
+                                    {skill.proficiency}
+                                  </span>
+                                )}
+                                {skill.verified && (
+                                  <span className="px-2 py-1 text-xs bg-green-100 text-green-800 rounded-full">
+                                    Verified
+                                  </span>
+                                )}
+                              </div>
+                              <div className="flex flex-wrap gap-4 mt-2">
+                                {skill.years_of_experience && (
+                                  <p className="text-sm text-gray-600">
+                                    <span className="font-medium">Experience:</span> {skill.years_of_experience} year(s)
+                                  </p>
+                                )}
+                              </div>
+                            </>
+                          )}
+                        </div>
+                        {editingSkill !== skill.id && (
+                          <div className="flex flex-col md:flex-row gap-2 ml-2">
+                            <button 
+                              onClick={() => startEditingSkill(skill)}
+                              className="p-2 text-blue-600 hover:text-blue-800 hover:bg-blue-50 rounded opacity-0 group-hover:opacity-100 transition-opacity"
+                              title="Edit skill"
+                            >
+                              <Edit size={18} />
+                            </button>
+                            <button 
+                              onClick={() => handleDeleteSkill(skill.id)}
+                              className="p-2 text-red-600 hover:text-red-800 hover:bg-red-50 rounded opacity-0 group-hover:opacity-100 transition-opacity"
+                              title="Delete skill"
+                            >
+                              <Trash2 size={18} />
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="text-center py-8 border-2 border-dashed border-gray-300 rounded-lg">
+                  <Target className="w-12 h-12 text-gray-400 mx-auto mb-3" />
+                  <p className="text-gray-500">No skills added yet.</p>
+                  <button 
+                    onClick={() => setShowAddSkill(true)}
+                    className="mt-3 text-purple-600 hover:text-purple-800 font-medium"
+                  >
+                    Add your first skill
+                  </button>
+                </div>
+              )}
+            </div>
+
+            {/* Eligibilities Section */}
+            <div className="bg-white rounded-xl shadow-lg p-6">
+              <div className="flex flex-col md:flex-row md:items-center justify-between mb-6 gap-4">
+                <div className="flex items-center gap-3">
+                  <Award className="w-6 h-6 text-amber-600 flex-shrink-0" />
+                  <h3 className="text-xl font-bold text-gray-900">Eligibilities</h3>
+                </div>
+                <button 
+                  onClick={() => setShowAddEligibility(true)}
+                  disabled={isUploading}
+                  className="flex items-center justify-center gap-2 px-3 py-2 text-sm bg-amber-600 text-white rounded-lg hover:bg-amber-700 w-full md:w-auto disabled:opacity-50"
+                >
+                  <Plus size={16} />
+                  Add Eligibility
+                </button>
+              </div>
+
+              {/* Add Eligibility Form */}
+              {showAddEligibility && (
+                <div className="mb-6 p-4 bg-gray-50 rounded-lg border">
+                  <h4 className="font-bold mb-4">Add Eligibility</h4>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-sm font-medium mb-1">Eligibility Name *</label>
+                      <input
+                        type="text"
+                        value={newEligibility.eligibility_name}
+                        onChange={(e) => setNewEligibility({...newEligibility, eligibility_name: e.target.value})}
+                        className="w-full px-3 py-2 border rounded-lg"
+                        required
+                        placeholder="e.g., Civil Service Professional"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium mb-1">License Number (Optional)</label>
+                      <input
+                        type="text"
+                        value={newEligibility.license_number}
+                        onChange={(e) => setNewEligibility({...newEligibility, license_number: e.target.value})}
+                        className="w-full px-3 py-2 border rounded-lg"
+                        placeholder="e.g., 123456789"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium mb-1">Rating (Optional)</label>
+                      <input
+                        type="text"
+                        value={newEligibility.rating}
+                        onChange={(e) => setNewEligibility({...newEligibility, rating: e.target.value})}
+                        className="w-full px-3 py-2 border rounded-lg"
+                        placeholder="e.g., 85.50"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium mb-1">Issuing Authority (Optional)</label>
+                      <input
+                        type="text"
+                        value={newEligibility.issuing_authority}
+                        onChange={(e) => setNewEligibility({...newEligibility, issuing_authority: e.target.value})}
+                        className="w-full px-3 py-2 border rounded-lg"
+                        placeholder="e.g., Civil Service Commission"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium mb-1">Date Issued (Optional)</label>
+                      <input
+                        type="date"
+                        value={newEligibility.date_issued}
+                        onChange={(e) => setNewEligibility({...newEligibility, date_issued: e.target.value})}
+                        className="w-full px-3 py-2 border rounded-lg"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium mb-1">Expiry Date (Optional)</label>
+                      <input
+                        type="date"
+                        value={newEligibility.expiry_date}
+                        onChange={(e) => setNewEligibility({...newEligibility, expiry_date: e.target.value})}
+                        className="w-full px-3 py-2 border rounded-lg"
+                      />
+                    </div>
+                  </div>
+                  <div className="flex flex-col sm:flex-row gap-2 mt-4">
+                    <button 
+                      onClick={handleAddEligibility}
+                      className="px-4 py-2 bg-amber-600 text-white rounded-lg hover:bg-amber-700 flex-1"
+                    >
+                      Save Eligibility
+                    </button>
+                    <button 
+                      onClick={() => setShowAddEligibility(false)}
+                      className="px-4 py-2 border rounded-lg hover:bg-gray-50 flex-1"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* Eligibilities List */}
+              {profile?.eligibilities && profile.eligibilities.length > 0 ? (
+                <div className="space-y-6">
+                  {profile.eligibilities.map((eligibility) => (
+                    <div key={eligibility.id} className="border-l-4 border-amber-500 pl-4 py-3 relative group">
+                      <div className="flex justify-between items-start">
+                        <div className="flex-1 min-w-0">
+                          {editingEligibility === eligibility.id ? (
+                            <div className="space-y-4">
+                              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                <div>
+                                  <label className="block text-sm font-medium mb-1">Eligibility Name *</label>
+                                  <input
+                                    type="text"
+                                    value={editEligibilityData.eligibility_name}
+                                    onChange={(e) => setEditEligibilityData({...editEligibilityData, eligibility_name: e.target.value})}
+                                    className="w-full px-3 py-2 border rounded-lg"
+                                    required
+                                  />
+                                </div>
+                                <div>
+                                  <label className="block text-sm font-medium mb-1">License Number (Optional)</label>
+                                  <input
+                                    type="text"
+                                    value={editEligibilityData.license_number}
+                                    onChange={(e) => setEditEligibilityData({...editEligibilityData, license_number: e.target.value})}
+                                    className="w-full px-3 py-2 border rounded-lg"
+                                  />
+                                </div>
+                                <div>
+                                  <label className="block text-sm font-medium mb-1">Rating (Optional)</label>
+                                  <input
+                                    type="text"
+                                    value={editEligibilityData.rating}
+                                    onChange={(e) => setEditEligibilityData({...editEligibilityData, rating: e.target.value})}
+                                    className="w-full px-3 py-2 border rounded-lg"
+                                  />
+                                </div>
+                                <div>
+                                  <label className="block text-sm font-medium mb-1">Issuing Authority (Optional)</label>
+                                  <input
+                                    type="text"
+                                    value={editEligibilityData.issuing_authority}
+                                    onChange={(e) => setEditEligibilityData({...editEligibilityData, issuing_authority: e.target.value})}
+                                    className="w-full px-3 py-2 border rounded-lg"
+                                  />
+                                </div>
+                                <div>
+                                  <label className="block text-sm font-medium mb-1">Date Issued (Optional)</label>
+                                  <input
+                                    type="date"
+                                    value={editEligibilityData.date_issued}
+                                    onChange={(e) => setEditEligibilityData({...editEligibilityData, date_issued: e.target.value})}
+                                    className="w-full px-3 py-2 border rounded-lg"
+                                  />
+                                </div>
+                                <div>
+                                  <label className="block text-sm font-medium mb-1">Expiry Date (Optional)</label>
+                                  <input
+                                    type="date"
+                                    value={editEligibilityData.expiry_date}
+                                    onChange={(e) => setEditEligibilityData({...editEligibilityData, expiry_date: e.target.value})}
+                                    className="w-full px-3 py-2 border rounded-lg"
+                                  />
+                                </div>
+                              </div>
+                              <div className="flex gap-2">
+                                <button 
+                                  onClick={() => handleEditEligibility(eligibility.id)}
+                                  className="px-4 py-2 bg-amber-600 text-white rounded-lg hover:bg-amber-700 flex-1"
+                                >
+                                  Save Changes
+                                </button>
+                                <button 
+                                  onClick={() => {
+                                    setEditingEligibility(null)
+                                    setEditEligibilityData({
+                                      eligibility_name: '',
+                                      license_number: '',
+                                      rating: '',
+                                      date_issued: '',
+                                      expiry_date: '',
+                                      issuing_authority: '',
+                                    })
+                                  }}
+                                  className="px-4 py-2 border rounded-lg hover:bg-gray-50 flex-1"
+                                >
+                                  Cancel
+                                </button>
+                              </div>
+                            </div>
+                          ) : (
+                            <>
+                              <h4 className="font-bold text-gray-900">{eligibility.eligibility_name}</h4>
+                              <div className="grid grid-cols-1 md:grid-cols-2 gap-2 mt-2">
+                                {eligibility.license_number && (
+                                  <p className="text-sm text-gray-600">
+                                    <span className="font-medium">License #:</span> {eligibility.license_number}
+                                  </p>
+                                )}
+                                {eligibility.rating && (
+                                  <p className="text-sm text-gray-600">
+                                    <span className="font-medium">Rating:</span> {eligibility.rating}
+                                  </p>
+                                )}
+                                {eligibility.date_issued && (
+                                  <p className="text-sm text-gray-600">
+                                    <span className="font-medium">Issued:</span> {new Date(eligibility.date_issued).toLocaleDateString()}
+                                  </p>
+                                )}
+                                {eligibility.expiry_date && (
+                                  <p className="text-sm text-gray-600">
+                                    <span className="font-medium">Expires:</span> {new Date(eligibility.expiry_date).toLocaleDateString()}
+                                  </p>
+                                )}
+                                {eligibility.issuing_authority && (
+                                  <p className="text-sm text-gray-600 md:col-span-2">
+                                    <span className="font-medium">Authority:</span> {eligibility.issuing_authority}
+                                  </p>
+                                )}
+                              </div>
+                            </>
+                          )}
+                        </div>
+                        {editingEligibility !== eligibility.id && (
+                          <div className="flex flex-col md:flex-row gap-2 ml-2">
+                            <button 
+                              onClick={() => startEditingEligibility(eligibility)}
+                              className="p-2 text-blue-600 hover:text-blue-800 hover:bg-blue-50 rounded opacity-0 group-hover:opacity-100 transition-opacity"
+                              title="Edit eligibility"
+                            >
+                              <Edit size={18} />
+                            </button>
+                            <button 
+                              onClick={() => handleDeleteEligibility(eligibility.id)}
+                              className="p-2 text-red-600 hover:text-red-800 hover:bg-red-50 rounded opacity-0 group-hover:opacity-100 transition-opacity"
+                              title="Delete eligibility"
+                            >
+                              <Trash2 size={18} />
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="text-center py-8 border-2 border-dashed border-gray-300 rounded-lg">
+                  <Award className="w-12 h-12 text-gray-400 mx-auto mb-3" />
+                  <p className="text-gray-500">No eligibilities added yet.</p>
+                  <button 
+                    onClick={() => setShowAddEligibility(true)}
+                    className="mt-3 text-amber-600 hover:text-amber-800 font-medium"
+                  >
+                    Add your first eligibility
+                  </button>
+                </div>
+              )}
+            </div>
+
+            {/* Trainings Section */}
+            <div className="bg-white rounded-xl shadow-lg p-6">
+              <div className="flex flex-col md:flex-row md:items-center justify-between mb-6 gap-4">
+                <div className="flex items-center gap-3">
+                  <BookOpen className="w-6 h-6 text-indigo-600 flex-shrink-0" />
+                  <h3 className="text-xl font-bold text-gray-900">Trainings</h3>
+                </div>
+                <button 
+                  onClick={() => setShowAddTraining(true)}
+                  disabled={isUploading}
+                  className="flex items-center justify-center gap-2 px-3 py-2 text-sm bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 w-full md:w-auto disabled:opacity-50"
+                >
+                  <Plus size={16} />
+                  Add Training
+                </button>
+              </div>
+
+              {/* Add Training Form */}
+              {showAddTraining && (
+                <div className="mb-6 p-4 bg-gray-50 rounded-lg border">
+                  <h4 className="font-bold mb-4">Add Training</h4>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-sm font-medium mb-1">Training Name *</label>
+                      <input
+                        type="text"
+                        value={newTraining.training_name}
+                        onChange={(e) => setNewTraining({...newTraining, training_name: e.target.value})}
+                        className="w-full px-3 py-2 border rounded-lg"
+                        required
+                        placeholder="e.g., Project Management Professional"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium mb-1">Institution *</label>
+                      <input
+                        type="text"
+                        value={newTraining.institution}
+                        onChange={(e) => setNewTraining({...newTraining, institution: e.target.value})}
+                        className="w-full px-3 py-2 border rounded-lg"
+                        required
+                        placeholder="e.g., Philippine Management Association"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium mb-1">Start Date (Optional)</label>
+                      <input
+                        type="date"
+                        value={newTraining.start_date}
+                        onChange={(e) => setNewTraining({...newTraining, start_date: e.target.value})}
+                        className="w-full px-3 py-2 border rounded-lg"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium mb-1">End Date (Optional)</label>
+                      <input
+                        type="date"
+                        value={newTraining.end_date}
+                        onChange={(e) => setNewTraining({...newTraining, end_date: e.target.value})}
+                        className="w-full px-3 py-2 border rounded-lg"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium mb-1">Duration Hours (Optional)</label>
+                      <input
+                        type="number"
+                        value={newTraining.duration_hours}
+                        onChange={(e) => setNewTraining({...newTraining, duration_hours: e.target.value})}
+                        className="w-full px-3 py-2 border rounded-lg"
+                        min="1"
+                        placeholder="e.g., 40"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium mb-1">Certificate ID (Optional)</label>
+                      <input
+                        type="text"
+                        value={newTraining.certificate_id}
+                        onChange={(e) => setNewTraining({...newTraining, certificate_id: e.target.value})}
+                        className="w-full px-3 py-2 border rounded-lg"
+                        placeholder="e.g., PMP-2023-001"
+                      />
+                    </div>
+                    <div className="md:col-span-2">
+                      <label className="block text-sm font-medium mb-1">Skills Learned (Optional)</label>
+                      <textarea
+                        value={newTraining.skills_learned}
+                        onChange={(e) => setNewTraining({...newTraining, skills_learned: e.target.value})}
+                        rows={3}
+                        className="w-full px-3 py-2 border rounded-lg"
+                        placeholder="List skills or competencies gained from this training..."
+                      />
+                    </div>
+                  </div>
+                  <div className="flex flex-col sm:flex-row gap-2 mt-4">
+                    <button 
+                      onClick={handleAddTraining}
+                      className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 flex-1"
+                    >
+                      Save Training
+                    </button>
+                    <button 
+                      onClick={() => setShowAddTraining(false)}
+                      className="px-4 py-2 border rounded-lg hover:bg-gray-50 flex-1"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* Trainings List */}
+              {profile?.trainings && profile.trainings.length > 0 ? (
+                <div className="space-y-6">
+                  {profile.trainings.map((training) => (
+                    <div key={training.id} className="border-l-4 border-indigo-500 pl-4 py-3 relative group">
+                      <div className="flex justify-between items-start">
+                        <div className="flex-1 min-w-0">
+                          {editingTraining === training.id ? (
+                            <div className="space-y-4">
+                              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                <div>
+                                  <label className="block text-sm font-medium mb-1">Training Name *</label>
+                                  <input
+                                    type="text"
+                                    value={editTrainingData.training_name}
+                                    onChange={(e) => setEditTrainingData({...editTrainingData, training_name: e.target.value})}
+                                    className="w-full px-3 py-2 border rounded-lg"
+                                    required
+                                  />
+                                </div>
+                                <div>
+                                  <label className="block text-sm font-medium mb-1">Institution *</label>
+                                  <input
+                                    type="text"
+                                    value={editTrainingData.institution}
+                                    onChange={(e) => setEditTrainingData({...editTrainingData, institution: e.target.value})}
+                                    className="w-full px-3 py-2 border rounded-lg"
+                                    required
+                                  />
+                                </div>
+                                <div>
+                                  <label className="block text-sm font-medium mb-1">Start Date (Optional)</label>
+                                  <input
+                                    type="date"
+                                    value={editTrainingData.start_date}
+                                    onChange={(e) => setEditTrainingData({...editTrainingData, start_date: e.target.value})}
+                                    className="w-full px-3 py-2 border rounded-lg"
+                                  />
+                                </div>
+                                <div>
+                                  <label className="block text-sm font-medium mb-1">End Date (Optional)</label>
+                                  <input
+                                    type="date"
+                                    value={editTrainingData.end_date}
+                                    onChange={(e) => setEditTrainingData({...editTrainingData, end_date: e.target.value})}
+                                    className="w-full px-3 py-2 border rounded-lg"
+                                  />
+                                </div>
+                                <div>
+                                  <label className="block text-sm font-medium mb-1">Duration Hours (Optional)</label>
+                                  <input
+                                    type="number"
+                                    value={editTrainingData.duration_hours}
+                                    onChange={(e) => setEditTrainingData({...editTrainingData, duration_hours: e.target.value})}
+                                    className="w-full px-3 py-2 border rounded-lg"
+                                    min="1"
+                                  />
+                                </div>
+                                <div>
+                                  <label className="block text-sm font-medium mb-1">Certificate ID (Optional)</label>
+                                  <input
+                                    type="text"
+                                    value={editTrainingData.certificate_id}
+                                    onChange={(e) => setEditTrainingData({...editTrainingData, certificate_id: e.target.value})}
+                                    className="w-full px-3 py-2 border rounded-lg"
+                                  />
+                                </div>
+                                <div className="md:col-span-2">
+                                  <label className="block text-sm font-medium mb-1">Skills Learned (Optional)</label>
+                                  <textarea
+                                    value={editTrainingData.skills_learned}
+                                    onChange={(e) => setEditTrainingData({...editTrainingData, skills_learned: e.target.value})}
+                                    rows={3}
+                                    className="w-full px-3 py-2 border rounded-lg"
+                                  />
+                                </div>
+                              </div>
+                              <div className="flex gap-2">
+                                <button 
+                                  onClick={() => handleEditTraining(training.id)}
+                                  className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 flex-1"
+                                >
+                                  Save Changes
+                                </button>
+                                <button 
+                                  onClick={() => {
+                                    setEditingTraining(null)
+                                    setEditTrainingData({
+                                      training_name: '',
+                                      institution: '',
+                                      start_date: '',
+                                      end_date: '',
+                                      duration_hours: '',
+                                      certificate_id: '',
+                                      skills_learned: '',
+                                    })
+                                  }}
+                                  className="px-4 py-2 border rounded-lg hover:bg-gray-50 flex-1"
+                                >
+                                  Cancel
+                                </button>
+                              </div>
+                            </div>
+                          ) : (
+                            <>
+                              <h4 className="font-bold text-gray-900">{training.training_name}</h4>
+                              <p className="text-gray-700">{training.institution}</p>
+                              <div className="grid grid-cols-1 md:grid-cols-2 gap-2 mt-2">
+                                {training.start_date && training.end_date && (
+                                  <p className="text-sm text-gray-600">
+                                    <span className="font-medium">Duration:</span> {new Date(training.start_date).toLocaleDateString()} – {new Date(training.end_date).toLocaleDateString()}
+                                  </p>
+                                )}
+                                {training.duration_hours && (
+                                  <p className="text-sm text-gray-600">
+                                    <span className="font-medium">Hours:</span> {training.duration_hours}
+                                  </p>
+                                )}
+                                {training.certificate_id && (
+                                  <p className="text-sm text-gray-600">
+                                    <span className="font-medium">Certificate ID:</span> {training.certificate_id}
+                                  </p>
+                                )}
+                                {training.skills_learned && (
+                                  <p className="text-sm text-gray-600 md:col-span-2">
+                                    <span className="font-medium">Skills:</span> {training.skills_learned}
+                                  </p>
+                                )}
+                              </div>
+                            </>
+                          )}
+                        </div>
+                        {editingTraining !== training.id && (
+                          <div className="flex flex-col md:flex-row gap-2 ml-2">
+                            <button 
+                              onClick={() => startEditingTraining(training)}
+                              className="p-2 text-blue-600 hover:text-blue-800 hover:bg-blue-50 rounded opacity-0 group-hover:opacity-100 transition-opacity"
+                              title="Edit training"
+                            >
+                              <Edit size={18} />
+                            </button>
+                            <button 
+                              onClick={() => handleDeleteTraining(training.id)}
+                              className="p-2 text-red-600 hover:text-red-800 hover:bg-red-50 rounded opacity-0 group-hover:opacity-100 transition-opacity"
+                              title="Delete training"
+                            >
+                              <Trash2 size={18} />
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="text-center py-8 border-2 border-dashed border-gray-300 rounded-lg">
+                  <BookOpen className="w-12 h-12 text-gray-400 mx-auto mb-3" />
+                  <p className="text-gray-500">No trainings added yet.</p>
+                  <button 
+                    onClick={() => setShowAddTraining(true)}
+                    className="mt-3 text-indigo-600 hover:text-indigo-800 font-medium"
+                  >
+                    Add your first training
                   </button>
                 </div>
               )}

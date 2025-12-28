@@ -1,215 +1,230 @@
-// app/api/applicant/experience/route.ts - COMPLETE VERSION
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-)
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
+const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+
+const supabase = createClient(supabaseUrl, supabaseKey)
 
 export async function GET(request: NextRequest) {
   try {
-    // Get authorization header
     const authHeader = request.headers.get('Authorization')
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      return NextResponse.json({ error: 'Missing or invalid authorization header' }, { status: 401 })
+    if (!authHeader?.startsWith('Bearer ')) {
+      return NextResponse.json(
+        { error: 'Unauthorized' },
+        { status: 401 }
+      )
     }
 
     const token = authHeader.replace('Bearer ', '')
-    
-    // Verify the token
     const { data: { user }, error: authError } = await supabase.auth.getUser(token)
     
     if (authError || !user) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+      return NextResponse.json(
+        { error: 'Unauthorized' },
+        { status: 401 }
+      )
     }
 
-    // Fetch work experiences for this user
+    const { searchParams } = new URL(request.url)
+    const id = searchParams.get('id')
+
+    if (id) {
+      const { data, error } = await supabase
+        .from('work_experiences')
+        .select('*')
+        .eq('id', id)
+        .eq('profile_id', user.id)
+        .single()
+
+      if (error) {
+        return NextResponse.json(
+          { error: 'Work experience not found' },
+          { status: 404 }
+        )
+      }
+
+      return NextResponse.json(data)
+    }
+
     const { data, error } = await supabase
       .from('work_experiences')
       .select('*')
       .eq('profile_id', user.id)
-      .order('start_date', { ascending: false })
 
     if (error) {
-      console.error('Get work experiences error:', error)
-      return NextResponse.json({ error: error.message }, { status: 500 })
+      return NextResponse.json(
+        { error: 'Failed to fetch work experiences' },
+        { status: 500 }
+      )
     }
 
-    return NextResponse.json(data, { status: 200 })
-  } catch (error) {
-    console.error('Error fetching work experiences:', error)
-    return NextResponse.json({ error: 'Failed to fetch work experiences' }, { status: 500 })
+    return NextResponse.json(data || [])
+
+  } catch (error: any) {
+    console.error('Error in experience GET:', error)
+    return NextResponse.json(
+      { error: 'Internal server error' },
+      { status: 500 }
+    )
   }
 }
 
 export async function POST(request: NextRequest) {
   try {
-    // Get authorization header
     const authHeader = request.headers.get('Authorization')
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      return NextResponse.json({ error: 'Missing or invalid authorization header' }, { status: 401 })
+    if (!authHeader?.startsWith('Bearer ')) {
+      return NextResponse.json(
+        { error: 'Unauthorized' },
+        { status: 401 }
+      )
     }
 
     const token = authHeader.replace('Bearer ', '')
-    
-    // Verify the token
     const { data: { user }, error: authError } = await supabase.auth.getUser(token)
     
     if (authError || !user) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+      return NextResponse.json(
+        { error: 'Unauthorized' },
+        { status: 401 }
+      )
     }
 
     const body = await request.json()
-    const { job_title, company, start_date, end_date, currently_working, description } = body
-
-    // Validate required fields
-    if (!job_title || !company || !start_date) {
-      return NextResponse.json({ error: 'Job title, company, and start date are required' }, { status: 400 })
-    }
-
-    // Validate dates
-    const startDate = new Date(start_date)
-    if (isNaN(startDate.getTime())) {
-      return NextResponse.json({ error: 'Invalid start date' }, { status: 400 })
-    }
-
-    if (end_date && !currently_working) {
-      const endDate = new Date(end_date)
-      if (isNaN(endDate.getTime())) {
-        return NextResponse.json({ error: 'Invalid end date' }, { status: 400 })
-      }
+    
+    if (!body.job_title || !body.company || !body.start_date) {
+      return NextResponse.json(
+        { error: 'Job title, company, and start date are required' },
+        { status: 400 }
+      )
     }
 
     const { data, error } = await supabase
       .from('work_experiences')
       .insert({
         profile_id: user.id,
-        job_title,
-        company,
-        start_date,
-        end_date: currently_working ? null : (end_date || null),
-        currently_working: currently_working || false,
-        description: description || null
+        job_title: body.job_title,
+        company: body.company,
+        start_date: body.start_date,
+        end_date: body.end_date || null,
+        currently_working: body.currently_working || false,
+        description: body.description || null
       })
       .select()
       .single()
 
     if (error) {
-      console.error('Insert work experience error:', error)
-      return NextResponse.json({ error: error.message }, { status: 500 })
+      console.error('Experience POST error:', error)
+      return NextResponse.json(
+        { error: 'Failed to create work experience' },
+        { status: 500 }
+      )
     }
 
-    return NextResponse.json({ 
-      success: true,
-      message: 'Work experience added successfully',
-      data
-    }, { status: 200 })
-  } catch (error) {
-    console.error('Error adding work experience:', error)
-    return NextResponse.json({ error: 'Failed to add work experience' }, { status: 500 })
+    return NextResponse.json(data, { status: 201 })
+
+  } catch (error: any) {
+    console.error('Experience POST error:', error)
+    return NextResponse.json(
+      { error: 'Internal server error' },
+      { status: 500 }
+    )
   }
 }
 
 export async function PUT(request: NextRequest) {
   try {
-    // Get authorization header
     const authHeader = request.headers.get('Authorization')
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      return NextResponse.json({ error: 'Missing or invalid authorization header' }, { status: 401 })
+    if (!authHeader?.startsWith('Bearer ')) {
+      return NextResponse.json(
+        { error: 'Unauthorized' },
+        { status: 401 }
+      )
     }
 
     const token = authHeader.replace('Bearer ', '')
-    
-    // Verify the token
     const { data: { user }, error: authError } = await supabase.auth.getUser(token)
     
     if (authError || !user) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+      return NextResponse.json(
+        { error: 'Unauthorized' },
+        { status: 401 }
+      )
     }
 
     const body = await request.json()
-    const { id, job_title, company, start_date, end_date, currently_working, description } = body
-
-    if (!id) {
-      return NextResponse.json({ error: 'Work experience ID is required' }, { status: 400 })
+    
+    if (!body.id) {
+      return NextResponse.json(
+        { error: 'Experience ID is required' },
+        { status: 400 }
+      )
     }
 
-    // Validate required fields
-    if (!job_title || !company || !start_date) {
-      return NextResponse.json({ error: 'Job title, company, and start date are required' }, { status: 400 })
-    }
-
-    // Validate dates
-    const startDate = new Date(start_date)
-    if (isNaN(startDate.getTime())) {
-      return NextResponse.json({ error: 'Invalid start date' }, { status: 400 })
-    }
-
-    if (end_date && !currently_working) {
-      const endDate = new Date(end_date)
-      if (isNaN(endDate.getTime())) {
-        return NextResponse.json({ error: 'Invalid end date' }, { status: 400 })
-      }
-    }
-
-    // Update work experience
     const { data, error } = await supabase
       .from('work_experiences')
       .update({
-        job_title,
-        company,
-        start_date,
-        end_date: currently_working ? null : (end_date || null),
-        currently_working: currently_working || false,
-        description: description || null
+        job_title: body.job_title,
+        company: body.company,
+        start_date: body.start_date,
+        end_date: body.end_date || null,
+        currently_working: body.currently_working || false,
+        description: body.description || null
       })
-      .eq('id', id)
+      .eq('id', body.id)
       .eq('profile_id', user.id)
       .select()
       .single()
 
     if (error) {
-      console.error('Update work experience error:', error)
-      return NextResponse.json({ error: error.message }, { status: 500 })
+      console.error('Experience PUT error:', error)
+      return NextResponse.json(
+        { error: 'Failed to update work experience' },
+        { status: 500 }
+      )
     }
 
-    return NextResponse.json({ 
-      success: true,
-      message: 'Work experience updated successfully',
-      data
-    }, { status: 200 })
-  } catch (error) {
-    console.error('Error updating work experience:', error)
-    return NextResponse.json({ error: 'Failed to update work experience' }, { status: 500 })
+    return NextResponse.json(data)
+
+  } catch (error: any) {
+    console.error('Experience PUT error:', error)
+    return NextResponse.json(
+      { error: 'Internal server error' },
+      { status: 500 }
+    )
   }
 }
 
 export async function DELETE(request: NextRequest) {
   try {
-    // Get authorization header
     const authHeader = request.headers.get('Authorization')
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      return NextResponse.json({ error: 'Missing or invalid authorization header' }, { status: 401 })
+    if (!authHeader?.startsWith('Bearer ')) {
+      return NextResponse.json(
+        { error: 'Unauthorized' },
+        { status: 401 }
+      )
     }
 
     const token = authHeader.replace('Bearer ', '')
-    
-    // Verify the token
     const { data: { user }, error: authError } = await supabase.auth.getUser(token)
     
     if (authError || !user) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+      return NextResponse.json(
+        { error: 'Unauthorized' },
+        { status: 401 }
+      )
     }
 
-    const searchParams = request.nextUrl.searchParams
+    const { searchParams } = new URL(request.url)
     const id = searchParams.get('id')
-    
+
     if (!id) {
-      return NextResponse.json({ error: 'Work experience ID required' }, { status: 400 })
+      return NextResponse.json(
+        { error: 'Experience ID is required' },
+        { status: 400 }
+      )
     }
 
-    // Delete work experience (only if it belongs to the user)
     const { error } = await supabase
       .from('work_experiences')
       .delete()
@@ -217,16 +232,20 @@ export async function DELETE(request: NextRequest) {
       .eq('profile_id', user.id)
 
     if (error) {
-      console.error('Delete work experience error:', error)
-      return NextResponse.json({ error: error.message }, { status: 500 })
+      console.error('Experience DELETE error:', error)
+      return NextResponse.json(
+        { error: 'Failed to delete work experience' },
+        { status: 500 }
+      )
     }
 
-    return NextResponse.json({ 
-      success: true,
-      message: 'Work experience deleted successfully' 
-    }, { status: 200 })
-  } catch (error) {
-    console.error('Error deleting work experience:', error)
-    return NextResponse.json({ error: 'Failed to delete work experience' }, { status: 500 })
+    return NextResponse.json({ success: true })
+
+  } catch (error: any) {
+    console.error('Experience DELETE error:', error)
+    return NextResponse.json(
+      { error: 'Internal server error' },
+      { status: 500 }
+    )
   }
 }

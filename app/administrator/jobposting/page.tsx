@@ -8,7 +8,7 @@ import { supabase } from '@/lib/supabaseClient'
 import { 
   Plus, Search, Edit, Trash2, Eye, MoreVertical, Briefcase, 
   MapPin, Calendar, Users, X, Building, Image as ImageIcon, 
-  XCircle, Lock, UserCheck 
+  XCircle, Lock, UserCheck, Filter, Download, ChevronDown
 } from 'lucide-react'
 
 // Utility function for class names
@@ -33,12 +33,36 @@ interface JobPosting {
   applications_count?: number
   can_edit?: boolean
   creator_email?: string
+  creator_name?: string
 }
 
 interface UserProfile {
   id: string
   role: UserRole
   email: string
+  first_name: string | null
+  last_name: string | null
+}
+
+interface AddFormData {
+  job_title: string
+  department: string
+  location: string
+  job_description: string
+  status: JobStatus
+  image_file: File | null
+  image_preview: string | null
+}
+
+interface EditFormData {
+  id: string | null
+  job_title: string
+  department: string
+  location: string
+  job_description: string
+  status: JobStatus
+  image_file: File | null
+  image_preview: string | null
 }
 
 export default function JobPostingsPage() {
@@ -49,20 +73,35 @@ export default function JobPostingsPage() {
   const [statusFilter, setStatusFilter] = useState<JobStatus | 'all'>('all')
   const [departmentFilter, setDepartmentFilter] = useState('all')
   const [showAddForm, setShowAddForm] = useState(false)
+  const [showEditForm, setShowEditForm] = useState(false)
   const [formLoading, setFormLoading] = useState(false)
   const [isClient, setIsClient] = useState(false)
   const [currentUser, setCurrentUser] = useState<UserProfile | null>(null)
   const [loadingUser, setLoadingUser] = useState(true)
+  const [showFilters, setShowFilters] = useState(false)
+  const [selectedJobs, setSelectedJobs] = useState<string[]>([])
+  const [bulkAction, setBulkAction] = useState<string>('')
   const fileInputRef = useRef<HTMLInputElement>(null)
 
-  const [formData, setFormData] = useState({
+  const [addFormData, setAddFormData] = useState<AddFormData>({
     job_title: '',
     department: '',
     location: '',
     job_description: '',
-    status: 'active' as JobStatus,
-    image_file: null as File | null,
-    image_preview: '' as string | null
+    status: 'active',
+    image_file: null,
+    image_preview: null
+  })
+
+  const [editFormData, setEditFormData] = useState<EditFormData>({
+    id: null,
+    job_title: '',
+    department: '',
+    location: '',
+    job_description: '',
+    status: 'active',
+    image_file: null,
+    image_preview: null
   })
 
   useEffect(() => {
@@ -89,7 +128,7 @@ export default function JobPostingsPage() {
 
       const { data: profile, error } = await supabase
         .from('profiles')
-        .select('id, role, email')
+        .select('id, role, email, first_name, last_name')
         .eq('id', user.id)
         .single()
 
@@ -109,47 +148,43 @@ export default function JobPostingsPage() {
     try {
       setLoading(true)
       
-      // First fetch all jobs with creator info
       const { data: jobsData, error: jobsError } = await supabase
         .from('job_postings')
         .select(`
           *,
           profiles!job_postings_created_by_fkey (
-            email
+            email,
+            first_name,
+            last_name
+          ),
+          applications (
+            id
           )
         `)
         .order('date_posted', { ascending: false })
 
       if (jobsError) throw jobsError
 
-      // Then fetch applications count separately
-      const { data: applicationsData, error: appsError } = await supabase
-        .from('applications')
-        .select('job_id')
-
-      if (appsError) throw appsError
-
-      // Count applications per job
-      const applicationCounts: Record<string, number> = {}
-      applicationsData?.forEach(app => {
-        applicationCounts[app.job_id] = (applicationCounts[app.job_id] || 0) + 1
-      })
-
-      // Process jobs with permissions and counts
       const processedJobs = jobsData?.map(job => {
         const isCreator = job.created_by === currentUser.id
         const canEdit = currentUser.role === 'super_admin' || 
                        (currentUser.role === 'hr' && isCreator)
 
+        const creatorName = job.profiles 
+          ? `${job.profiles.first_name || ''} ${job.profiles.last_name || ''}`.trim() || job.profiles.email
+          : 'Unknown'
+
         return {
           ...job,
-          applications_count: applicationCounts[job.id] || 0,
+          applications_count: job.applications?.length || 0,
           can_edit: canEdit,
-          creator_email: job.profiles?.email || 'Unknown'
+          creator_email: job.profiles?.email || 'Unknown',
+          creator_name: creatorName
         }
       }) || []
 
       setJobs(processedJobs)
+      setSelectedJobs([])
     } catch (error) {
       console.error('Error fetching jobs:', error)
       alert('Error fetching job postings')
@@ -181,15 +216,30 @@ export default function JobPostingsPage() {
     }
   }
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const deleteImage = async (imagePath: string | null) => {
+    if (!imagePath) return
+    
+    try {
+      const imageName = imagePath.split('/').pop()
+      if (imageName) {
+        await supabase.storage
+          .from('job-images')
+          .remove([`job-postings/${imageName}`])
+      }
+    } catch (error) {
+      console.error('Error deleting old image:', error)
+    }
+  }
+
+  const handleCreateSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setFormLoading(true)
 
     try {
-      if (!formData.job_title.trim()) {
+      if (!addFormData.job_title.trim()) {
         throw new Error('Job title is required')
       }
-      if (!formData.job_description.trim()) {
+      if (!addFormData.job_description.trim()) {
         throw new Error('Job description is required')
       }
 
@@ -197,28 +247,33 @@ export default function JobPostingsPage() {
 
       let imagePath = null
 
-      if (formData.image_file) {
-        imagePath = await uploadImage(formData.image_file)
+      if (addFormData.image_file) {
+        imagePath = await uploadImage(addFormData.image_file)
       }
 
-      const { data, error } = await supabase
+      const { error } = await supabase
         .from('job_postings')
         .insert({
-          job_title: formData.job_title,
-          department: formData.department || null,
-          location: formData.location || null,
-          job_description: formData.job_description,
+          job_title: addFormData.job_title,
+          department: addFormData.department || null,
+          location: addFormData.location || null,
+          job_description: addFormData.job_description,
           image_path: imagePath,
-          status: formData.status,
+          status: addFormData.status,
           created_by: currentUser.id
         })
-        .select()
 
       if (error) throw error
 
+      await logAction('create', 'job_posting', null, addFormData.job_title, {
+        department: addFormData.department,
+        location: addFormData.location,
+        status: addFormData.status
+      })
+
       await fetchJobs()
       
-      setFormData({
+      setAddFormData({
         job_title: '',
         department: '',
         location: '',
@@ -239,7 +294,100 @@ export default function JobPostingsPage() {
     }
   }
 
+  const handleEditSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setFormLoading(true)
+
+    try {
+      if (!editFormData.id) throw new Error('No job selected for editing')
+      if (!editFormData.job_title.trim()) {
+        throw new Error('Job title is required')
+      }
+      if (!editFormData.job_description.trim()) {
+        throw new Error('Job description is required')
+      }
+
+      let imagePath = editFormData.image_preview?.startsWith('blob:') ? null : editFormData.image_preview
+
+      if (editFormData.image_file) {
+        const job = jobs.find(j => j.id === editFormData.id)
+        if (job?.image_path) {
+          await deleteImage(job.image_path)
+        }
+        
+        imagePath = await uploadImage(editFormData.image_file)
+      }
+
+      const { error } = await supabase
+        .from('job_postings')
+        .update({
+          job_title: editFormData.job_title,
+          department: editFormData.department || null,
+          location: editFormData.location || null,
+          job_description: editFormData.job_description,
+          image_path: imagePath,
+          status: editFormData.status
+        })
+        .eq('id', editFormData.id)
+
+      if (error) throw error
+
+      await logAction('update', 'job_posting', editFormData.id, editFormData.job_title, {
+        department: editFormData.department,
+        location: editFormData.location,
+        status: editFormData.status
+      })
+
+      await fetchJobs()
+      
+      setEditFormData({
+        id: null,
+        job_title: '',
+        department: '',
+        location: '',
+        job_description: '',
+        status: 'active',
+        image_file: null,
+        image_preview: null
+      })
+      setShowEditForm(false)
+      
+      alert('Job posting updated successfully!')
+
+    } catch (error: any) {
+      console.error('Error updating job posting:', error)
+      alert('Error updating job posting: ' + error.message)
+    } finally {
+      setFormLoading(false)
+    }
+  }
+
+  const handleEdit = (job: JobPosting) => {
+    if (!job.can_edit && currentUser?.role === 'hr') {
+      alert(`You can only edit job postings you created.\n\nThis job was created by: ${job.creator_name}`)
+      return
+    }
+
+    setEditFormData({
+      id: job.id,
+      job_title: job.job_title,
+      department: job.department || '',
+      location: job.location || '',
+      job_description: job.job_description || '',
+      status: job.status,
+      image_file: null,
+      image_preview: job.image_path
+    })
+    setShowEditForm(true)
+  }
+
   const toggleJobStatus = async (jobId: string, currentStatus: JobStatus, jobTitle: string) => {
+    const job = jobs.find(j => j.id === jobId)
+    if (job && !job.can_edit && currentUser?.role === 'hr') {
+      alert(`You can only update job postings you created.\n\nThis job was created by: ${job.creator_name}`)
+      return
+    }
+
     try {
       const newStatus: JobStatus = currentStatus === 'active' ? 'closed' : 'active'
       
@@ -250,7 +398,11 @@ export default function JobPostingsPage() {
 
       if (error) throw error
 
-      setJobs(jobs.map(job => 
+      await logAction('update', 'job_posting', jobId, jobTitle, {
+        status: newStatus
+      })
+
+      setJobs((prev: JobPosting[]) => prev.map(job => 
         job.id === jobId ? { ...job, status: newStatus } : job
       ))
       
@@ -262,6 +414,12 @@ export default function JobPostingsPage() {
   }
 
   const deleteJob = async (jobId: string, jobTitle: string) => {
+    const job = jobs.find(j => j.id === jobId)
+    if (job && !job.can_edit && currentUser?.role === 'hr') {
+      alert(`You can only delete job postings you created.\n\nThis job was created by: ${job.creator_name}`)
+      return
+    }
+
     if (!confirm(`Are you sure you want to delete "${jobTitle}"? This action cannot be undone.`)) return
     
     try {
@@ -288,16 +446,7 @@ export default function JobPostingsPage() {
       }
 
       if (job?.image_path) {
-        try {
-          const imagePath = job.image_path.split('/').pop()
-          if (imagePath) {
-            await supabase.storage
-              .from('job-images')
-              .remove([`job-postings/${imagePath}`])
-          }
-        } catch (error) {
-          console.error('Error deleting image:', error)
-        }
+        await deleteImage(job.image_path)
       }
 
       const { error } = await supabase
@@ -307,7 +456,9 @@ export default function JobPostingsPage() {
 
       if (error) throw error
 
-      setJobs(jobs.filter(job => job.id !== jobId))
+      await logAction('delete', 'job_posting', jobId, jobTitle)
+
+      setJobs((prev: JobPosting[]) => prev.filter(job => job.id !== jobId))
       alert('Job posting deleted successfully!')
     } catch (error) {
       console.error('Error deleting job:', error)
@@ -315,14 +466,135 @@ export default function JobPostingsPage() {
     }
   }
 
-  const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
-    setFormData(prev => ({
+  const logAction = async (
+    action: string,
+    entity_type: string,
+    entity_id: string | null,
+    entity_name: string,
+    details?: any
+  ) => {
+    if (!currentUser) return
+
+    try {
+      await supabase
+        .from('task_logs')
+        .insert({
+          user_id: currentUser.id,
+          user_email: currentUser.email,
+          action,
+          entity_type,
+          entity_id,
+          entity_name,
+          details,
+          created_at: new Date().toISOString()
+        })
+    } catch (error) {
+      console.error('Error logging action:', error)
+    }
+  }
+
+  const handleJobSelection = (jobId: string) => {
+    setSelectedJobs((prev: string[]) => 
+      prev.includes(jobId) 
+        ? prev.filter(id => id !== jobId)
+        : [...prev, jobId]
+    )
+  }
+
+  const handleBulkAction = async () => {
+    if (!bulkAction || selectedJobs.length === 0) return
+
+    try {
+      switch (bulkAction) {
+        case 'activate':
+          await supabase
+            .from('job_postings')
+            .update({ status: 'active' })
+            .in('id', selectedJobs)
+          break
+
+        case 'close':
+          await supabase
+            .from('job_postings')
+            .update({ status: 'closed' })
+            .in('id', selectedJobs)
+          break
+
+        case 'delete':
+          if (!confirm(`Are you sure you want to delete ${selectedJobs.length} job(s)?`)) return
+          
+          for (const jobId of selectedJobs) {
+            const job = jobs.find(j => j.id === jobId)
+            if (job?.image_path) {
+              await deleteImage(job.image_path)
+            }
+          }
+
+          await supabase
+            .from('job_postings')
+            .delete()
+            .in('id', selectedJobs)
+          break
+      }
+
+      await logAction(bulkAction, 'job_posting_bulk', null, `${selectedJobs.length} jobs`, {
+        job_ids: selectedJobs,
+        action: bulkAction
+      })
+
+      await fetchJobs()
+      setBulkAction('')
+      alert(`Bulk action completed successfully!`)
+    } catch (error) {
+      console.error('Error performing bulk action:', error)
+      alert('Error performing bulk action')
+    }
+  }
+
+  const exportToCSV = () => {
+    const headers = ['ID', 'Job Title', 'Department', 'Location', 'Status', 'Date Posted', 'Applications', 'Created By']
+    const csvData = jobs.map(job => [
+      job.id,
+      job.job_title,
+      job.department || '',
+      job.location || '',
+      job.status,
+      new Date(job.date_posted).toLocaleDateString(),
+      job.applications_count || 0,
+      job.creator_name || job.creator_email
+    ])
+    
+    const csvContent = [
+      headers.join(','),
+      ...csvData.map(row => row.map(cell => `"${cell}"`).join(','))
+    ].join('\n')
+
+    const blob = new Blob([csvContent], { type: 'text/csv' })
+    const url = window.URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `job-postings-${new Date().toISOString().split('T')[0]}.csv`
+    a.click()
+    window.URL.revokeObjectURL(url)
+  }
+
+  const handleAddFormChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
+    const { name, value } = e.target
+    setAddFormData((prev: AddFormData) => ({
       ...prev,
-      [e.target.name]: e.target.value
+      [name]: value
     }))
   }
 
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleEditFormChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
+    const { name, value } = e.target
+    setEditFormData((prev: EditFormData) => ({
+      ...prev,
+      [name]: value
+    }))
+  }
+
+  const handleAddFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     if (file) {
       if (!file.type.startsWith('image/')) {
@@ -335,7 +607,7 @@ export default function JobPostingsPage() {
         return
       }
 
-      setFormData(prev => ({
+      setAddFormData((prev: AddFormData) => ({
         ...prev,
         image_file: file,
         image_preview: URL.createObjectURL(file)
@@ -343,8 +615,40 @@ export default function JobPostingsPage() {
     }
   }
 
-  const removeImage = () => {
-    setFormData(prev => ({
+  const handleEditFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (file) {
+      if (!file.type.startsWith('image/')) {
+        alert('Please select an image file')
+        return
+      }
+
+      if (file.size > 5 * 1024 * 1024) {
+        alert('Image size should be less than 5MB')
+        return
+      }
+
+      setEditFormData((prev: EditFormData) => ({
+        ...prev,
+        image_file: file,
+        image_preview: URL.createObjectURL(file)
+      }))
+    }
+  }
+
+  const removeAddImage = () => {
+    setAddFormData((prev: AddFormData) => ({
+      ...prev,
+      image_file: null,
+      image_preview: null
+    }))
+    if (fileInputRef.current) {
+      fileInputRef.current.value = ''
+    }
+  }
+
+  const removeEditImage = () => {
+    setEditFormData((prev: EditFormData) => ({
       ...prev,
       image_file: null,
       image_preview: null
@@ -358,7 +662,8 @@ export default function JobPostingsPage() {
     const matchesSearch = job.job_title.toLowerCase().includes(searchTerm.toLowerCase()) ||
                          job.department?.toLowerCase().includes(searchTerm.toLowerCase()) ||
                          job.location?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                         job.creator_email?.toLowerCase().includes(searchTerm.toLowerCase())
+                         job.creator_email?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                         job.creator_name?.toLowerCase().includes(searchTerm.toLowerCase())
     const matchesStatus = statusFilter === 'all' || job.status === statusFilter
     const matchesDepartment = departmentFilter === 'all' || job.department === departmentFilter
     
@@ -387,8 +692,179 @@ export default function JobPostingsPage() {
     )
   }
 
-  // Check if user can create jobs
   const canCreateJobs = currentUser?.role === 'super_admin' || currentUser?.role === 'hr'
+
+  const renderForm = (formType: 'add' | 'edit') => {
+    const isEdit = formType === 'edit'
+    const formData = isEdit ? editFormData : addFormData
+    const setShowForm = isEdit ? setShowEditForm : setShowAddForm
+    const handleSubmit = isEdit ? handleEditSubmit : handleCreateSubmit
+    const handleChange = isEdit ? handleEditFormChange : handleAddFormChange
+    const handleFileChange = isEdit ? handleEditFileChange : handleAddFileChange
+    const removeImage = isEdit ? removeEditImage : removeAddImage
+
+    return (
+      <div className="bg-white rounded-lg shadow-sm border p-4 mb-6">
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="text-lg font-semibold text-gray-900">
+            {isEdit ? 'Edit Job Posting' : 'Create New Job Posting'}
+          </h3>
+          <button
+            onClick={() => setShowForm(false)}
+            className="text-gray-400 hover:text-gray-600 transition-colors"
+          >
+            <X className="h-5 w-5" />
+          </button>
+        </div>
+
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Job Title *
+              </label>
+              <input
+                type="text"
+                name="job_title"
+                required
+                value={formData.job_title}
+                onChange={handleChange}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm"
+                placeholder="e.g., Senior Frontend Developer"
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Department
+              </label>
+              <input
+                type="text"
+                name="department"
+                value={formData.department}
+                onChange={handleChange}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm"
+                placeholder="e.g., Engineering, Marketing"
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Location
+              </label>
+              <input
+                type="text"
+                name="location"
+                value={formData.location}
+                onChange={handleChange}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm"
+                placeholder="e.g., New York, Remote"
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Status *
+              </label>
+              <select
+                name="status"
+                required
+                value={formData.status}
+                onChange={handleChange}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm"
+              >
+                <option value="active">Active</option>
+                <option value="closed">Closed</option>
+              </select>
+            </div>
+          </div>
+
+          {/* Image Upload */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Job Image
+            </label>
+            <div className="space-y-2">
+              {formData.image_preview ? (
+                <div className="relative inline-block">
+                  <img
+                    src={formData.image_preview}
+                    alt="Preview"
+                    className="h-32 w-32 object-cover rounded-lg border"
+                  />
+                  <button
+                    type="button"
+                    onClick={removeImage}
+                    className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full p-1 hover:bg-red-600"
+                  >
+                    <XCircle className="h-4 w-4" />
+                  </button>
+                </div>
+              ) : (
+                <div
+                  onClick={() => fileInputRef.current?.click()}
+                  className="border-2 border-dashed border-gray-300 rounded-lg p-6 text-center hover:border-gray-400 transition-colors cursor-pointer"
+                >
+                  <ImageIcon className="h-8 w-8 text-gray-400 mx-auto mb-2" />
+                  <p className="text-sm text-gray-600">Click to upload job image</p>
+                  <p className="text-xs text-gray-500">PNG, JPG, JPEG up to 5MB</p>
+                </div>
+              )}
+              <input
+                ref={fileInputRef}
+                type="file"
+                name="image_file"
+                accept="image/*"
+                onChange={handleFileChange}
+                className="hidden"
+              />
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Job Description *
+            </label>
+            <textarea
+              name="job_description"
+              required
+              rows={6}
+              value={formData.job_description}
+              onChange={handleChange}
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm"
+              placeholder="Describe the job responsibilities, requirements, and benefits..."
+            />
+          </div>
+
+          <div className="flex gap-3 pt-2">
+            <button
+              type="submit"
+              disabled={formLoading}
+              className="bg-blue-600 text-white px-6 py-2 rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors text-sm flex items-center justify-center gap-2"
+            >
+              {formLoading ? (
+                <>
+                  <div className="animate-spin rounded-full h-3 w-3 border-2 border-white border-t-transparent" />
+                  {isEdit ? 'Updating...' : 'Creating...'}
+                </>
+              ) : (
+                <>
+                  {isEdit ? 'Update Job Posting' : 'Create Job Posting'}
+                </>
+              )}
+            </button>
+            <button
+              type="button"
+              onClick={() => setShowForm(false)}
+              className="bg-gray-300 text-gray-700 px-6 py-2 rounded-lg hover:bg-gray-400 transition-colors text-sm"
+            >
+              Cancel
+            </button>
+          </div>
+        </form>
+      </div>
+    )
+  }
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -407,6 +883,9 @@ export default function JobPostingsPage() {
               <h1 className="text-2xl md:text-3xl font-bold text-gray-900 flex items-center gap-2">
                 <Briefcase className="h-8 w-8 text-blue-600" />
                 Job Postings
+                <span className="text-sm font-normal text-gray-500 bg-gray-100 px-2 py-1 rounded">
+                  {filteredJobs.length} job{filteredJobs.length !== 1 ? 's' : ''}
+                </span>
               </h1>
               <p className="text-gray-600 mt-1">
                 {currentUser?.role === 'super_admin' 
@@ -417,19 +896,29 @@ export default function JobPostingsPage() {
               </p>
             </div>
             
-            {canCreateJobs && (
+            <div className="flex items-center gap-3">
               <button
-                onClick={() => setShowAddForm(true)}
-                className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors flex items-center gap-2"
+                onClick={exportToCSV}
+                className="bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 transition-colors flex items-center gap-2 text-sm"
               >
-                <Plus className="h-4 w-4" />
-                New Job Posting
+                <Download className="h-4 w-4" />
+                Export CSV
               </button>
-            )}
+              
+              {canCreateJobs && (
+                <button
+                  onClick={() => setShowAddForm(true)}
+                  className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors flex items-center gap-2 text-sm"
+                >
+                  <Plus className="h-4 w-4" />
+                  New Job Posting
+                </button>
+              )}
+            </div>
           </div>
 
           {/* User Role Badge */}
-          <div className="mb-6">
+          <div className="mb-6 flex flex-wrap items-center justify-between gap-4">
             <div className={cn(
               "inline-flex items-center gap-2 px-3 py-1 rounded-full text-sm font-medium",
               currentUser?.role === 'super_admin' 
@@ -446,208 +935,118 @@ export default function JobPostingsPage() {
                 : 'Viewer'}
               {currentUser?.role === 'hr' && ' (Can only edit your own jobs)'}
             </div>
+
+            <button
+              onClick={() => setShowFilters(!showFilters)}
+              className="flex items-center gap-2 text-sm text-gray-600 hover:text-gray-900"
+            >
+              <Filter className="h-4 w-4" />
+              {showFilters ? 'Hide Filters' : 'Show Filters'}
+              <ChevronDown className={`h-3 w-3 transition-transform ${showFilters ? 'rotate-180' : ''}`} />
+            </button>
           </div>
 
           {/* Add Job Posting Form */}
-          {showAddForm && (
-            <div className="bg-white rounded-lg shadow-sm border p-4 mb-6">
-              <div className="flex items-center justify-between mb-4">
-                <h3 className="text-lg font-semibold text-gray-900">Create New Job Posting</h3>
+          {showAddForm && renderForm('add')}
+
+          {/* Edit Job Posting Form */}
+          {showEditForm && renderForm('edit')}
+
+          {/* Bulk Actions */}
+          {selectedJobs.length > 0 && (
+            <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4 mb-6">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <span className="text-yellow-800 font-medium">
+                    {selectedJobs.length} job{selectedJobs.length !== 1 ? 's' : ''} selected
+                  </span>
+                  <select
+                    value={bulkAction}
+                    onChange={(e: React.ChangeEvent<HTMLSelectElement>) => setBulkAction(e.target.value)}
+                    className="px-3 py-1 border border-gray-300 rounded-lg text-sm"
+                  >
+                    <option value="">Select bulk action</option>
+                    <option value="activate">Activate</option>
+                    <option value="close">Close</option>
+                    <option value="delete">Delete</option>
+                  </select>
+                  <button
+                    onClick={handleBulkAction}
+                    disabled={!bulkAction}
+                    className="bg-blue-600 text-white px-4 py-1 rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed text-sm"
+                  >
+                    Apply
+                  </button>
+                </div>
                 <button
-                  onClick={() => setShowAddForm(false)}
-                  className="text-gray-400 hover:text-gray-600 transition-colors"
+                  onClick={() => setSelectedJobs([])}
+                  className="text-gray-500 hover:text-gray-700 text-sm"
                 >
-                  <X className="h-5 w-5" />
+                  Clear selection
                 </button>
               </div>
-
-              <form onSubmit={handleSubmit} className="space-y-4">
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Job Title *
-                    </label>
-                    <input
-                      type="text"
-                      name="job_title"
-                      required
-                      value={formData.job_title}
-                      onChange={handleChange}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm"
-                      placeholder="e.g., Senior Frontend Developer"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Department
-                    </label>
-                    <input
-                      type="text"
-                      name="department"
-                      value={formData.department}
-                      onChange={handleChange}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm"
-                      placeholder="e.g., Engineering, Marketing"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Location
-                    </label>
-                    <input
-                      type="text"
-                      name="location"
-                      value={formData.location}
-                      onChange={handleChange}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm"
-                      placeholder="e.g., New York, Remote"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Status *
-                    </label>
-                    <select
-                      name="status"
-                      required
-                      value={formData.status}
-                      onChange={handleChange}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm"
-                    >
-                      <option value="active">Active</option>
-                      <option value="closed">Closed</option>
-                    </select>
-                  </div>
-                </div>
-
-                {/* Image Upload */}
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Job Image
-                  </label>
-                  <div className="space-y-2">
-                    {formData.image_preview ? (
-                      <div className="relative inline-block">
-                        <img
-                          src={formData.image_preview}
-                          alt="Preview"
-                          className="h-32 w-32 object-cover rounded-lg border"
-                        />
-                        <button
-                          type="button"
-                          onClick={removeImage}
-                          className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full p-1 hover:bg-red-600"
-                        >
-                          <XCircle className="h-4 w-4" />
-                        </button>
-                      </div>
-                    ) : (
-                      <div
-                        onClick={() => fileInputRef.current?.click()}
-                        className="border-2 border-dashed border-gray-300 rounded-lg p-6 text-center hover:border-gray-400 transition-colors cursor-pointer"
-                      >
-                        <ImageIcon className="h-8 w-8 text-gray-400 mx-auto mb-2" />
-                        <p className="text-sm text-gray-600">Click to upload job image</p>
-                        <p className="text-xs text-gray-500">PNG, JPG, JPEG up to 5MB</p>
-                      </div>
-                    )}
-                    <input
-                      ref={fileInputRef}
-                      type="file"
-                      accept="image/*"
-                      onChange={handleFileChange}
-                      className="hidden"
-                    />
-                  </div>
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Job Description *
-                  </label>
-                  <textarea
-                    name="job_description"
-                    required
-                    rows={6}
-                    value={formData.job_description}
-                    onChange={handleChange}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm"
-                    placeholder="Describe the job responsibilities, requirements, and benefits..."
-                  />
-                </div>
-
-                <div className="flex gap-3 pt-2">
-                  <button
-                    type="submit"
-                    disabled={formLoading}
-                    className="bg-blue-600 text-white px-6 py-2 rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors text-sm flex items-center justify-center gap-2"
-                  >
-                    {formLoading ? (
-                      <>
-                        <div className="animate-spin rounded-full h-3 w-3 border-2 border-white border-t-transparent" />
-                        Creating...
-                      </>
-                    ) : (
-                      <>
-                        <Plus className="h-4 w-4" />
-                        Create Job Posting
-                      </>
-                    )}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setShowAddForm(false)}
-                    className="bg-gray-300 text-gray-700 px-6 py-2 rounded-lg hover:bg-gray-400 transition-colors text-sm"
-                  >
-                    Cancel
-                  </button>
-                </div>
-              </form>
             </div>
           )}
 
           {/* Filters */}
-          <div className="bg-white rounded-lg shadow-sm border p-4 mb-6">
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              {/* Search */}
-              <div className="relative">
-                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
-                <input
-                  type="text"
-                  placeholder="Search jobs, departments, locations, or creators..."
-                  value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
-                  className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm"
-                />
+          {showFilters && (
+            <div className="bg-white rounded-lg shadow-sm border p-4 mb-6">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                {/* Search */}
+                <div className="relative">
+                  <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
+                  <input
+                    type="text"
+                    placeholder="Search jobs, departments, locations, or creators..."
+                    value={searchTerm}
+                    onChange={(e: React.ChangeEvent<HTMLInputElement>) => setSearchTerm(e.target.value)}
+                    className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm"
+                  />
+                </div>
+
+                {/* Status Filter */}
+                <select
+                  value={statusFilter}
+                  onChange={(e: React.ChangeEvent<HTMLSelectElement>) => setStatusFilter(e.target.value as JobStatus | 'all')}
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm"
+                >
+                  <option value="all">All Status</option>
+                  <option value="active">Active</option>
+                  <option value="closed">Closed</option>
+                </select>
+
+                {/* Department Filter */}
+                <select
+                  value={departmentFilter}
+                  onChange={(e: React.ChangeEvent<HTMLSelectElement>) => setDepartmentFilter(e.target.value)}
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm"
+                >
+                  <option value="all">All Departments</option>
+                  {departments.map(dept => (
+                    <option key={dept} value={dept}>{dept}</option>
+                  ))}
+                </select>
               </div>
-
-              {/* Status Filter */}
-              <select
-                value={statusFilter}
-                onChange={(e) => setStatusFilter(e.target.value as JobStatus | 'all')}
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm"
-              >
-                <option value="all">All Status</option>
-                <option value="active">Active</option>
-                <option value="closed">Closed</option>
-              </select>
-
-              {/* Department Filter */}
-              <select
-                value={departmentFilter}
-                onChange={(e) => setDepartmentFilter(e.target.value)}
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm"
-              >
-                <option value="all">All Departments</option>
-                {departments.map(dept => (
-                  <option key={dept} value={dept}>{dept}</option>
-                ))}
-              </select>
+              
+              {searchTerm || statusFilter !== 'all' || departmentFilter !== 'all' ? (
+                <div className="mt-3 flex items-center justify-between">
+                  <span className="text-sm text-gray-600">
+                    Showing {filteredJobs.length} of {jobs.length} jobs
+                  </span>
+                  <button
+                    onClick={() => {
+                      setSearchTerm('')
+                      setStatusFilter('all')
+                      setDepartmentFilter('all')
+                    }}
+                    className="text-sm text-blue-600 hover:text-blue-700"
+                  >
+                    Clear all filters
+                  </button>
+                </div>
+              ) : null}
             </div>
-          </div>
+          )}
 
           {/* Jobs Grid */}
           <div className="space-y-4">
@@ -682,8 +1081,11 @@ export default function JobPostingsPage() {
                   key={job.id}
                   job={job}
                   currentUser={currentUser}
+                  onEdit={handleEdit}
                   onToggleStatus={toggleJobStatus}
                   onDelete={deleteJob}
+                  selected={selectedJobs.includes(job.id)}
+                  onSelect={handleJobSelection}
                 />
               ))
             )}
@@ -694,17 +1096,23 @@ export default function JobPostingsPage() {
   )
 }
 
-// JobCard component with permission-based UI
+// JobCard component
 function JobCard({ 
   job, 
   currentUser,
+  onEdit,
   onToggleStatus, 
-  onDelete 
+  onDelete,
+  selected,
+  onSelect
 }: { 
   job: JobPosting
   currentUser: UserProfile | null
+  onEdit: (job: JobPosting) => void
   onToggleStatus: (jobId: string, currentStatus: JobStatus, jobTitle: string) => void
   onDelete: (jobId: string, jobTitle: string) => void
+  selected: boolean
+  onSelect: (jobId: string) => void
 }) {
   const [showMenu, setShowMenu] = useState(false)
   const [isClient, setIsClient] = useState(false)
@@ -731,45 +1139,29 @@ function JobCard({
   const isCreator = currentUser?.id === job.created_by
   const canEdit = job.can_edit || currentUser?.role === 'super_admin'
   const isHRUser = currentUser?.role === 'hr'
-  const isSuperAdmin = currentUser?.role === 'super_admin'
-
-  const handleEditClick = (e: React.MouseEvent) => {
-    if (!canEdit && isHRUser) {
-      e.preventDefault()
-      alert(`You can only edit job postings you created.\n\nThis job was created by: ${job.creator_email}`)
-      return false
-    }
-    return true
-  }
-
-  const handleDeleteClick = () => {
-    if (!canEdit && isHRUser) {
-      alert(`You can only delete job postings you created.\n\nThis job was created by: ${job.creator_email}`)
-      return
-    }
-    onDelete(job.id, job.job_title)
-  }
-
-  const handleToggleStatus = () => {
-    if (!canEdit && isHRUser) {
-      alert(`You can only update job postings you created.\n\nThis job was created by: ${job.creator_email}`)
-      return
-    }
-    onToggleStatus(job.id, job.status, job.job_title)
-  }
 
   return (
-    <div className="bg-white rounded-lg border p-6 hover:shadow-md transition-shadow relative">
+    <div className={`bg-white rounded-lg border p-6 hover:shadow-md transition-shadow relative ${selected ? 'ring-2 ring-blue-500' : ''}`}>
+      {/* Selection Checkbox */}
+      <div className="absolute top-4 left-4">
+        <input
+          type="checkbox"
+          checked={selected}
+          onChange={() => onSelect(job.id)}
+          className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+        />
+      </div>
+
       {/* Creator Indicator */}
       {isHRUser && !isCreator && (
         <div className="absolute top-4 right-4 flex items-center gap-1 text-gray-400 text-xs">
           <Lock className="h-3 w-3" />
-          <span>Created by: {job.creator_email}</span>
+          <span>Created by: {job.creator_name}</span>
         </div>
       )}
 
       <div className="flex flex-col lg:flex-row lg:items-start justify-between gap-4">
-        <div className="flex-1 space-y-3">
+        <div className="flex-1 space-y-3 ml-6">
           <div className="flex items-start justify-between">
             <div className="flex-1">
               <div className="flex items-start gap-4">
@@ -839,21 +1231,23 @@ function JobCard({
                     <Eye className="h-4 w-4" />
                     View Applications
                   </Link>
-                  <Link
-                    href={`/admin/job-postings/${job.id}/edit`}
-                    className="flex items-center gap-2 px-4 py-2 text-sm text-blue-700 hover:bg-blue-50 transition-colors"
-                    onClick={(e) => handleEditClick(e) && setShowMenu(false)}
+                  <button
+                    onClick={() => {
+                      onEdit(job)
+                      setShowMenu(false)
+                    }}
+                    className="flex items-center gap-2 w-full px-4 py-2 text-sm text-blue-700 hover:bg-blue-50 transition-colors text-left"
                   >
                     <Edit className="h-4 w-4" />
                     Edit
-                  </Link>
+                  </button>
                   <button
                     onClick={() => {
-                      handleToggleStatus()
+                      onToggleStatus(job.id, job.status, job.job_title)
                       setShowMenu(false)
                     }}
                     className={cn(
-                      'flex items-center gap-2 w-full px-4 py-2 text-sm transition-colors',
+                      'flex items-center gap-2 w-full px-4 py-2 text-sm transition-colors text-left',
                       job.status === 'active'
                         ? 'text-orange-700 hover:bg-orange-50'
                         : 'text-green-700 hover:bg-green-50'
@@ -863,10 +1257,10 @@ function JobCard({
                   </button>
                   <button
                     onClick={() => {
-                      handleDeleteClick()
+                      onDelete(job.id, job.job_title)
                       setShowMenu(false)
                     }}
-                    className="flex items-center gap-2 w-full px-4 py-2 text-sm text-red-700 hover:bg-red-50 transition-colors"
+                    className="flex items-center gap-2 w-full px-4 py-2 text-sm text-red-700 hover:bg-red-50 transition-colors text-left"
                   >
                     <Trash2 className="h-4 w-4" />
                     Delete
@@ -886,14 +1280,17 @@ function JobCard({
               Posted: {formatDate(job.date_posted)}
             </span>
             {job.applications_count !== undefined && (
-              <span className="flex items-center gap-1">
+              <Link
+                href={`/admin/job-postings/${job.id}/applications`}
+                className="flex items-center gap-1 text-blue-600 hover:text-blue-700 hover:underline"
+              >
                 <Users className="h-3 w-3" />
                 {job.applications_count} application{job.applications_count !== 1 ? 's' : ''}
-              </span>
+              </Link>
             )}
             {isHRUser && (
               <span className="flex items-center gap-1 text-gray-400">
-                Created by: {job.creator_email}
+                Created by: {job.creator_name}
               </span>
             )}
           </div>
@@ -909,24 +1306,24 @@ function JobCard({
             View Applications
           </Link>
           
-          <Link
-            href={`/admin/job-postings/${job.id}/edit`}
-            onClick={handleEditClick}
+          <button
+            onClick={() => onEdit(job)}
             className={cn(
               "inline-flex items-center gap-2 px-3 py-2 text-sm rounded-lg transition-colors",
               canEdit
                 ? "text-blue-700 hover:bg-blue-50"
                 : "text-gray-400 cursor-not-allowed bg-gray-100"
             )}
-            title={!canEdit && isHRUser ? `Created by: ${job.creator_email}` : ""}
+            disabled={!canEdit}
+            title={!canEdit && isHRUser ? `Created by: ${job.creator_name}` : ""}
           >
             <Edit className="h-4 w-4" />
             Edit
             {!canEdit && isHRUser && " (Not Yours)"}
-          </Link>
+          </button>
 
           <button
-            onClick={handleToggleStatus}
+            onClick={() => onToggleStatus(job.id, job.status, job.job_title)}
             className={cn(
               'inline-flex items-center gap-2 px-3 py-2 text-sm rounded-lg transition-colors',
               canEdit 
@@ -936,14 +1333,14 @@ function JobCard({
                 : 'text-gray-400 cursor-not-allowed bg-gray-100'
             )}
             disabled={!canEdit}
-            title={!canEdit && isHRUser ? `Created by: ${job.creator_email}` : ""}
+            title={!canEdit && isHRUser ? `Created by: ${job.creator_name}` : ""}
           >
             {job.status === 'active' ? 'Close Job' : 'Reopen Job'}
             {!canEdit && isHRUser && " (Not Yours)"}
           </button>
 
           <button
-            onClick={handleDeleteClick}
+            onClick={() => onDelete(job.id, job.job_title)}
             className={cn(
               "inline-flex items-center gap-2 px-3 py-2 text-sm rounded-lg transition-colors",
               canEdit
@@ -951,7 +1348,7 @@ function JobCard({
                 : "text-gray-400 cursor-not-allowed bg-gray-100"
             )}
             disabled={!canEdit}
-            title={!canEdit && isHRUser ? `Created by: ${job.creator_email}` : ""}
+            title={!canEdit && isHRUser ? `Created by: ${job.creator_name}` : ""}
           >
             <Trash2 className="h-4 w-4" />
             Delete
