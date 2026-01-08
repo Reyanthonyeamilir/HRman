@@ -351,16 +351,7 @@ export default function SignupPage() {
 
                 {/* Info Box */}
                 <div className="mt-8 p-4 bg-blue-50 rounded-lg border border-blue-100">
-                  <h4 className="font-semibold text-blue-800 text-sm mb-2">How it works</h4>
-                  <p className="text-xs text-blue-700">
-                    1. Create auth account with metadata
-                    <br />
-                    2. Database trigger creates profile
-                    <br />
-                    3. All fields saved automatically
-                    <br />
-                    4. No RLS recursion issues
-                  </p>
+                
                 </div>
               </div>
 
@@ -368,7 +359,7 @@ export default function SignupPage() {
               <div className="lg:col-span-2 p-6 md:p-8">
                 <div className="mb-8">
                   <h3 className="text-xl font-semibold text-slate-900 mb-2">Create Your Account</h3>
-                  <p className="text-sm text-slate-600">Database trigger will create your profile automatically</p>
+                  
                 </div>
 
                 <form onSubmit={handleSubmit}>

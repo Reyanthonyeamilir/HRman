@@ -3,9 +3,69 @@
 
 import { useState, useEffect } from 'react'
 import AdminHRSidebar, { MobileTopbar } from '@/components/adminhrsidebar'
-import { Button } from "@/components/ui/button"
 import { supabase } from '@/lib/supabaseClient'
 import { useRouter } from 'next/navigation'
+import { Shield, AlertCircle, Lock } from 'lucide-react'
+
+// Define proper types for the Button component
+interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
+  children: React.ReactNode
+  variant?: 'default' | 'outline' | 'secondary'
+  size?: 'default' | 'sm'
+  className?: string
+  disabled?: boolean
+  title?: string
+}
+
+// Create a local Button component with proper TypeScript typing
+const Button = ({ 
+  children, 
+  onClick, 
+  variant = 'default', 
+  size = 'default',
+  className = '',
+  disabled = false,
+  title = '',
+  ...props
+}: ButtonProps) => {
+  const baseStyles = 'inline-flex items-center justify-center rounded-md font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 disabled:opacity-50 disabled:pointer-events-none'
+  
+  const variants = {
+    default: 'bg-blue-600 text-white hover:bg-blue-700',
+    outline: 'border border-gray-300 bg-transparent hover:bg-gray-100 text-gray-900',
+    secondary: 'bg-gray-100 text-gray-900 hover:bg-gray-200'
+  }
+  
+  const sizes = {
+    default: 'h-10 px-4 py-2',
+    sm: 'h-9 px-3 text-sm'
+  }
+
+  return (
+    <button
+      onClick={onClick}
+      disabled={disabled}
+      title={title}
+      className={`
+        ${baseStyles}
+        ${variants[variant]}  // TypeScript now knows this is valid
+        ${sizes[size]}         // TypeScript now knows this is valid
+        ${className}
+      `}
+      {...props}
+    >
+      {children}
+    </button>
+  )
+}
+
+interface UserProfile {
+  id: string
+  role: 'applicant' | 'hr' | 'super_admin'
+  email: string
+  first_name: string | null
+  last_name: string | null
+}
 
 interface Applicant {
   id: string
@@ -103,9 +163,13 @@ interface ApplicantRecord {
 }
 
 export default function ViewApplicationsPage() {
+  const router = useRouter()
   const [applications, setApplications] = useState<Application[]>([])
   const [applicantRecords, setApplicantRecords] = useState<ApplicantRecord[]>([])
   const [loading, setLoading] = useState(true)
+  const [loadingUser, setLoadingUser] = useState(true)
+  const [accessDenied, setAccessDenied] = useState(false)
+  const [currentUser, setCurrentUser] = useState<UserProfile | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
@@ -116,13 +180,63 @@ export default function ViewApplicationsPage() {
   const [selectedApplicants, setSelectedApplicants] = useState<string[]>([])
   const [currentPage, setCurrentPage] = useState(1)
   const itemsPerPage = 10
-  const router = useRouter()
 
   useEffect(() => {
-    fetchApplications()
+    checkUserAndRedirect()
   }, [])
 
+  useEffect(() => {
+    if (currentUser && hasAccess()) {
+      fetchApplications()
+    }
+  }, [currentUser])
+
+  const checkUserAndRedirect = async () => {
+    try {
+      setLoadingUser(true)
+      
+      // Check if user is authenticated
+      const { data: { user } } = await supabase.auth.getUser()
+      
+      if (!user) {
+        // No user logged in, redirect to login
+        router.push('/auth/login')
+        return
+      }
+
+      // Get user profile with role
+      const { data: profile, error } = await supabase
+        .from('profiles')
+        .select('id, role, email, first_name, last_name')
+        .eq('id', user.id)
+        .single()
+
+      if (error) throw error
+
+      setCurrentUser(profile)
+
+      // Check if user has access (HR or Super Admin)
+      if (!hasAccess(profile)) {
+        setAccessDenied(true)
+        setLoadingUser(false)
+        return
+      }
+    } catch (error) {
+      console.error('Error checking user:', error)
+      router.push('/auth/login')
+    } finally {
+      setLoadingUser(false)
+    }
+  }
+
+  const hasAccess = (profile?: UserProfile): boolean => {
+    const user = profile || currentUser
+    return user?.role === 'hr' || user?.role === 'super_admin'
+  }
+
   const fetchApplications = async () => {
+    if (!currentUser || !hasAccess()) return
+
     try {
       setLoading(true)
       setError(null)
@@ -360,6 +474,11 @@ export default function ViewApplicationsPage() {
   }
 
   const exportToCSV = () => {
+    if (!currentUser || !hasAccess()) {
+      alert('Access denied. Only HR and Super Admins can export applicant data.')
+      return
+    }
+
     try {
       // Prepare data for CSV
       const csvData = [['ID', 'Name', 'Email', 'Phone', 'Job Applied', 'Department', 'Status', 'Date Applied', 'Age', 'Address', 'Highest Education', 'Total Experience (Years)', 'Skills', 'Qualifications']]
@@ -472,6 +591,79 @@ export default function ViewApplicationsPage() {
   // Get unique departments for filter
   const uniqueDepartments = [...new Set(applicantRecords.map(record => record.department).filter(Boolean))]
 
+  // Show loading state
+  if (loadingUser) {
+    return (
+      <div className="min-h-screen bg-gray-50">
+        <AdminHRSidebar 
+          mobileOpen={sidebarOpen}
+          onMobileClose={() => setSidebarOpen(false)}
+        />
+        <div className="lg:pl-64">
+          <MobileTopbar onMenu={() => setSidebarOpen(true)} />
+          <main className="p-6">
+            <div className="flex items-center justify-center h-64">
+              <div className="text-center">
+                <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto"></div>
+                <p className="text-lg mt-4 text-gray-600">Checking permissions...</p>
+              </div>
+            </div>
+          </main>
+        </div>
+      </div>
+    )
+  }
+
+  // Show access denied
+  if (accessDenied || !hasAccess()) {
+    return (
+      <div className="min-h-screen bg-gray-50">
+        <AdminHRSidebar 
+          mobileOpen={sidebarOpen}
+          onMobileClose={() => setSidebarOpen(false)}
+        />
+        <div className="lg:pl-64">
+          <MobileTopbar onMenu={() => setSidebarOpen(true)} />
+          <main className="p-6">
+            <div className="flex items-center justify-center h-64">
+              <div className="text-center">
+                <div className="inline-flex items-center justify-center w-16 h-16 bg-red-100 rounded-full mb-4">
+                  <Lock className="h-8 w-8 text-red-600" />
+                </div>
+                <h2 className="text-2xl font-bold text-gray-900 mb-2">Access Denied</h2>
+                <p className="text-gray-600 mb-4">
+                  This page is restricted to HR Managers and Super Administrators only.
+                </p>
+                <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4 mb-6 max-w-md mx-auto">
+                  <div className="flex items-center gap-2">
+                    <AlertCircle className="h-4 w-4 text-yellow-600" />
+                    <span className="text-sm text-yellow-700">
+                      Applicants cannot access this page. Only HR and Super Admin roles are allowed.
+                    </span>
+                  </div>
+                </div>
+                <div className="flex flex-col sm:flex-row gap-3">
+                  <button
+                    onClick={() => router.push('/dashboard')}
+                    className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors"
+                  >
+                    Go to Dashboard
+                  </button>
+                  <button
+                    onClick={() => router.back()}
+                    className="border border-gray-300 text-gray-700 px-4 py-2 rounded-lg hover:bg-gray-50 transition-colors"
+                  >
+                    Go Back
+                  </button>
+                </div>
+              </div>
+            </div>
+          </main>
+        </div>
+      </div>
+    )
+  }
+
   if (loading) {
     return (
       <div className="min-h-screen bg-gray-50">
@@ -505,13 +697,29 @@ export default function ViewApplicationsPage() {
         <MobileTopbar onMenu={() => setSidebarOpen(true)} />
         
         <main className="p-4 md:p-6">
-          {/* Header */}
+          {/* Header with Role Badge */}
           <div className="mb-6">
             <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
               <div>
-                <h1 className="text-2xl lg:text-3xl font-bold text-gray-900">
-                  Applicant Records
-                </h1>
+                <div className="flex items-center gap-3 mb-2">
+                  <h1 className="text-2xl lg:text-3xl font-bold text-gray-900">
+                    Applicant Records
+                  </h1>
+                  <span className={`inline-flex items-center gap-1 px-3 py-1 rounded-full text-sm font-medium ${
+                    currentUser?.role === 'super_admin' 
+                      ? 'bg-purple-100 text-purple-800' 
+                      : 'bg-blue-100 text-blue-800'
+                  }`}>
+                    {currentUser?.role === 'super_admin' ? (
+                      <>
+                        <Shield className="h-3 w-3" />
+                        Super Administrator
+                      </>
+                    ) : (
+                      'HR Manager'
+                    )}
+                  </span>
+                </div>
                 <p className="text-gray-600 mt-2">
                   View and manage all applicant information in tabular format
                 </p>
@@ -528,6 +736,7 @@ export default function ViewApplicationsPage() {
                 <Button 
                   onClick={exportToCSV}
                   className="bg-green-600 hover:bg-green-700 text-white"
+                  disabled={!hasAccess()}
                 >
                   <svg className="h-4 w-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
@@ -640,6 +849,7 @@ export default function ViewApplicationsPage() {
                         checked={selectedApplicants.length === paginatedRecords.length && paginatedRecords.length > 0}
                         onChange={selectAllApplicants}
                         className="h-4 w-4 text-blue-600 rounded border-gray-300"
+                        disabled={!hasAccess()}
                       />
                     </th>
                     <th 
@@ -749,6 +959,7 @@ export default function ViewApplicationsPage() {
                             checked={selectedApplicants.includes(record.id)}
                             onChange={() => toggleSelectApplicant(record.id)}
                             className="h-4 w-4 text-blue-600 rounded border-gray-300"
+                            disabled={!hasAccess()}
                           />
                         </td>
                         <td className="px-6 py-4">
@@ -908,6 +1119,20 @@ export default function ViewApplicationsPage() {
                 {applicantRecords.filter(r => r.status === 'for_review').length}
               </div>
               <div className="text-sm text-gray-600">For Review</div>
+            </div>
+          </div>
+
+          {/* Security Notice */}
+          <div className="mt-6 bg-blue-50 border border-blue-200 rounded-lg p-4">
+            <div className="flex items-start gap-3">
+              <Shield className="h-5 w-5 text-blue-600 mt-0.5 flex-shrink-0" />
+              <div>
+                <h4 className="font-medium text-blue-900 mb-1">Security Notice</h4>
+                <p className="text-sm text-blue-700">
+                  This page contains sensitive applicant information. Access is restricted to HR Managers and Super Administrators only.
+                  Applicants cannot view this page or access other applicants' data.
+                </p>
+              </div>
             </div>
           </div>
         </main>

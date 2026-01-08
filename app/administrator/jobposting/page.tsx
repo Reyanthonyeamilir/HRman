@@ -8,8 +8,10 @@ import { supabase } from '@/lib/supabaseClient'
 import { 
   Plus, Search, Edit, Trash2, Eye, MoreVertical, Briefcase, 
   MapPin, Calendar, Users, X, Building, Image as ImageIcon, 
-  XCircle, Lock, UserCheck, Filter, Download, ChevronDown
+  XCircle, Lock, UserCheck, Filter, Download, ChevronDown,
+  AlertCircle
 } from 'lucide-react'
+import { useRouter } from 'next/navigation'
 
 // Utility function for class names
 function cn(...classes: Array<string | false | null | undefined>) {
@@ -66,6 +68,7 @@ interface EditFormData {
 }
 
 export default function JobPostingsPage() {
+  const router = useRouter()
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [jobs, setJobs] = useState<JobPosting[]>([])
   const [loading, setLoading] = useState(true)
@@ -81,6 +84,7 @@ export default function JobPostingsPage() {
   const [showFilters, setShowFilters] = useState(false)
   const [selectedJobs, setSelectedJobs] = useState<string[]>([])
   const [bulkAction, setBulkAction] = useState<string>('')
+  const [accessDenied, setAccessDenied] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   const [addFormData, setAddFormData] = useState<AddFormData>({
@@ -106,26 +110,29 @@ export default function JobPostingsPage() {
 
   useEffect(() => {
     setIsClient(true)
-    fetchCurrentUser()
+    checkUserAndRedirect()
   }, [])
 
   useEffect(() => {
-    if (currentUser) {
+    if (currentUser && hasAccess()) {
       fetchJobs()
     }
   }, [currentUser])
 
-  const fetchCurrentUser = async () => {
+  const checkUserAndRedirect = async () => {
     try {
       setLoadingUser(true)
+      
+      // Check if user is authenticated
       const { data: { user } } = await supabase.auth.getUser()
       
       if (!user) {
-        console.error('No user logged in')
-        setLoadingUser(false)
+        // No user logged in, redirect to login
+        router.push('/auth/login')
         return
       }
 
+      // Get user profile with role
       const { data: profile, error } = await supabase
         .from('profiles')
         .select('id, role, email, first_name, last_name')
@@ -135,15 +142,28 @@ export default function JobPostingsPage() {
       if (error) throw error
 
       setCurrentUser(profile)
+
+      // Check if user has access (HR or Super Admin)
+      if (!hasAccess(profile)) {
+        setAccessDenied(true)
+        setLoadingUser(false)
+        return
+      }
     } catch (error) {
-      console.error('Error fetching user:', error)
+      console.error('Error checking user:', error)
+      router.push('/auth/login')
     } finally {
       setLoadingUser(false)
     }
   }
 
+  const hasAccess = (profile?: UserProfile): boolean => {
+    const user = profile || currentUser
+    return user?.role === 'hr' || user?.role === 'super_admin'
+  }
+
   const fetchJobs = async () => {
-    if (!currentUser) return
+    if (!currentUser || !hasAccess()) return
 
     try {
       setLoading(true)
@@ -236,6 +256,10 @@ export default function JobPostingsPage() {
     setFormLoading(true)
 
     try {
+      if (!hasAccess()) {
+        throw new Error('Access denied. You do not have permission to create job postings.')
+      }
+
       if (!addFormData.job_title.trim()) {
         throw new Error('Job title is required')
       }
@@ -299,6 +323,10 @@ export default function JobPostingsPage() {
     setFormLoading(true)
 
     try {
+      if (!hasAccess()) {
+        throw new Error('Access denied. You do not have permission to edit job postings.')
+      }
+
       if (!editFormData.id) throw new Error('No job selected for editing')
       if (!editFormData.job_title.trim()) {
         throw new Error('Job title is required')
@@ -363,6 +391,11 @@ export default function JobPostingsPage() {
   }
 
   const handleEdit = (job: JobPosting) => {
+    if (!hasAccess()) {
+      alert('Access denied. You do not have permission to edit job postings.')
+      return
+    }
+
     if (!job.can_edit && currentUser?.role === 'hr') {
       alert(`You can only edit job postings you created.\n\nThis job was created by: ${job.creator_name}`)
       return
@@ -382,6 +415,11 @@ export default function JobPostingsPage() {
   }
 
   const toggleJobStatus = async (jobId: string, currentStatus: JobStatus, jobTitle: string) => {
+    if (!hasAccess()) {
+      alert('Access denied. You do not have permission to update job status.')
+      return
+    }
+
     const job = jobs.find(j => j.id === jobId)
     if (job && !job.can_edit && currentUser?.role === 'hr') {
       alert(`You can only update job postings you created.\n\nThis job was created by: ${job.creator_name}`)
@@ -414,6 +452,11 @@ export default function JobPostingsPage() {
   }
 
   const deleteJob = async (jobId: string, jobTitle: string) => {
+    if (!hasAccess()) {
+      alert('Access denied. You do not have permission to delete job postings.')
+      return
+    }
+
     const job = jobs.find(j => j.id === jobId)
     if (job && !job.can_edit && currentUser?.role === 'hr') {
       alert(`You can only delete job postings you created.\n\nThis job was created by: ${job.creator_name}`)
@@ -494,6 +537,10 @@ export default function JobPostingsPage() {
   }
 
   const handleJobSelection = (jobId: string) => {
+    if (!hasAccess()) {
+      alert('Access denied. You do not have permission to select jobs.')
+      return
+    }
     setSelectedJobs((prev: string[]) => 
       prev.includes(jobId) 
         ? prev.filter(id => id !== jobId)
@@ -502,6 +549,11 @@ export default function JobPostingsPage() {
   }
 
   const handleBulkAction = async () => {
+    if (!hasAccess()) {
+      alert('Access denied. You do not have permission to perform bulk actions.')
+      return
+    }
+
     if (!bulkAction || selectedJobs.length === 0) return
 
     try {
@@ -552,6 +604,11 @@ export default function JobPostingsPage() {
   }
 
   const exportToCSV = () => {
+    if (!hasAccess()) {
+      alert('Access denied. You do not have permission to export data.')
+      return
+    }
+
     const headers = ['ID', 'Job Title', 'Department', 'Location', 'Status', 'Date Posted', 'Applications', 'Created By']
     const csvData = jobs.map(job => [
       job.id,
@@ -673,7 +730,7 @@ export default function JobPostingsPage() {
   const departments = Array.from(new Set(jobs.map(job => job.department).filter(Boolean))) as string[]
 
   // Show loading state
-  if (!isClient || loading || loadingUser) {
+  if (!isClient || loadingUser) {
     return (
       <div className="min-h-screen bg-gray-50">
         <AdminHRSidebar 
@@ -684,7 +741,42 @@ export default function JobPostingsPage() {
           <MobileTopbar onMenu={() => setSidebarOpen(true)} />
           <main className="p-6">
             <div className="flex items-center justify-center h-64">
-              <div className="text-gray-500">Loading job postings...</div>
+              <div className="text-gray-500">Loading...</div>
+            </div>
+          </main>
+        </div>
+      </div>
+    )
+  }
+
+  // Show access denied
+  if (accessDenied || !hasAccess()) {
+    return (
+      <div className="min-h-screen bg-gray-50">
+        <AdminHRSidebar 
+          mobileOpen={sidebarOpen} 
+          onMobileClose={() => setSidebarOpen(false)} 
+        />
+        <div className="lg:pl-64">
+          <MobileTopbar onMenu={() => setSidebarOpen(true)} />
+          <main className="p-6">
+            <div className="flex items-center justify-center h-64">
+              <div className="text-center">
+                <AlertCircle className="h-12 w-12 text-red-500 mx-auto mb-4" />
+                <h2 className="text-xl font-semibold text-gray-900 mb-2">Access Denied</h2>
+                <p className="text-gray-600 mb-4">
+                  You do not have permission to access this page.
+                </p>
+                <p className="text-sm text-gray-500 mb-6">
+                  This page is only accessible to HR managers and administrators.
+                </p>
+                <Link
+                  href="/dashboard"
+                  className="inline-flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors"
+                >
+                  Go to Dashboard
+                </Link>
+              </div>
             </div>
           </main>
         </div>

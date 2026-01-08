@@ -1,48 +1,47 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 
-// Initialize Supabase
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
-const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
 
-const supabase = createClient(supabaseUrl, supabaseKey)
+const createServerSupabase = () => {
+  return createClient(supabaseUrl, supabaseKey, {
+    auth: {
+      autoRefreshToken: false,
+      persistSession: false
+    }
+  })
+}
 
 export async function GET(request: NextRequest) {
   try {
-    // Get authorization header
+    console.log('📋 === Profile GET API Called ===')
+    
     const authHeader = request.headers.get('Authorization')
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
       return NextResponse.json(
-        { error: 'Missing or invalid authorization header' },
+        { error: 'Unauthorized - No token provided' },
         { status: 401 }
       )
     }
 
-    const token = authHeader.replace('Bearer ', '')
+    const token = authHeader.split(' ')[1]
+    const supabase = createServerSupabase()
     
-    // Verify the token
     const { data: { user }, error: authError } = await supabase.auth.getUser(token)
     
     if (authError || !user) {
       return NextResponse.json(
-        { error: 'Unauthorized' },
+        { error: 'Unauthorized - Invalid token' },
         { status: 401 }
       )
     }
 
+    const userId = user.id
     const searchParams = request.nextUrl.searchParams
-    const userId = searchParams.get('userId') || user.id
     const includeAll = searchParams.get('includeAll') === 'true'
-
-    // Security check
-    if (userId !== user.id) {
-      return NextResponse.json(
-        { error: 'Forbidden: You can only view your own profile' },
-        { status: 403 }
-      )
-    }
-
-    // Fetch profile
+    
+    // Fetch main profile
     const { data: profile, error: profileError } = await supabase
       .from('profiles')
       .select('*')
@@ -50,9 +49,8 @@ export async function GET(request: NextRequest) {
       .single()
 
     if (profileError) {
-      console.error('Profile error:', profileError)
       return NextResponse.json(
-        { error: 'Profile not found' },
+        { error: `Profile not found: ${profileError.message}` },
         { status: 404 }
       )
     }
@@ -69,26 +67,52 @@ export async function GET(request: NextRequest) {
       { data: eligibilities },
       { data: trainings }
     ] = await Promise.all([
-      supabase.from('educations').select('*').eq('profile_id', userId),
-      supabase.from('work_experiences').select('*').eq('profile_id', userId),
-      supabase.from('skills').select('*').eq('profile_id', userId),
-      supabase.from('eligibilities').select('*').eq('profile_id', userId),
-      supabase.from('trainings').select('*').eq('profile_id', userId)
+      supabase
+        .from('educations')
+        .select('*')
+        .eq('profile_id', userId)
+        .order('created_at', { ascending: false }),
+      
+      supabase
+        .from('work_experiences')
+        .select('*')
+        .eq('profile_id', userId)
+        .order('start_date', { ascending: false }),
+      
+      supabase
+        .from('skills')
+        .select('*')
+        .eq('profile_id', userId)
+        .order('created_at', { ascending: false }),
+      
+      supabase
+        .from('eligibilities')
+        .select('*')
+        .eq('profile_id', userId)
+        .order('created_at', { ascending: false }),
+      
+      supabase
+        .from('trainings')
+        .select('*')
+        .eq('profile_id', userId)
+        .order('created_at', { ascending: false })
     ])
 
-    return NextResponse.json({
+    const response = {
       ...profile,
       educations: educations || [],
       work_experiences: work_experiences || [],
       skills: skills || [],
       eligibilities: eligibilities || [],
       trainings: trainings || []
-    })
+    }
 
+    return NextResponse.json(response)
+    
   } catch (error: any) {
-    console.error('Error in profile GET:', error)
+    console.error('Error in profile GET API:', error)
     return NextResponse.json(
-      { error: 'Failed to fetch profile' },
+      { error: error.message || 'Internal server error' },
       { status: 500 }
     )
   }
@@ -96,75 +120,83 @@ export async function GET(request: NextRequest) {
 
 export async function PUT(request: NextRequest) {
   try {
-    // Get authorization header
+    console.log('✏️ === Profile PUT API Called ===')
+    
     const authHeader = request.headers.get('Authorization')
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
       return NextResponse.json(
-        { error: 'Missing or invalid authorization header' },
+        { error: 'Unauthorized - No token provided' },
         { status: 401 }
       )
     }
 
-    const token = authHeader.replace('Bearer ', '')
+    const token = authHeader.split(' ')[1]
+    const supabase = createServerSupabase()
     
-    // Verify the token
     const { data: { user }, error: authError } = await supabase.auth.getUser(token)
     
     if (authError || !user) {
       return NextResponse.json(
-        { error: 'Unauthorized' },
+        { error: 'Unauthorized - Invalid token' },
         { status: 401 }
       )
     }
 
+    const userId = user.id
     const body = await request.json()
     
-    // Calculate age if date_of_birth is provided
-    let age = body.age
-    if (body.date_of_birth && !body.age) {
-      const birthDate = new Date(body.date_of_birth)
-      const today = new Date()
-      let calculatedAge = today.getFullYear() - birthDate.getFullYear()
-      const monthDiff = today.getMonth() - birthDate.getMonth()
-      if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < birthDate.getDate())) {
-        calculatedAge--
-      }
-      age = calculatedAge
-    }
-
-    const updateData = {
-      first_name: body.first_name,
-      middle_name: body.middle_name || null,
-      last_name: body.last_name,
-      phone: body.phone || null,
-      date_of_birth: body.date_of_birth || null,
-      age: age || null,
-      address: body.address || null,
-      avatar_url: body.avatar_url || null,
+    console.log('Updating profile for user:', userId)
+    console.log('Update data:', body)
+    
+    const updateData: any = {
       updated_at: new Date().toISOString()
     }
+    
+    const allowedFields = [
+      'first_name', 'middle_name', 'last_name',
+      'phone', 'date_of_birth', 'age', 'address', 'avatar_url'
+    ]
+    
+    allowedFields.forEach(field => {
+      if (body[field] !== undefined) {
+        updateData[field] = body[field] || null
+      }
+    })
 
+    // Validate age if provided
+    if (updateData.age !== undefined && updateData.age !== null) {
+      const age = parseInt(updateData.age)
+      if (isNaN(age) || age < 18 || age > 100) {
+        return NextResponse.json(
+          { error: 'Age must be between 18 and 100' },
+          { status: 400 }
+        )
+      }
+      updateData.age = age
+    }
+    
     const { data, error } = await supabase
       .from('profiles')
       .update(updateData)
-      .eq('id', user.id)
+      .eq('id', userId)
       .select()
       .single()
 
     if (error) {
-      console.error('Update error:', error)
+      console.error('Profile update error:', error)
       return NextResponse.json(
-        { error: error.message },
-        { status: 500 }
+        { error: `Update failed: ${error.message}` },
+        { status: 400 }
       )
     }
 
+    console.log('✅ Profile updated successfully:', data)
     return NextResponse.json(data)
-
+    
   } catch (error: any) {
     console.error('Error updating profile:', error)
     return NextResponse.json(
-      { error: 'Failed to update profile' },
+      { error: error.message || 'Internal server error' },
       { status: 500 }
     )
   }

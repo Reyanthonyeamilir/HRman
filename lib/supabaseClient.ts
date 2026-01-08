@@ -196,10 +196,12 @@ export async function getCurrentSession() {
   }
 }
 
-// Helper function to get current user with profile
+// Helper function to get current user with profile - FIXED VERSION
 export async function getCurrentUser() {
   try {
+    console.log('🔍 Getting current user...')
     const { data: { user }, error } = await supabase.auth.getUser()
+    
     if (error) {
       console.error('❌ Auth getUser error:', error)
       return null
@@ -210,23 +212,23 @@ export async function getCurrentUser() {
       return null
     }
 
-    console.log('🔍 Fetching profile for user:', user.id)
-
-    // Get user profile with better error handling
+    console.log('✅ User authenticated, fetching profile:', user.email)
+    
+    // Get user profile
     const { data: profile, error: profileError } = await supabase
       .from('profiles')
       .select('*')
       .eq('id', user.id)
       .single()
 
-    // Handle case where profile doesn't exist
     if (profileError) {
+      console.error('❌ Profile fetch error:', profileError)
+      // Try to create profile if it doesn't exist
       if (profileError.code === 'PGRST116') {
-        // No profile found - create one
-        console.log('📝 No profile found for user, creating one...')
+        console.log('📝 Creating profile for user...')
         await ensureUserProfile(user)
         
-        // Try to fetch profile again
+        // Try to fetch again
         const { data: newProfile } = await supabase
           .from('profiles')
           .select('*')
@@ -234,14 +236,13 @@ export async function getCurrentUser() {
           .single()
           
         return { ...user, profile: newProfile }
-      } else {
-        console.error('❌ Profile fetch error:', profileError)
-        return { ...user, profile: null }
       }
+      return { ...user, profile: null }
     }
 
     console.log('✅ Profile found:', profile?.role)
     return { ...user, profile }
+    
   } catch (error) {
     console.error('❌ Error in getCurrentUser:', error)
     return null
@@ -285,12 +286,12 @@ export async function signOut() {
     console.log('🚪 Signing out...')
     const { error } = await supabase.auth.signOut()
     if (error) {
-      console.error(' Sign out error:', error)
+      console.error('❌ Sign out error:', error)
       throw error
     }
-    console.log('Signed out successfully')
+    console.log('✅ Signed out successfully')
   } catch (error) {
-    console.error(' Error during sign out:', error)
+    console.error('❌ Error during sign out:', error)
     throw error
   }
 }
@@ -308,7 +309,7 @@ export async function resetPassword(email: string) {
     if (error) throw error
     return { success: true }
   } catch (error) {
-    console.error(' Reset password error:', error)
+    console.error('❌ Reset password error:', error)
     throw error
   }
 }
@@ -323,7 +324,7 @@ export async function updatePassword(newPassword: string) {
     if (error) throw error
     return { success: true }
   } catch (error) {
-    console.error(' Update password error:', error)
+    console.error('❌ Update password error:', error)
     throw error
   }
 }
@@ -331,7 +332,7 @@ export async function updatePassword(newPassword: string) {
 /* ---------------- Applicant APIs ---------------- */
 export async function listActiveJobs() {
   try {
-    console.log(' Fetching active jobs...')
+    console.log('📋 Fetching active jobs...')
     
     const { data, error } = await supabase
       .from('job_postings')
@@ -340,14 +341,14 @@ export async function listActiveJobs() {
       .order('date_posted', { ascending: false })
     
     if (error) {
-      console.error(' List active jobs error:', error)
+      console.error('❌ List active jobs error:', error)
       throw error
     }
     
-    console.log(` Found ${data?.length || 0} active jobs`)
+    console.log(`✅ Found ${data?.length || 0} active jobs`)
     return data || []
   } catch (error) {
-    console.error(' List active jobs error:', error)
+    console.error('❌ List active jobs error:', error)
     throw error
   }
 }
@@ -362,7 +363,7 @@ export async function submitApplication({
   comment: string
 }) {
   try {
-    console.log(' Submitting application for job:', job_id)
+    console.log('📄 Submitting application for job:', job_id)
     
     const { data: { user }, error: userError } = await supabase.auth.getUser()
     if (userError) throw userError
@@ -411,10 +412,10 @@ export async function submitApplication({
     
     if (updErr) throw updErr
 
-    console.log(' Application submitted successfully, ID:', app.id)
+    console.log('✅ Application submitted successfully, ID:', app.id)
     return app.id as number
   } catch (error) {
-    console.error(' Submit application error:', error)
+    console.error('❌ Submit application error:', error)
     throw error
   }
 }
@@ -425,7 +426,7 @@ export async function listMyApplications() {
     if (userError) throw userError
     if (!user) throw new Error('Not authenticated')
 
-    console.log(' Fetching applications for user:', user.id)
+    console.log('📋 Fetching applications for user:', user.id)
 
     const { data, error } = await supabase
       .from('applications')
@@ -458,10 +459,10 @@ export async function listMyApplications() {
       submitted_at: row.submitted_at,
     }))
 
-    console.log(` Found ${applications.length} applications`)
+    console.log(`✅ Found ${applications.length} applications`)
     return applications
   } catch (error) {
-    console.error(' List applications error:', error)
+    console.error('❌ List applications error:', error)
     throw error
   }
 }
@@ -476,10 +477,10 @@ export async function getSignedUrl(path: string) {
     
     if (error) throw error
     
-    console.log(' Signed URL generated')
+    console.log('✅ Signed URL generated')
     return data.signedUrl
   } catch (error) {
-    console.error(' Get signed URL error:', error)
+    console.error('❌ Get signed URL error:', error)
     throw error
   }
 }
@@ -506,7 +507,7 @@ export async function getApplicationStatus(applicationId: string) {
     if (error) throw error
     return data
   } catch (error) {
-    console.error(' Get application status error:', error)
+    console.error('❌ Get application status error:', error)
     throw error
   }
 }
@@ -518,7 +519,47 @@ export async function healthCheck() {
     if (error) throw error
     return { healthy: true }
   } catch (error) {
-    console.error(' Health check failed:', error)
+    console.error('❌ Health check failed:', error)
     return { healthy: false, error }
+  }
+}
+
+// Simple test function
+export async function testConnection() {
+  try {
+    console.log('🔧 Testing Supabase connection...')
+    
+    // Test 1: Check if we can get session
+    const { data: { session } } = await supabase.auth.getSession()
+    console.log('Session exists:', !!session)
+    
+    // Test 2: Simple query
+    const { data, error } = await supabase
+      .from('profiles')
+      .select('count')
+      .limit(1)
+    
+    if (error) {
+      console.error('❌ Query test failed:', error.message)
+      return { connected: false, error: error.message }
+    }
+    
+    console.log('✅ Supabase connection successful')
+    return { connected: true }
+    
+  } catch (error: any) {
+    console.error('❌ Connection test failed:', error.message)
+    return { connected: false, error: error.message }
+  }
+}
+
+// Get session token for API calls
+export async function getSessionToken() {
+  try {
+    const { data: { session } } = await supabase.auth.getSession()
+    return session?.access_token || null
+  } catch (error) {
+    console.error('❌ Error getting session token:', error)
+    return null
   }
 }

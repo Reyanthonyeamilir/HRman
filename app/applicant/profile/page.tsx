@@ -1,15 +1,16 @@
+// app/profile/page.tsx - FIXED UPLOAD FUNCTION AND IMAGE CONFIG
 'use client'
 
 import React, { useState, useEffect } from 'react'
 import { 
   User, Mail, Phone, Calendar, MapPin, Briefcase, 
-  GraduationCap, Edit, Save, X, Plus, Trash2, Upload, Bug,
+  GraduationCap, Edit, Save, X, Plus, Trash2, Upload,
   Award, BookOpen, Target
 } from 'lucide-react'
 import Image from 'next/image'
-import { supabase, getCurrentUser } from '@/lib/supabaseClient'
+import { supabase, getCurrentUser, getSessionToken } from '@/lib/supabaseClient'
 
-// Interfaces
+// Interfaces (keep as is)
 interface Education {
   id: string;
   profile_id: string;
@@ -98,7 +99,7 @@ interface ProfileWithDetails extends Profile {
   trainings: Training[];
 }
 
-export default function ApplicantProfileContent() {
+export default function ApplicantProfilePage() {
   const [profile, setProfile] = useState<ProfileWithDetails | null>(null)
   const [isEditing, setIsEditing] = useState(false)
   const [isLoading, setIsLoading] = useState(true)
@@ -236,11 +237,6 @@ export default function ApplicantProfileContent() {
 
   // ==================== API FUNCTIONS ====================
 
-  const getSessionToken = async () => {
-    const { data: { session } } = await supabase.auth.getSession()
-    return session?.access_token
-  }
-
   // Fetch profile with all data
   const fetchProfile = async () => {
     try {
@@ -248,9 +244,11 @@ export default function ApplicantProfileContent() {
       const user = await getCurrentUser()
       if (!user) {
         console.log('No user found')
+        window.location.href = '/login'
         return
       }
 
+      // Get session token for API call
       const token = await getSessionToken()
       if (!token) {
         console.log('No session token')
@@ -258,7 +256,7 @@ export default function ApplicantProfileContent() {
       }
 
       // Fetch profile with all related data
-      const response = await fetch(`/api/applicant/profile?userId=${user.id}&includeAll=true`, {
+      const response = await fetch(`/api/applicant/profile?includeAll=true`, {
         headers: {
           'Authorization': `Bearer ${token}`
         }
@@ -281,11 +279,84 @@ export default function ApplicantProfileContent() {
       } else {
         const errorText = await response.text()
         console.error('Failed to fetch profile:', response.status, errorText)
+        if (response.status === 401) {
+          alert('Your session has expired. Please log in again.')
+          window.location.href = '/login'
+        } else {
+          alert(`Failed to load profile: ${response.status}`)
+        }
       }
     } catch (error) {
       console.error('Error fetching profile:', error)
+      alert('Network error. Please check your connection and try again.')
     } finally {
       setIsLoading(false)
+    }
+  }
+
+  // ============ FIXED UPLOAD FUNCTION ============
+  const uploadAvatarToStorage = async (file: File, userId: string): Promise<string> => {
+    console.log('📤 Starting avatar upload...')
+    
+    try {
+      // Get session token
+      const token = await getSessionToken()
+      if (!token) {
+        throw new Error('No session token')
+      }
+
+      // Create form data
+      const formData = new FormData()
+      formData.append('file', file)
+      formData.append('userId', userId)
+      // Don't add 'folder' - it's handled by API
+
+      console.log('🚀 Calling /api/applicant/upload...')
+      
+      // ✅ CRITICAL FIX: Call correct endpoint
+      const response = await fetch('/api/applicant/upload', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`
+        },
+        body: formData,
+      })
+
+      console.log('📥 Response status:', response.status, response.statusText)
+      
+      // Get raw response text first
+      const responseText = await response.text()
+      console.log('📄 Raw response (first 500 chars):', responseText.substring(0, 500))
+      
+      if (!responseText.trim()) {
+        throw new Error('API returned empty response')
+      }
+
+      // Parse JSON
+      let result
+      try {
+        result = JSON.parse(responseText)
+        console.log('✅ Parsed result:', result)
+      } catch (parseError) {
+        console.error('❌ JSON parse error:', parseError)
+        console.error('Full response:', responseText)
+        throw new Error('Invalid JSON response from server')
+      }
+      
+      if (!response.ok) {
+        throw new Error(result.error || `Upload failed: ${response.status}`)
+      }
+
+      if (!result.url) {
+        throw new Error('No avatar URL returned')
+      }
+
+      console.log('🎉 Upload successful, URL:', result.url)
+      return result.url
+      
+    } catch (error: any) {
+      console.error('❌ Upload error details:', error)
+      throw new Error(`Avatar upload failed: ${error.message}`)
     }
   }
 
@@ -295,39 +366,35 @@ export default function ApplicantProfileContent() {
       const user = await getCurrentUser()
       if (!user) {
         alert('Please login first')
+        window.location.href = '/login'
         return
       }
 
+      // Get session token
       const token = await getSessionToken()
       if (!token) {
-        alert('Session expired, please login again')
+        alert('No session token')
         return
       }
 
       // Upload avatar if changed
       let avatarUrl = formData.avatar_url
       if (avatarFile) {
+        console.log('🖼️ Avatar file detected, uploading...')
         setIsUploading(true)
-        const formData = new FormData()
-        formData.append('file', avatarFile)
-        
-        const uploadResponse = await fetch('/api/upload', {
-          method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${token}`
-          },
-          body: formData,
-        })
-
-        if (uploadResponse.ok) {
-          const result = await uploadResponse.json()
-          avatarUrl = result.url
-        } else {
-          alert('Avatar upload failed. Profile saved without new avatar.')
+        try {
+          avatarUrl = await uploadAvatarToStorage(avatarFile, user.id)
+          console.log('✅ Avatar uploaded successfully:', avatarUrl)
+        } catch (error: any) {
+          console.error('❌ Avatar upload failed:', error)
+          alert(`Avatar upload failed: ${error.message}. Profile saved without new avatar.`)
+          // Keep old avatar URL
+        } finally {
+          setIsUploading(false)
         }
-        setIsUploading(false)
       }
 
+      // Update profile data
       const response = await fetch('/api/applicant/profile', {
         method: 'PUT',
         headers: { 
@@ -346,16 +413,15 @@ export default function ApplicantProfileContent() {
         })
       })
 
-      const responseData = await response.json()
-
-      if (response.ok) {
-        await fetchProfile()
-        setIsEditing(false)
-        setAvatarFile(null)
-        alert('Profile updated successfully!')
-      } else {
-        alert(`Failed to update profile: ${responseData.error || 'Unknown error'}`)
+      if (!response.ok) {
+        const errorData = await response.json()
+        throw new Error(errorData.error || 'Failed to update profile')
       }
+
+      await fetchProfile()
+      setIsEditing(false)
+      setAvatarFile(null)
+      alert('Profile updated successfully!')
     } catch (error: any) {
       console.error('Error updating profile:', error)
       alert(`Failed to update profile: ${error.message || 'Unknown error'}`)
@@ -373,7 +439,7 @@ export default function ApplicantProfileContent() {
     try {
       const token = await getSessionToken()
       if (!token) {
-        alert('Session expired, please login again')
+        alert('No session token')
         return
       }
 
@@ -389,33 +455,32 @@ export default function ApplicantProfileContent() {
           expected_finish: newEducation.expected_finish || null,
           course_highlights: newEducation.course_highlights || null,
           degree_level: newEducation.degree_level || null,
-          year_graduated: newEducation.year_graduated || null,
+          year_graduated: newEducation.year_graduated ? parseInt(newEducation.year_graduated) : null,
           degree_name: newEducation.degree_name || null,
-          gpa: newEducation.gpa || null,
+          gpa: newEducation.gpa ? parseFloat(newEducation.gpa) : null,
           honors_awards: newEducation.honors_awards || null
         })
       })
 
-      const responseData = await response.json()
-      
-      if (response.ok) {
-        setNewEducation({
-          course_qualification: '',
-          institution: '',
-          expected_finish: '',
-          course_highlights: '',
-          degree_level: '',
-          year_graduated: '',
-          degree_name: '',
-          gpa: '',
-          honors_awards: ''
-        })
-        setShowAddEducation(false)
-        await fetchProfile()
-        alert('Education added successfully!')
-      } else {
-        alert(`Failed to add education: ${responseData.error || 'Unknown error'}`)
+      if (!response.ok) {
+        const errorData = await response.json()
+        throw new Error(errorData.error || 'Failed to add education')
       }
+
+      setNewEducation({
+        course_qualification: '',
+        institution: '',
+        expected_finish: '',
+        course_highlights: '',
+        degree_level: '',
+        year_graduated: '',
+        degree_name: '',
+        gpa: '',
+        honors_awards: ''
+      })
+      setShowAddEducation(false)
+      await fetchProfile()
+      alert('Education added successfully!')
     } catch (error: any) {
       console.error('Error adding education:', error)
       alert(`Failed to add education: ${error.message || 'Unknown error'}`)
@@ -431,7 +496,7 @@ export default function ApplicantProfileContent() {
     try {
       const token = await getSessionToken()
       if (!token) {
-        alert('Session expired, please login again')
+        alert('No session token')
         return
       }
 
@@ -448,22 +513,21 @@ export default function ApplicantProfileContent() {
           expected_finish: editEducationData.expected_finish || null,
           course_highlights: editEducationData.course_highlights || null,
           degree_level: editEducationData.degree_level || null,
-          year_graduated: editEducationData.year_graduated || null,
+          year_graduated: editEducationData.year_graduated ? parseInt(editEducationData.year_graduated) : null,
           degree_name: editEducationData.degree_name || null,
-          gpa: editEducationData.gpa || null,
+          gpa: editEducationData.gpa ? parseFloat(editEducationData.gpa) : null,
           honors_awards: editEducationData.honors_awards || null
         })
       })
 
-      const responseData = await response.json()
-      
-      if (response.ok) {
-        setEditingEducation(null)
-        await fetchProfile()
-        alert('Education updated successfully!')
-      } else {
-        alert(`Failed to update education: ${responseData.error || 'Unknown error'}`)
+      if (!response.ok) {
+        const errorData = await response.json()
+        throw new Error(errorData.error || 'Failed to update education')
       }
+
+      setEditingEducation(null)
+      await fetchProfile()
+      alert('Education updated successfully!')
     } catch (error: any) {
       console.error('Error updating education:', error)
       alert(`Failed to update education: ${error.message || 'Unknown error'}`)
@@ -476,7 +540,7 @@ export default function ApplicantProfileContent() {
     try {
       const token = await getSessionToken()
       if (!token) {
-        alert('Session expired, please login again')
+        alert('No session token')
         return
       }
 
@@ -487,14 +551,13 @@ export default function ApplicantProfileContent() {
         }
       })
 
-      const responseData = await response.json()
-      
-      if (response.ok) {
-        await fetchProfile()
-        alert('Education deleted successfully!')
-      } else {
-        alert(`Failed to delete education: ${responseData.error || 'Unknown error'}`)
+      if (!response.ok) {
+        const errorData = await response.json()
+        throw new Error(errorData.error || 'Failed to delete education')
       }
+
+      await fetchProfile()
+      alert('Education deleted successfully!')
     } catch (error: any) {
       console.error('Error deleting education:', error)
       alert(`Failed to delete education: ${error.message || 'Unknown error'}`)
@@ -512,7 +575,7 @@ export default function ApplicantProfileContent() {
     try {
       const token = await getSessionToken()
       if (!token) {
-        alert('Session expired, please login again')
+        alert('No session token')
         return
       }
 
@@ -525,23 +588,22 @@ export default function ApplicantProfileContent() {
         body: JSON.stringify(newWorkExperience)
       })
 
-      const responseData = await response.json()
-      
-      if (response.ok) {
-        setNewWorkExperience({
-          job_title: '',
-          company: '',
-          start_date: '',
-          end_date: '',
-          currently_working: false,
-          description: ''
-        })
-        setShowAddExperience(false)
-        await fetchProfile()
-        alert('Work experience added successfully!')
-      } else {
-        alert(`Failed to add work experience: ${responseData.error || 'Unknown error'}`)
+      if (!response.ok) {
+        const errorData = await response.json()
+        throw new Error(errorData.error || 'Failed to add work experience')
       }
+
+      setNewWorkExperience({
+        job_title: '',
+        company: '',
+        start_date: '',
+        end_date: '',
+        currently_working: false,
+        description: ''
+      })
+      setShowAddExperience(false)
+      await fetchProfile()
+      alert('Work experience added successfully!')
     } catch (error: any) {
       console.error('Error adding work experience:', error)
       alert(`Failed to add work experience: ${error.message || 'Unknown error'}`)
@@ -557,7 +619,7 @@ export default function ApplicantProfileContent() {
     try {
       const token = await getSessionToken()
       if (!token) {
-        alert('Session expired, please login again')
+        alert('No session token')
         return
       }
 
@@ -573,15 +635,14 @@ export default function ApplicantProfileContent() {
         })
       })
 
-      const responseData = await response.json()
-      
-      if (response.ok) {
-        setEditingExperience(null)
-        await fetchProfile()
-        alert('Work experience updated successfully!')
-      } else {
-        alert(`Failed to update work experience: ${responseData.error || 'Unknown error'}`)
+      if (!response.ok) {
+        const errorData = await response.json()
+        throw new Error(errorData.error || 'Failed to update work experience')
       }
+
+      setEditingExperience(null)
+      await fetchProfile()
+      alert('Work experience updated successfully!')
     } catch (error: any) {
       console.error('Error updating work experience:', error)
       alert(`Failed to update work experience: ${error.message || 'Unknown error'}`)
@@ -594,7 +655,7 @@ export default function ApplicantProfileContent() {
     try {
       const token = await getSessionToken()
       if (!token) {
-        alert('Session expired, please login again')
+        alert('No session token')
         return
       }
 
@@ -605,14 +666,13 @@ export default function ApplicantProfileContent() {
         }
       })
 
-      const responseData = await response.json()
-      
-      if (response.ok) {
-        await fetchProfile()
-        alert('Work experience deleted successfully!')
-      } else {
-        alert(`Failed to delete work experience: ${responseData.error || 'Unknown error'}`)
+      if (!response.ok) {
+        const errorData = await response.json()
+        throw new Error(errorData.error || 'Failed to delete work experience')
       }
+
+      await fetchProfile()
+      alert('Work experience deleted successfully!')
     } catch (error: any) {
       console.error('Error deleting work experience:', error)
       alert(`Failed to delete work experience: ${error.message || 'Unknown error'}`)
@@ -630,7 +690,7 @@ export default function ApplicantProfileContent() {
     try {
       const token = await getSessionToken()
       if (!token) {
-        alert('Session expired, please login again')
+        alert('No session token')
         return
       }
 
@@ -643,24 +703,23 @@ export default function ApplicantProfileContent() {
         body: JSON.stringify({
           skill_name: newSkill.skill_name,
           proficiency: newSkill.proficiency || null,
-          years_of_experience: newSkill.years_of_experience || null
+          years_of_experience: newSkill.years_of_experience ? parseInt(newSkill.years_of_experience) : null
         })
       })
 
-      const responseData = await response.json()
-      
-      if (response.ok) {
-        setNewSkill({
-          skill_name: '',
-          proficiency: 'Beginner',
-          years_of_experience: '',
-        })
-        setShowAddSkill(false)
-        await fetchProfile()
-        alert('Skill added successfully!')
-      } else {
-        alert(`Failed to add skill: ${responseData.error || 'Unknown error'}`)
+      if (!response.ok) {
+        const errorData = await response.json()
+        throw new Error(errorData.error || 'Failed to add skill')
       }
+
+      setNewSkill({
+        skill_name: '',
+        proficiency: 'Beginner',
+        years_of_experience: '',
+      })
+      setShowAddSkill(false)
+      await fetchProfile()
+      alert('Skill added successfully!')
     } catch (error: any) {
       console.error('Error adding skill:', error)
       alert(`Failed to add skill: ${error.message || 'Unknown error'}`)
@@ -676,7 +735,7 @@ export default function ApplicantProfileContent() {
     try {
       const token = await getSessionToken()
       if (!token) {
-        alert('Session expired, please login again')
+        alert('No session token')
         return
       }
 
@@ -690,19 +749,18 @@ export default function ApplicantProfileContent() {
           id,
           skill_name: editSkillData.skill_name,
           proficiency: editSkillData.proficiency || null,
-          years_of_experience: editSkillData.years_of_experience || null
+          years_of_experience: editSkillData.years_of_experience ? parseInt(editSkillData.years_of_experience) : null
         })
       })
 
-      const responseData = await response.json()
-      
-      if (response.ok) {
-        setEditingSkill(null)
-        await fetchProfile()
-        alert('Skill updated successfully!')
-      } else {
-        alert(`Failed to update skill: ${responseData.error || 'Unknown error'}`)
+      if (!response.ok) {
+        const errorData = await response.json()
+        throw new Error(errorData.error || 'Failed to update skill')
       }
+
+      setEditingSkill(null)
+      await fetchProfile()
+      alert('Skill updated successfully!')
     } catch (error: any) {
       console.error('Error updating skill:', error)
       alert(`Failed to update skill: ${error.message || 'Unknown error'}`)
@@ -715,7 +773,7 @@ export default function ApplicantProfileContent() {
     try {
       const token = await getSessionToken()
       if (!token) {
-        alert('Session expired, please login again')
+        alert('No session token')
         return
       }
 
@@ -726,14 +784,13 @@ export default function ApplicantProfileContent() {
         }
       })
 
-      const responseData = await response.json()
-      
-      if (response.ok) {
-        await fetchProfile()
-        alert('Skill deleted successfully!')
-      } else {
-        alert(`Failed to delete skill: ${responseData.error || 'Unknown error'}`)
+      if (!response.ok) {
+        const errorData = await response.json()
+        throw new Error(errorData.error || 'Failed to delete skill')
       }
+
+      await fetchProfile()
+      alert('Skill deleted successfully!')
     } catch (error: any) {
       console.error('Error deleting skill:', error)
       alert(`Failed to delete skill: ${error.message || 'Unknown error'}`)
@@ -751,7 +808,7 @@ export default function ApplicantProfileContent() {
     try {
       const token = await getSessionToken()
       if (!token) {
-        alert('Session expired, please login again')
+        alert('No session token')
         return
       }
 
@@ -771,23 +828,22 @@ export default function ApplicantProfileContent() {
         })
       })
 
-      const responseData = await response.json()
-      
-      if (response.ok) {
-        setNewEligibility({
-          eligibility_name: '',
-          license_number: '',
-          rating: '',
-          date_issued: '',
-          expiry_date: '',
-          issuing_authority: '',
-        })
-        setShowAddEligibility(false)
-        await fetchProfile()
-        alert('Eligibility added successfully!')
-      } else {
-        alert(`Failed to add eligibility: ${responseData.error || 'Unknown error'}`)
+      if (!response.ok) {
+        const errorData = await response.json()
+        throw new Error(errorData.error || 'Failed to add eligibility')
       }
+
+      setNewEligibility({
+        eligibility_name: '',
+        license_number: '',
+        rating: '',
+        date_issued: '',
+        expiry_date: '',
+        issuing_authority: '',
+      })
+      setShowAddEligibility(false)
+      await fetchProfile()
+      alert('Eligibility added successfully!')
     } catch (error: any) {
       console.error('Error adding eligibility:', error)
       alert(`Failed to add eligibility: ${error.message || 'Unknown error'}`)
@@ -803,7 +859,7 @@ export default function ApplicantProfileContent() {
     try {
       const token = await getSessionToken()
       if (!token) {
-        alert('Session expired, please login again')
+        alert('No session token')
         return
       }
 
@@ -824,15 +880,14 @@ export default function ApplicantProfileContent() {
         })
       })
 
-      const responseData = await response.json()
-      
-      if (response.ok) {
-        setEditingEligibility(null)
-        await fetchProfile()
-        alert('Eligibility updated successfully!')
-      } else {
-        alert(`Failed to update eligibility: ${responseData.error || 'Unknown error'}`)
+      if (!response.ok) {
+        const errorData = await response.json()
+        throw new Error(errorData.error || 'Failed to update eligibility')
       }
+
+      setEditingEligibility(null)
+      await fetchProfile()
+      alert('Eligibility updated successfully!')
     } catch (error: any) {
       console.error('Error updating eligibility:', error)
       alert(`Failed to update eligibility: ${error.message || 'Unknown error'}`)
@@ -845,7 +900,7 @@ export default function ApplicantProfileContent() {
     try {
       const token = await getSessionToken()
       if (!token) {
-        alert('Session expired, please login again')
+        alert('No session token')
         return
       }
 
@@ -856,14 +911,13 @@ export default function ApplicantProfileContent() {
         }
       })
 
-      const responseData = await response.json()
-      
-      if (response.ok) {
-        await fetchProfile()
-        alert('Eligibility deleted successfully!')
-      } else {
-        alert(`Failed to delete eligibility: ${responseData.error || 'Unknown error'}`)
+      if (!response.ok) {
+        const errorData = await response.json()
+        throw new Error(errorData.error || 'Failed to delete eligibility')
       }
+
+      await fetchProfile()
+      alert('Eligibility deleted successfully!')
     } catch (error: any) {
       console.error('Error deleting eligibility:', error)
       alert(`Failed to delete eligibility: ${error.message || 'Unknown error'}`)
@@ -881,7 +935,7 @@ export default function ApplicantProfileContent() {
     try {
       const token = await getSessionToken()
       if (!token) {
-        alert('Session expired, please login again')
+        alert('No session token')
         return
       }
 
@@ -896,30 +950,29 @@ export default function ApplicantProfileContent() {
           institution: newTraining.institution,
           start_date: newTraining.start_date || null,
           end_date: newTraining.end_date || null,
-          duration_hours: newTraining.duration_hours || null,
+          duration_hours: newTraining.duration_hours ? parseInt(newTraining.duration_hours) : null,
           certificate_id: newTraining.certificate_id || null,
           skills_learned: newTraining.skills_learned || null
         })
       })
 
-      const responseData = await response.json()
-      
-      if (response.ok) {
-        setNewTraining({
-          training_name: '',
-          institution: '',
-          start_date: '',
-          end_date: '',
-          duration_hours: '',
-          certificate_id: '',
-          skills_learned: '',
-        })
-        setShowAddTraining(false)
-        await fetchProfile()
-        alert('Training added successfully!')
-      } else {
-        alert(`Failed to add training: ${responseData.error || 'Unknown error'}`)
+      if (!response.ok) {
+        const errorData = await response.json()
+        throw new Error(errorData.error || 'Failed to add training')
       }
+
+      setNewTraining({
+        training_name: '',
+        institution: '',
+        start_date: '',
+        end_date: '',
+        duration_hours: '',
+        certificate_id: '',
+        skills_learned: '',
+      })
+      setShowAddTraining(false)
+      await fetchProfile()
+      alert('Training added successfully!')
     } catch (error: any) {
       console.error('Error adding training:', error)
       alert(`Failed to add training: ${error.message || 'Unknown error'}`)
@@ -935,7 +988,7 @@ export default function ApplicantProfileContent() {
     try {
       const token = await getSessionToken()
       if (!token) {
-        alert('Session expired, please login again')
+        alert('No session token')
         return
       }
 
@@ -951,21 +1004,20 @@ export default function ApplicantProfileContent() {
           institution: editTrainingData.institution,
           start_date: editTrainingData.start_date || null,
           end_date: editTrainingData.end_date || null,
-          duration_hours: editTrainingData.duration_hours || null,
+          duration_hours: editTrainingData.duration_hours ? parseInt(editTrainingData.duration_hours) : null,
           certificate_id: editTrainingData.certificate_id || null,
           skills_learned: editTrainingData.skills_learned || null
         })
       })
 
-      const responseData = await response.json()
-      
-      if (response.ok) {
-        setEditingTraining(null)
-        await fetchProfile()
-        alert('Training updated successfully!')
-      } else {
-        alert(`Failed to update training: ${responseData.error || 'Unknown error'}`)
+      if (!response.ok) {
+        const errorData = await response.json()
+        throw new Error(errorData.error || 'Failed to update training')
       }
+
+      setEditingTraining(null)
+      await fetchProfile()
+      alert('Training updated successfully!')
     } catch (error: any) {
       console.error('Error updating training:', error)
       alert(`Failed to update training: ${error.message || 'Unknown error'}`)
@@ -978,7 +1030,7 @@ export default function ApplicantProfileContent() {
     try {
       const token = await getSessionToken()
       if (!token) {
-        alert('Session expired, please login again')
+        alert('No session token')
         return
       }
 
@@ -989,14 +1041,13 @@ export default function ApplicantProfileContent() {
         }
       })
 
-      const responseData = await response.json()
-      
-      if (response.ok) {
-        await fetchProfile()
-        alert('Training deleted successfully!')
-      } else {
-        alert(`Failed to delete training: ${responseData.error || 'Unknown error'}`)
+      if (!response.ok) {
+        const errorData = await response.json()
+        throw new Error(errorData.error || 'Failed to delete training')
       }
+
+      await fetchProfile()
+      alert('Training deleted successfully!')
     } catch (error: any) {
       console.error('Error deleting training:', error)
       alert(`Failed to delete training: ${error.message || 'Unknown error'}`)
@@ -1089,16 +1140,6 @@ export default function ApplicantProfileContent() {
     })
   }
 
-  const debugStorage = async () => {
-    try {
-      console.log('Debug storage...')
-      // Your debug logic here
-    } catch (error: any) {
-      console.error('Debug error:', error)
-      alert('Debug failed: ' + error.message)
-    }
-  }
-
   // ==================== USE EFFECT ====================
 
   useEffect(() => {
@@ -1109,7 +1150,7 @@ export default function ApplicantProfileContent() {
 
   if (isLoading) {
     return (
-      <div className="min-h-screen flex items-center justify-center">
+      <div className="min-h-screen flex items-center justify-center bg-gray-50">
         <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
       </div>
     )
@@ -1118,7 +1159,7 @@ export default function ApplicantProfileContent() {
   // ==================== MAIN RENDER ====================
 
   return (
-    <main className="flex-1 p-4 md:p-8">
+    <main className="flex-1 p-4 md:p-8 bg-gray-50 min-h-screen">
       <div className="max-w-6xl mx-auto">
         {/* Header */}
         <div className="flex flex-col md:flex-row md:items-center justify-between mb-8 gap-4">
@@ -1127,17 +1168,10 @@ export default function ApplicantProfileContent() {
             <p className="text-gray-600 mt-1">Manage your personal information</p>
           </div>
           <div className="flex flex-col md:flex-row gap-2">
-            <button
-              onClick={debugStorage}
-              className="flex items-center justify-center gap-2 px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors"
-            >
-              <Bug size={18} />
-              Debug Upload
-            </button>
             {!isEditing ? (
               <button
                 onClick={() => setIsEditing(true)}
-                className="flex items-center justify-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+                className="flex items-center justify-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium"
               >
                 <Edit size={18} />
                 Edit Profile
@@ -1147,7 +1181,7 @@ export default function ApplicantProfileContent() {
                 <button
                   onClick={handleSaveProfile}
                   disabled={isUploading}
-                  className="flex items-center justify-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors flex-1 disabled:opacity-50 disabled:cursor-not-allowed"
+                  className="flex items-center justify-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors flex-1 disabled:opacity-50 disabled:cursor-not-allowed font-medium"
                 >
                   {isUploading ? (
                     <>
@@ -1169,7 +1203,7 @@ export default function ApplicantProfileContent() {
                     setAvatarPreview(profile?.avatar_url || null)
                   }}
                   disabled={isUploading}
-                  className="flex items-center justify-center gap-2 px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors flex-1 disabled:opacity-50"
+                  className="flex items-center justify-center gap-2 px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors flex-1 disabled:opacity-50 font-medium"
                 >
                   <X size={18} />
                   Cancel
@@ -1183,17 +1217,21 @@ export default function ApplicantProfileContent() {
           {/* Left Column - Profile Info */}
           <div className="lg:col-span-1">
             <div className="bg-white rounded-xl shadow-lg p-6">
-              {/* Profile Image */}
+              {/* Profile Image - FIXED SECTION */}
               <div className="flex flex-col items-center mb-6">
                 <div className="relative w-40 h-40 rounded-full overflow-hidden border-4 border-blue-100 mb-4">
                   {avatarPreview ? (
-                    <Image
-                      src={avatarPreview}
-                      alt={`${formData.first_name} ${formData.last_name}`}
-                      fill
-                      className="object-cover"
-                      unoptimized={avatarPreview.startsWith('blob:')}
-                    />
+                    <div className="relative w-full h-full">
+                      <Image
+                        src={avatarPreview}
+                        alt={`${formData.first_name} ${formData.last_name}`}
+                        fill
+                        className="object-cover"
+                        sizes="160px"
+                        unoptimized={avatarPreview.startsWith('blob:') || avatarPreview.includes('ui-avatars.com')}
+                        priority
+                      />
+                    </div>
                   ) : (
                     <div className="w-full h-full bg-blue-100 flex items-center justify-center">
                       <User className="w-20 h-20 text-blue-600" />
@@ -1204,9 +1242,9 @@ export default function ApplicantProfileContent() {
                 {isEditing && (
                   <div className="text-center">
                     <label className="cursor-pointer">
-                      <div className="flex items-center justify-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors">
+                      <div className="flex items-center justify-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium">
                         <Upload size={16} />
-                        Change Photo
+                        {avatarFile ? 'Change Photo' : 'Upload Photo'}
                       </div>
                       <input
                         type="file"
@@ -1227,12 +1265,12 @@ export default function ApplicantProfileContent() {
                 
                 <h2 className="text-xl md:text-2xl font-bold text-gray-900 text-center mt-4">
                   {isEditing ? (
-                    <div className="text-center">
+                    <div className="text-center space-y-2">
                       <input
                         type="text"
                         value={formData.first_name}
                         onChange={(e) => setFormData({...formData, first_name: e.target.value})}
-                        className="text-center px-2 py-1 border rounded w-full max-w-[200px] mb-1"
+                        className="text-center px-3 py-2 border rounded-lg w-full max-w-[200px] focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                         placeholder="First Name"
                         disabled={isUploading}
                       />
@@ -1240,7 +1278,7 @@ export default function ApplicantProfileContent() {
                         type="text"
                         value={formData.middle_name}
                         onChange={(e) => setFormData({...formData, middle_name: e.target.value})}
-                        className="text-center px-2 py-1 border rounded w-full max-w-[200px] mb-1"
+                        className="text-center px-3 py-2 border rounded-lg w-full max-w-[200px] focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                         placeholder="Middle Name (Optional)"
                         disabled={isUploading}
                       />
@@ -1248,7 +1286,7 @@ export default function ApplicantProfileContent() {
                         type="text"
                         value={formData.last_name}
                         onChange={(e) => setFormData({...formData, last_name: e.target.value})}
-                        className="text-center px-2 py-1 border rounded w-full max-w-[200px]"
+                        className="text-center px-3 py-2 border rounded-lg w-full max-w-[200px] focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                         placeholder="Last Name"
                         disabled={isUploading}
                       />
@@ -1284,7 +1322,7 @@ export default function ApplicantProfileContent() {
                         type="tel"
                         value={formData.phone}
                         onChange={(e) => setFormData({...formData, phone: e.target.value})}
-                        className="w-full px-2 py-1 border rounded"
+                        className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                         placeholder="Enter phone number"
                         disabled={isUploading}
                       />
@@ -1303,13 +1341,17 @@ export default function ApplicantProfileContent() {
                         type="date"
                         value={formData.date_of_birth}
                         onChange={(e) => setFormData({...formData, date_of_birth: e.target.value})}
-                        className="w-full px-2 py-1 border rounded"
+                        className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                         disabled={isUploading}
                       />
                     ) : (
                       <p className="font-medium truncate">
                         {profile?.date_of_birth 
-                          ? new Date(profile.date_of_birth).toLocaleDateString()
+                          ? new Date(profile.date_of_birth).toLocaleDateString('en-US', {
+                              year: 'numeric',
+                              month: 'long',
+                              day: 'numeric'
+                            })
                           : 'Not provided'
                         }
                       </p>
@@ -1326,7 +1368,7 @@ export default function ApplicantProfileContent() {
                         type="number"
                         value={formData.age}
                         onChange={(e) => setFormData({...formData, age: e.target.value})}
-                        className="w-full px-2 py-1 border rounded"
+                        className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                         min="18"
                         max="100"
                         placeholder="Enter age"
@@ -1346,7 +1388,7 @@ export default function ApplicantProfileContent() {
                       <textarea
                         value={formData.address}
                         onChange={(e) => setFormData({...formData, address: e.target.value})}
-                        className="w-full px-2 py-1 border rounded"
+                        className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                         rows={3}
                         placeholder="Enter your full address"
                         disabled={isUploading}
@@ -1372,7 +1414,7 @@ export default function ApplicantProfileContent() {
                 <button 
                   onClick={() => setShowAddEducation(true)}
                   disabled={isUploading}
-                  className="flex items-center justify-center gap-2 px-3 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 w-full md:w-auto disabled:opacity-50"
+                  className="flex items-center justify-center gap-2 px-4 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 w-full md:w-auto disabled:opacity-50 font-medium"
                 >
                   <Plus size={16} />
                   Add Education
@@ -1381,37 +1423,45 @@ export default function ApplicantProfileContent() {
 
               {/* Add Education Form */}
               {showAddEducation && (
-                <div className="mb-6 p-4 bg-gray-50 rounded-lg border">
-                  <h4 className="font-bold mb-4">Add Education</h4>
+                <div className="mb-6 p-6 bg-gray-50 rounded-lg border border-gray-200">
+                  <div className="flex justify-between items-center mb-4">
+                    <h4 className="font-bold text-lg text-gray-900">Add Education</h4>
+                    <button 
+                      onClick={() => setShowAddEducation(false)}
+                      className="text-gray-500 hover:text-gray-700"
+                    >
+                      <X size={20} />
+                    </button>
+                  </div>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div>
-                      <label className="block text-sm font-medium mb-1">Course Qualification *</label>
+                      <label className="block text-sm font-medium mb-2">Course Qualification *</label>
                       <input
                         type="text"
                         value={newEducation.course_qualification}
                         onChange={(e) => setNewEducation({...newEducation, course_qualification: e.target.value})}
-                        className="w-full px-3 py-2 border rounded-lg"
+                        className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                         required
                         placeholder="e.g., Bachelor of Science in Computer Science"
                       />
                     </div>
                     <div>
-                      <label className="block text-sm font-medium mb-1">Institution *</label>
+                      <label className="block text-sm font-medium mb-2">Institution *</label>
                       <input
                         type="text"
                         value={newEducation.institution}
                         onChange={(e) => setNewEducation({...newEducation, institution: e.target.value})}
-                        className="w-full px-3 py-2 border rounded-lg"
+                        className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                         required
                         placeholder="e.g., Negros Oriental State University"
                       />
                     </div>
                     <div>
-                      <label className="block text-sm font-medium mb-1">Degree Level</label>
+                      <label className="block text-sm font-medium mb-2">Degree Level</label>
                       <select
                         value={newEducation.degree_level}
                         onChange={(e) => setNewEducation({...newEducation, degree_level: e.target.value})}
-                        className="w-full px-3 py-2 border rounded-lg"
+                        className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white"
                       >
                         <option value="">Select Level</option>
                         <option value="Elementary">Elementary</option>
@@ -1425,80 +1475,80 @@ export default function ApplicantProfileContent() {
                       </select>
                     </div>
                     <div>
-                      <label className="block text-sm font-medium mb-1">Expected Finish</label>
+                      <label className="block text-sm font-medium mb-2">Expected Finish</label>
                       <input
                         type="date"
                         value={newEducation.expected_finish}
                         onChange={(e) => setNewEducation({...newEducation, expected_finish: e.target.value})}
-                        className="w-full px-3 py-2 border rounded-lg"
+                        className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                       />
                     </div>
                     <div>
-                      <label className="block text-sm font-medium mb-1">Year Graduated</label>
+                      <label className="block text-sm font-medium mb-2">Year Graduated</label>
                       <input
                         type="number"
                         value={newEducation.year_graduated}
                         onChange={(e) => setNewEducation({...newEducation, year_graduated: e.target.value})}
-                        className="w-full px-3 py-2 border rounded-lg"
+                        className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                         min="1900"
                         max={new Date().getFullYear()}
                         placeholder="e.g., 2023"
                       />
                     </div>
                     <div>
-                      <label className="block text-sm font-medium mb-1">GPA</label>
+                      <label className="block text-sm font-medium mb-2">GPA</label>
                       <input
                         type="number"
                         step="0.01"
                         value={newEducation.gpa}
                         onChange={(e) => setNewEducation({...newEducation, gpa: e.target.value})}
-                        className="w-full px-3 py-2 border rounded-lg"
+                        className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                         min="0"
                         max="4.0"
                         placeholder="e.g., 3.5"
                       />
                     </div>
                     <div className="md:col-span-2">
-                      <label className="block text-sm font-medium mb-1">Degree Name</label>
+                      <label className="block text-sm font-medium mb-2">Degree Name</label>
                       <input
                         type="text"
                         value={newEducation.degree_name}
                         onChange={(e) => setNewEducation({...newEducation, degree_name: e.target.value})}
-                        className="w-full px-3 py-2 border rounded-lg"
+                        className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                         placeholder="e.g., Bachelor of Science"
                       />
                     </div>
                     <div className="md:col-span-2">
-                      <label className="block text-sm font-medium mb-1">Course Highlights</label>
+                      <label className="block text-sm font-medium mb-2">Course Highlights</label>
                       <textarea
                         value={newEducation.course_highlights}
                         onChange={(e) => setNewEducation({...newEducation, course_highlights: e.target.value})}
                         rows={2}
-                        className="w-full px-3 py-2 border rounded-lg"
+                        className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                         placeholder="e.g., Dean's Lister, Magna Cum Laude, Special Awards"
                       />
                     </div>
                     <div className="md:col-span-2">
-                      <label className="block text-sm font-medium mb-1">Honors & Awards</label>
+                      <label className="block text-sm font-medium mb-2">Honors & Awards</label>
                       <textarea
                         value={newEducation.honors_awards}
                         onChange={(e) => setNewEducation({...newEducation, honors_awards: e.target.value})}
                         rows={2}
-                        className="w-full px-3 py-2 border rounded-lg"
+                        className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                         placeholder="e.g., Summa Cum Laude, President's Lister"
                       />
                     </div>
                   </div>
-                  <div className="flex flex-col sm:flex-row gap-2 mt-4">
+                  <div className="flex flex-col sm:flex-row gap-3 mt-6">
                     <button 
                       onClick={handleAddEducation}
-                      className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 flex-1"
+                      className="px-6 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 flex-1 font-medium transition-colors"
                     >
                       Save Education
                     </button>
                     <button 
                       onClick={() => setShowAddEducation(false)}
-                      className="px-4 py-2 border rounded-lg hover:bg-gray-50 flex-1"
+                      className="px-6 py-3 border border-gray-300 rounded-lg hover:bg-gray-50 flex-1 font-medium transition-colors"
                     >
                       Cancel
                     </button>
@@ -1510,38 +1560,38 @@ export default function ApplicantProfileContent() {
               {profile?.educations && profile.educations.length > 0 ? (
                 <div className="space-y-6">
                   {profile.educations.map((edu) => (
-                    <div key={edu.id} className="border-l-4 border-blue-500 pl-4 py-3 relative group">
+                    <div key={edu.id} className="border-l-4 border-blue-500 pl-4 py-3 relative bg-blue-50 rounded-r-lg">
                       <div className="flex justify-between items-start">
                         <div className="flex-1 min-w-0">
                           {editingEducation === edu.id ? (
                             <div className="space-y-4">
                               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                 <div>
-                                  <label className="block text-sm font-medium mb-1">Course Qualification *</label>
+                                  <label className="block text-sm font-medium mb-2">Course Qualification *</label>
                                   <input
                                     type="text"
                                     value={editEducationData.course_qualification}
                                     onChange={(e) => setEditEducationData({...editEducationData, course_qualification: e.target.value})}
-                                    className="w-full px-3 py-2 border rounded-lg"
+                                    className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                                     required
                                   />
                                 </div>
                                 <div>
-                                  <label className="block text-sm font-medium mb-1">Institution *</label>
+                                  <label className="block text-sm font-medium mb-2">Institution *</label>
                                   <input
                                     type="text"
                                     value={editEducationData.institution}
                                     onChange={(e) => setEditEducationData({...editEducationData, institution: e.target.value})}
-                                    className="w-full px-3 py-2 border rounded-lg"
+                                    className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                                     required
                                   />
                                 </div>
                                 <div>
-                                  <label className="block text-sm font-medium mb-1">Degree Level</label>
+                                  <label className="block text-sm font-medium mb-2">Degree Level</label>
                                   <select
                                     value={editEducationData.degree_level}
                                     onChange={(e) => setEditEducationData({...editEducationData, degree_level: e.target.value})}
-                                    className="w-full px-3 py-2 border rounded-lg"
+                                    className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white"
                                   >
                                     <option value="">Select Level</option>
                                     <option value="Elementary">Elementary</option>
@@ -1555,65 +1605,65 @@ export default function ApplicantProfileContent() {
                                   </select>
                                 </div>
                                 <div>
-                                  <label className="block text-sm font-medium mb-1">Expected Finish</label>
+                                  <label className="block text-sm font-medium mb-2">Expected Finish</label>
                                   <input
                                     type="date"
                                     value={editEducationData.expected_finish}
                                     onChange={(e) => setEditEducationData({...editEducationData, expected_finish: e.target.value})}
-                                    className="w-full px-3 py-2 border rounded-lg"
+                                    className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                                   />
                                 </div>
                                 <div>
-                                  <label className="block text-sm font-medium mb-1">Year Graduated</label>
+                                  <label className="block text-sm font-medium mb-2">Year Graduated</label>
                                   <input
                                     type="number"
                                     value={editEducationData.year_graduated}
                                     onChange={(e) => setEditEducationData({...editEducationData, year_graduated: e.target.value})}
-                                    className="w-full px-3 py-2 border rounded-lg"
+                                    className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                                   />
                                 </div>
                                 <div>
-                                  <label className="block text-sm font-medium mb-1">GPA</label>
+                                  <label className="block text-sm font-medium mb-2">GPA</label>
                                   <input
                                     type="number"
                                     step="0.01"
                                     value={editEducationData.gpa}
                                     onChange={(e) => setEditEducationData({...editEducationData, gpa: e.target.value})}
-                                    className="w-full px-3 py-2 border rounded-lg"
+                                    className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                                   />
                                 </div>
                                 <div className="md:col-span-2">
-                                  <label className="block text-sm font-medium mb-1">Degree Name</label>
+                                  <label className="block text-sm font-medium mb-2">Degree Name</label>
                                   <input
                                     type="text"
                                     value={editEducationData.degree_name}
                                     onChange={(e) => setEditEducationData({...editEducationData, degree_name: e.target.value})}
-                                    className="w-full px-3 py-2 border rounded-lg"
+                                    className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                                   />
                                 </div>
                                 <div className="md:col-span-2">
-                                  <label className="block text-sm font-medium mb-1">Course Highlights</label>
+                                  <label className="block text-sm font-medium mb-2">Course Highlights</label>
                                   <textarea
                                     value={editEducationData.course_highlights}
                                     onChange={(e) => setEditEducationData({...editEducationData, course_highlights: e.target.value})}
                                     rows={2}
-                                    className="w-full px-3 py-2 border rounded-lg"
+                                    className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                                   />
                                 </div>
                                 <div className="md:col-span-2">
-                                  <label className="block text-sm font-medium mb-1">Honors & Awards</label>
+                                  <label className="block text-sm font-medium mb-2">Honors & Awards</label>
                                   <textarea
                                     value={editEducationData.honors_awards}
                                     onChange={(e) => setEditEducationData({...editEducationData, honors_awards: e.target.value})}
                                     rows={2}
-                                    className="w-full px-3 py-2 border rounded-lg"
+                                    className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                                   />
                                 </div>
                               </div>
-                              <div className="flex gap-2">
+                              <div className="flex gap-3 pt-2">
                                 <button 
                                   onClick={() => handleEditEducation(edu.id)}
-                                  className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 flex-1"
+                                  className="px-6 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 flex-1 font-medium transition-colors"
                                 >
                                   Save Changes
                                 </button>
@@ -1632,7 +1682,7 @@ export default function ApplicantProfileContent() {
                                       honors_awards: ''
                                     })
                                   }}
-                                  className="px-4 py-2 border rounded-lg hover:bg-gray-50 flex-1"
+                                  className="px-6 py-3 border border-gray-300 rounded-lg hover:bg-gray-50 flex-1 font-medium transition-colors"
                                 >
                                   Cancel
                                 </button>
@@ -1640,55 +1690,66 @@ export default function ApplicantProfileContent() {
                             </div>
                           ) : (
                             <>
-                              <h4 className="font-bold text-gray-900">{edu.course_qualification}</h4>
-                              <p className="text-gray-700">{edu.institution}</p>
-                              <div className="flex flex-wrap gap-2 mt-2">
+                              <h4 className="font-bold text-gray-900 text-lg">{edu.course_qualification}</h4>
+                              <p className="text-gray-700 font-medium">{edu.institution}</p>
+                              <div className="flex flex-wrap gap-2 mt-3">
                                 {edu.degree_level && (
-                                  <span className="px-2 py-1 bg-blue-100 text-blue-800 text-xs rounded-full">
+                                  <span className="px-3 py-1 bg-blue-100 text-blue-800 text-sm rounded-full font-medium">
                                     {edu.degree_level}
                                   </span>
                                 )}
                                 {edu.year_graduated && (
-                                  <span className="px-2 py-1 bg-gray-100 text-gray-800 text-xs rounded-full">
+                                  <span className="px-3 py-1 bg-gray-100 text-gray-800 text-sm rounded-full font-medium">
                                     Graduated: {edu.year_graduated}
                                   </span>
                                 )}
                                 {edu.gpa && (
-                                  <span className="px-2 py-1 bg-green-100 text-green-800 text-xs rounded-full">
+                                  <span className="px-3 py-1 bg-green-100 text-green-800 text-sm rounded-full font-medium">
                                     GPA: {edu.gpa}
                                   </span>
                                 )}
                               </div>
                               {edu.expected_finish && (
+                                <p className="text-sm text-gray-600 mt-2">
+                                  <span className="font-medium">Expected Finish:</span> {new Date(edu.expected_finish).toLocaleDateString('en-US', {
+                                    year: 'numeric',
+                                    month: 'long',
+                                    day: 'numeric'
+                                  })}
+                                </p>
+                              )}
+                              {edu.degree_name && (
                                 <p className="text-sm text-gray-600 mt-1">
-                                  Expected Finish: {new Date(edu.expected_finish).toLocaleDateString()}
+                                  <span className="font-medium">Degree:</span> {edu.degree_name}
                                 </p>
                               )}
                               {edu.course_highlights && (
-                                <p className="text-gray-600 mt-2 text-sm bg-gray-50 p-2 rounded">
-                                  <span className="font-medium">Highlights:</span> {edu.course_highlights}
-                                </p>
+                                <div className="mt-3">
+                                  <p className="text-sm font-medium text-gray-700 mb-1">Highlights:</p>
+                                  <p className="text-gray-600 text-sm bg-white p-3 rounded border">{edu.course_highlights}</p>
+                                </div>
                               )}
                               {edu.honors_awards && (
-                                <p className="text-gray-600 mt-2 text-sm bg-yellow-50 p-2 rounded">
-                                  <span className="font-medium">Awards:</span> {edu.honors_awards}
-                                </p>
+                                <div className="mt-3">
+                                  <p className="text-sm font-medium text-gray-700 mb-1">Awards:</p>
+                                  <p className="text-gray-600 text-sm bg-yellow-50 p-3 rounded border border-yellow-100">{edu.honors_awards}</p>
+                                </div>
                               )}
                             </>
                           )}
                         </div>
                         {editingEducation !== edu.id && (
-                          <div className="flex flex-col md:flex-row gap-2 ml-2">
+                          <div className="flex gap-2 ml-2">
                             <button 
                               onClick={() => startEditingEducation(edu)}
-                              className="p-2 text-blue-600 hover:text-blue-800 hover:bg-blue-50 rounded opacity-0 group-hover:opacity-100 transition-opacity"
+                              className="p-2 text-blue-600 hover:text-blue-800 hover:bg-blue-50 rounded-lg transition-colors"
                               title="Edit education"
                             >
                               <Edit size={18} />
                             </button>
                             <button 
                               onClick={() => handleDeleteEducation(edu.id)}
-                              className="p-2 text-red-600 hover:text-red-800 hover:bg-red-50 rounded opacity-0 group-hover:opacity-100 transition-opacity"
+                              className="p-2 text-red-600 hover:text-red-800 hover:bg-red-50 rounded-lg transition-colors"
                               title="Delete education"
                             >
                               <Trash2 size={18} />
@@ -1700,12 +1761,12 @@ export default function ApplicantProfileContent() {
                   ))}
                 </div>
               ) : (
-                <div className="text-center py-8 border-2 border-dashed border-gray-300 rounded-lg">
-                  <GraduationCap className="w-12 h-12 text-gray-400 mx-auto mb-3" />
-                  <p className="text-gray-500">No education information added yet.</p>
+                <div className="text-center py-12 border-2 border-dashed border-gray-300 rounded-lg">
+                  <GraduationCap className="w-16 h-16 text-gray-400 mx-auto mb-4" />
+                  <p className="text-gray-500 text-lg">No education information added yet.</p>
                   <button 
                     onClick={() => setShowAddEducation(true)}
-                    className="mt-3 text-blue-600 hover:text-blue-800 font-medium"
+                    className="mt-4 text-blue-600 hover:text-blue-800 font-medium text-lg"
                   >
                     Add your first education
                   </button>
@@ -1723,7 +1784,7 @@ export default function ApplicantProfileContent() {
                 <button 
                   onClick={() => setShowAddExperience(true)}
                   disabled={isUploading}
-                  className="flex items-center justify-center gap-2 px-3 py-2 text-sm bg-green-600 text-white rounded-lg hover:bg-green-700 w-full md:w-auto disabled:opacity-50"
+                  className="flex items-center justify-center gap-2 px-4 py-2 text-sm bg-green-600 text-white rounded-lg hover:bg-green-700 w-full md:w-auto disabled:opacity-50 font-medium"
                 >
                   <Plus size={16} />
                   Add Experience
@@ -1732,64 +1793,72 @@ export default function ApplicantProfileContent() {
 
               {/* Add Work Experience Form */}
               {showAddExperience && (
-                <div className="mb-6 p-4 bg-gray-50 rounded-lg border">
-                  <h4 className="font-bold mb-4">Add Work Experience</h4>
+                <div className="mb-6 p-6 bg-gray-50 rounded-lg border border-gray-200">
+                  <div className="flex justify-between items-center mb-4">
+                    <h4 className="font-bold text-lg text-gray-900">Add Work Experience</h4>
+                    <button 
+                      onClick={() => setShowAddExperience(false)}
+                      className="text-gray-500 hover:text-gray-700"
+                    >
+                      <X size={20} />
+                    </button>
+                  </div>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div>
-                      <label className="block text-sm font-medium mb-1">Job Title *</label>
+                      <label className="block text-sm font-medium mb-2">Job Title *</label>
                       <input
                         type="text"
                         value={newWorkExperience.job_title}
                         onChange={(e) => setNewWorkExperience({...newWorkExperience, job_title: e.target.value})}
-                        className="w-full px-3 py-2 border rounded-lg"
+                        className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                         required
                         placeholder="e.g., Software Developer"
                       />
                     </div>
                     <div>
-                      <label className="block text-sm font-medium mb-1">Company *</label>
+                      <label className="block text-sm font-medium mb-2">Company *</label>
                       <input
                         type="text"
                         value={newWorkExperience.company}
                         onChange={(e) => setNewWorkExperience({...newWorkExperience, company: e.target.value})}
-                        className="w-full px-3 py-2 border rounded-lg"
+                        className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                         required
                         placeholder="e.g., Tech Company Inc."
                       />
                     </div>
                     <div>
-                      <label className="block text-sm font-medium mb-1">Start Date *</label>
+                      <label className="block text-sm font-medium mb-2">Start Date *</label>
                       <input
                         type="date"
                         value={newWorkExperience.start_date}
                         onChange={(e) => setNewWorkExperience({...newWorkExperience, start_date: e.target.value})}
-                        className="w-full px-3 py-2 border rounded-lg"
+                        className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                         required
                       />
                     </div>
                     <div>
-                      <label className="block text-sm font-medium mb-1">End Date (Optional)</label>
+                      <label className="block text-sm font-medium mb-2">End Date (Optional)</label>
                       <input
                         type="date"
                         value={newWorkExperience.end_date}
                         onChange={(e) => setNewWorkExperience({...newWorkExperience, end_date: e.target.value})}
-                        className="w-full px-3 py-2 border rounded-lg"
+                        className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                         disabled={newWorkExperience.currently_working}
                       />
                     </div>
                     <div className="md:col-span-2">
-                      <label className="block text-sm font-medium mb-1">Description (Optional)</label>
+                      <label className="block text-sm font-medium mb-2">Description (Optional)</label>
                       <textarea
                         value={newWorkExperience.description}
                         onChange={(e) => setNewWorkExperience({...newWorkExperience, description: e.target.value})}
                         rows={3}
-                        className="w-full px-3 py-2 border rounded-lg"
+                        className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                         placeholder="Describe your responsibilities, achievements, and skills used..."
                       />
                     </div>
                   </div>
-                  <div className="flex flex-col sm:flex-row sm:items-center gap-4 mt-4">
-                    <label className="flex items-center gap-2">
+                  <div className="flex flex-col sm:flex-row sm:items-center gap-4 mt-6">
+                    <label className="flex items-center gap-3 cursor-pointer">
                       <input 
                         type="checkbox"
                         checked={newWorkExperience.currently_working}
@@ -1798,20 +1867,20 @@ export default function ApplicantProfileContent() {
                           currently_working: e.target.checked,
                           end_date: e.target.checked ? '' : newWorkExperience.end_date
                         })}
-                        className="rounded"
+                        className="rounded h-5 w-5 text-blue-600 focus:ring-blue-500"
                       />
-                      <span className="text-sm">I currently work here</span>
+                      <span className="text-sm font-medium">I currently work here</span>
                     </label>
-                    <div className="flex flex-col sm:flex-row gap-2 sm:ml-auto">
+                    <div className="flex flex-col sm:flex-row gap-3 sm:ml-auto">
                       <button 
                         onClick={handleAddWorkExperience}
-                        className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 flex-1"
+                        className="px-6 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 flex-1 font-medium transition-colors"
                       >
                         Save Experience
                       </button>
                       <button 
                         onClick={() => setShowAddExperience(false)}
-                        className="px-4 py-2 border rounded-lg hover:bg-gray-50 flex-1"
+                        className="px-6 py-3 border border-gray-300 rounded-lg hover:bg-gray-50 flex-1 font-medium transition-colors"
                       >
                         Cancel
                       </button>
@@ -1824,64 +1893,64 @@ export default function ApplicantProfileContent() {
               {profile?.work_experiences && profile.work_experiences.length > 0 ? (
                 <div className="space-y-6">
                   {profile.work_experiences.map((exp) => (
-                    <div key={exp.id} className="border-l-4 border-green-500 pl-4 py-3 relative group">
+                    <div key={exp.id} className="border-l-4 border-green-500 pl-4 py-3 relative bg-green-50 rounded-r-lg">
                       <div className="flex justify-between items-start">
                         <div className="flex-1 min-w-0">
                           {editingExperience === exp.id ? (
                             <div className="space-y-4">
                               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                 <div>
-                                  <label className="block text-sm font-medium mb-1">Job Title *</label>
+                                  <label className="block text-sm font-medium mb-2">Job Title *</label>
                                   <input
                                     type="text"
                                     value={editExperienceData.job_title}
                                     onChange={(e) => setEditExperienceData({...editExperienceData, job_title: e.target.value})}
-                                    className="w-full px-3 py-2 border rounded-lg"
+                                    className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                                     required
                                   />
                                 </div>
                                 <div>
-                                  <label className="block text-sm font-medium mb-1">Company *</label>
+                                  <label className="block text-sm font-medium mb-2">Company *</label>
                                   <input
                                     type="text"
                                     value={editExperienceData.company}
                                     onChange={(e) => setEditExperienceData({...editExperienceData, company: e.target.value})}
-                                    className="w-full px-3 py-2 border rounded-lg"
+                                    className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                                     required
                                   />
                                 </div>
                                 <div>
-                                  <label className="block text-sm font-medium mb-1">Start Date *</label>
+                                  <label className="block text-sm font-medium mb-2">Start Date *</label>
                                   <input
                                     type="date"
                                     value={editExperienceData.start_date}
                                     onChange={(e) => setEditExperienceData({...editExperienceData, start_date: e.target.value})}
-                                    className="w-full px-3 py-2 border rounded-lg"
+                                    className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                                     required
                                   />
                                 </div>
                                 <div>
-                                  <label className="block text-sm font-medium mb-1">End Date (Optional)</label>
+                                  <label className="block text-sm font-medium mb-2">End Date (Optional)</label>
                                   <input
                                     type="date"
                                     value={editExperienceData.end_date}
                                     onChange={(e) => setEditExperienceData({...editExperienceData, end_date: e.target.value})}
-                                    className="w-full px-3 py-2 border rounded-lg"
+                                    className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                                     disabled={editExperienceData.currently_working}
                                   />
                                 </div>
                                 <div className="md:col-span-2">
-                                  <label className="block text-sm font-medium mb-1">Description (Optional)</label>
+                                  <label className="block text-sm font-medium mb-2">Description (Optional)</label>
                                   <textarea
                                     value={editExperienceData.description}
                                     onChange={(e) => setEditExperienceData({...editExperienceData, description: e.target.value})}
                                     rows={3}
-                                    className="w-full px-3 py-2 border rounded-lg"
+                                    className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                                   />
                                 </div>
                               </div>
-                              <div className="flex flex-col sm:flex-row sm:items-center gap-4">
-                                <label className="flex items-center gap-2">
+                              <div className="flex flex-col sm:flex-row sm:items-center gap-4 pt-2">
+                                <label className="flex items-center gap-3 cursor-pointer">
                                   <input 
                                     type="checkbox"
                                     checked={editExperienceData.currently_working}
@@ -1890,14 +1959,14 @@ export default function ApplicantProfileContent() {
                                       currently_working: e.target.checked,
                                       end_date: e.target.checked ? '' : editExperienceData.end_date
                                     })}
-                                    className="rounded"
+                                    className="rounded h-5 w-5 text-blue-600 focus:ring-blue-500"
                                   />
-                                  <span className="text-sm">I currently work here</span>
+                                  <span className="text-sm font-medium">I currently work here</span>
                                 </label>
-                                <div className="flex flex-col sm:flex-row gap-2 sm:ml-auto">
+                                <div className="flex flex-col sm:flex-row gap-3 sm:ml-auto">
                                   <button 
                                     onClick={() => handleEditWorkExperience(exp.id)}
-                                    className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 flex-1"
+                                    className="px-6 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 flex-1 font-medium transition-colors"
                                   >
                                     Save Changes
                                   </button>
@@ -1913,7 +1982,7 @@ export default function ApplicantProfileContent() {
                                         description: ''
                                       })
                                     }}
-                                    className="px-4 py-2 border rounded-lg hover:bg-gray-50 flex-1"
+                                    className="px-6 py-3 border border-gray-300 rounded-lg hover:bg-gray-50 flex-1 font-medium transition-colors"
                                   >
                                     Cancel
                                   </button>
@@ -1922,42 +1991,51 @@ export default function ApplicantProfileContent() {
                             </div>
                           ) : (
                             <>
-                              <h4 className="font-bold text-gray-900">{exp.job_title}</h4>
-                              <p className="text-gray-700">{exp.company}</p>
-                              <p className="text-sm text-gray-600 mt-1">
-                                {new Date(exp.start_date).toLocaleDateString()} – 
+                              <h4 className="font-bold text-gray-900 text-lg">{exp.job_title}</h4>
+                              <p className="text-gray-700 font-medium">{exp.company}</p>
+                              <p className="text-sm text-gray-600 mt-2">
+                                {new Date(exp.start_date).toLocaleDateString('en-US', {
+                                  year: 'numeric',
+                                  month: 'long',
+                                  day: 'numeric'
+                                })} – 
                                 {exp.currently_working 
                                   ? ' Present' 
                                   : exp.end_date 
-                                    ? ` ${new Date(exp.end_date).toLocaleDateString()}`
+                                    ? ` ${new Date(exp.end_date).toLocaleDateString('en-US', {
+                                        year: 'numeric',
+                                        month: 'long',
+                                        day: 'numeric'
+                                      })}`
                                     : ' N/A'
                                 }
                                 {exp.currently_working && (
-                                  <span className="ml-2 px-2 py-0.5 bg-green-100 text-green-800 text-xs rounded-full">
+                                  <span className="ml-2 px-3 py-1 bg-green-100 text-green-800 text-xs rounded-full font-medium">
                                     Current
                                   </span>
                                 )}
                               </p>
                               {exp.description && (
-                                <p className="text-gray-600 mt-2 text-sm bg-gray-50 p-2 rounded whitespace-pre-line">
-                                  {exp.description}
-                                </p>
+                                <div className="mt-3">
+                                  <p className="text-sm font-medium text-gray-700 mb-1">Description:</p>
+                                  <p className="text-gray-600 text-sm bg-white p-3 rounded border whitespace-pre-line">{exp.description}</p>
+                                </div>
                               )}
                             </>
                           )}
                         </div>
                         {editingExperience !== exp.id && (
-                          <div className="flex flex-col md:flex-row gap-2 ml-2">
+                          <div className="flex gap-2 ml-2">
                             <button 
                               onClick={() => startEditingExperience(exp)}
-                              className="p-2 text-blue-600 hover:text-blue-800 hover:bg-blue-50 rounded opacity-0 group-hover:opacity-100 transition-opacity"
+                              className="p-2 text-blue-600 hover:text-blue-800 hover:bg-blue-50 rounded-lg transition-colors"
                               title="Edit experience"
                             >
                               <Edit size={18} />
                             </button>
                             <button 
                               onClick={() => handleDeleteExperience(exp.id)}
-                              className="p-2 text-red-600 hover:text-red-800 hover:bg-red-50 rounded opacity-0 group-hover:opacity-100 transition-opacity"
+                              className="p-2 text-red-600 hover:text-red-800 hover:bg-red-50 rounded-lg transition-colors"
                               title="Delete experience"
                             >
                               <Trash2 size={18} />
@@ -1969,12 +2047,12 @@ export default function ApplicantProfileContent() {
                   ))}
                 </div>
               ) : (
-                <div className="text-center py-8 border-2 border-dashed border-gray-300 rounded-lg">
-                  <Briefcase className="w-12 h-12 text-gray-400 mx-auto mb-3" />
-                  <p className="text-gray-500">No work experience added yet.</p>
+                <div className="text-center py-12 border-2 border-dashed border-gray-300 rounded-lg">
+                  <Briefcase className="w-16 h-16 text-gray-400 mx-auto mb-4" />
+                  <p className="text-gray-500 text-lg">No work experience added yet.</p>
                   <button 
                     onClick={() => setShowAddExperience(true)}
-                    className="mt-3 text-green-600 hover:text-green-800 font-medium"
+                    className="mt-4 text-green-600 hover:text-green-800 font-medium text-lg"
                   >
                     Add your first work experience
                   </button>
@@ -1992,7 +2070,7 @@ export default function ApplicantProfileContent() {
                 <button 
                   onClick={() => setShowAddSkill(true)}
                   disabled={isUploading}
-                  className="flex items-center justify-center gap-2 px-3 py-2 text-sm bg-purple-600 text-white rounded-lg hover:bg-purple-700 w-full md:w-auto disabled:opacity-50"
+                  className="flex items-center justify-center gap-2 px-4 py-2 text-sm bg-purple-600 text-white rounded-lg hover:bg-purple-700 w-full md:w-auto disabled:opacity-50 font-medium"
                 >
                   <Plus size={16} />
                   Add Skill
@@ -2001,26 +2079,34 @@ export default function ApplicantProfileContent() {
 
               {/* Add Skill Form */}
               {showAddSkill && (
-                <div className="mb-6 p-4 bg-gray-50 rounded-lg border">
-                  <h4 className="font-bold mb-4">Add Skill</h4>
+                <div className="mb-6 p-6 bg-gray-50 rounded-lg border border-gray-200">
+                  <div className="flex justify-between items-center mb-4">
+                    <h4 className="font-bold text-lg text-gray-900">Add Skill</h4>
+                    <button 
+                      onClick={() => setShowAddSkill(false)}
+                      className="text-gray-500 hover:text-gray-700"
+                    >
+                      <X size={20} />
+                    </button>
+                  </div>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div>
-                      <label className="block text-sm font-medium mb-1">Skill Name *</label>
+                      <label className="block text-sm font-medium mb-2">Skill Name *</label>
                       <input
                         type="text"
                         value={newSkill.skill_name}
                         onChange={(e) => setNewSkill({...newSkill, skill_name: e.target.value})}
-                        className="w-full px-3 py-2 border rounded-lg"
+                        className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                         required
                         placeholder="e.g., JavaScript, Project Management"
                       />
                     </div>
                     <div>
-                      <label className="block text-sm font-medium mb-1">Proficiency Level</label>
+                      <label className="block text-sm font-medium mb-2">Proficiency Level</label>
                       <select
                         value={newSkill.proficiency}
                         onChange={(e) => setNewSkill({...newSkill, proficiency: e.target.value as Skill['proficiency']})}
-                        className="w-full px-3 py-2 border rounded-lg"
+                        className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white"
                       >
                         <option value="Beginner">Beginner</option>
                         <option value="Intermediate">Intermediate</option>
@@ -2029,28 +2115,28 @@ export default function ApplicantProfileContent() {
                       </select>
                     </div>
                     <div>
-                      <label className="block text-sm font-medium mb-1">Years of Experience (Optional)</label>
+                      <label className="block text-sm font-medium mb-2">Years of Experience (Optional)</label>
                       <input
                         type="number"
                         value={newSkill.years_of_experience}
                         onChange={(e) => setNewSkill({...newSkill, years_of_experience: e.target.value})}
-                        className="w-full px-3 py-2 border rounded-lg"
+                        className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                         min="0"
                         max="50"
                         placeholder="e.g., 3"
                       />
                     </div>
                   </div>
-                  <div className="flex flex-col sm:flex-row gap-2 mt-4">
+                  <div className="flex flex-col sm:flex-row gap-3 mt-6">
                     <button 
                       onClick={handleAddSkill}
-                      className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 flex-1"
+                      className="px-6 py-3 bg-purple-600 text-white rounded-lg hover:bg-purple-700 flex-1 font-medium transition-colors"
                     >
                       Save Skill
                     </button>
                     <button 
                       onClick={() => setShowAddSkill(false)}
-                      className="px-4 py-2 border rounded-lg hover:bg-gray-50 flex-1"
+                      className="px-6 py-3 border border-gray-300 rounded-lg hover:bg-gray-50 flex-1 font-medium transition-colors"
                     >
                       Cancel
                     </button>
@@ -2062,28 +2148,28 @@ export default function ApplicantProfileContent() {
               {profile?.skills && profile.skills.length > 0 ? (
                 <div className="space-y-4">
                   {profile.skills.map((skill) => (
-                    <div key={skill.id} className="border-l-4 border-purple-500 pl-4 py-3 relative group">
+                    <div key={skill.id} className="border-l-4 border-purple-500 pl-4 py-3 relative bg-purple-50 rounded-r-lg">
                       <div className="flex justify-between items-start">
                         <div className="flex-1 min-w-0">
                           {editingSkill === skill.id ? (
                             <div className="space-y-4">
                               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                 <div>
-                                  <label className="block text-sm font-medium mb-1">Skill Name *</label>
+                                  <label className="block text-sm font-medium mb-2">Skill Name *</label>
                                   <input
                                     type="text"
                                     value={editSkillData.skill_name}
                                     onChange={(e) => setEditSkillData({...editSkillData, skill_name: e.target.value})}
-                                    className="w-full px-3 py-2 border rounded-lg"
+                                    className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                                     required
                                   />
                                 </div>
                                 <div>
-                                  <label className="block text-sm font-medium mb-1">Proficiency Level</label>
+                                  <label className="block text-sm font-medium mb-2">Proficiency Level</label>
                                   <select
                                     value={editSkillData.proficiency}
                                     onChange={(e) => setEditSkillData({...editSkillData, proficiency: e.target.value as Skill['proficiency']})}
-                                    className="w-full px-3 py-2 border rounded-lg"
+                                    className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white"
                                   >
                                     <option value="Beginner">Beginner</option>
                                     <option value="Intermediate">Intermediate</option>
@@ -2092,21 +2178,21 @@ export default function ApplicantProfileContent() {
                                   </select>
                                 </div>
                                 <div>
-                                  <label className="block text-sm font-medium mb-1">Years of Experience (Optional)</label>
+                                  <label className="block text-sm font-medium mb-2">Years of Experience (Optional)</label>
                                   <input
                                     type="number"
                                     value={editSkillData.years_of_experience}
                                     onChange={(e) => setEditSkillData({...editSkillData, years_of_experience: e.target.value})}
-                                    className="w-full px-3 py-2 border rounded-lg"
+                                    className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                                     min="0"
                                     max="50"
                                   />
                                 </div>
                               </div>
-                              <div className="flex gap-2">
+                              <div className="flex gap-3 pt-2">
                                 <button 
                                   onClick={() => handleEditSkill(skill.id)}
-                                  className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 flex-1"
+                                  className="px-6 py-3 bg-purple-600 text-white rounded-lg hover:bg-purple-700 flex-1 font-medium transition-colors"
                                 >
                                   Save Changes
                                 </button>
@@ -2119,7 +2205,7 @@ export default function ApplicantProfileContent() {
                                       years_of_experience: '',
                                     })
                                   }}
-                                  className="px-4 py-2 border rounded-lg hover:bg-gray-50 flex-1"
+                                  className="px-6 py-3 border border-gray-300 rounded-lg hover:bg-gray-50 flex-1 font-medium transition-colors"
                                 >
                                   Cancel
                                 </button>
@@ -2128,9 +2214,9 @@ export default function ApplicantProfileContent() {
                           ) : (
                             <>
                               <div className="flex flex-col md:flex-row md:items-center gap-2">
-                                <h4 className="font-bold text-gray-900">{skill.skill_name}</h4>
+                                <h4 className="font-bold text-gray-900 text-lg">{skill.skill_name}</h4>
                                 {skill.proficiency && (
-                                  <span className={`px-2 py-1 text-xs rounded-full ${
+                                  <span className={`px-3 py-1 text-sm rounded-full font-medium ${
                                     skill.proficiency === 'Beginner' ? 'bg-blue-100 text-blue-800' :
                                     skill.proficiency === 'Intermediate' ? 'bg-yellow-100 text-yellow-800' :
                                     skill.proficiency === 'Advanced' ? 'bg-orange-100 text-orange-800' :
@@ -2140,8 +2226,8 @@ export default function ApplicantProfileContent() {
                                   </span>
                                 )}
                                 {skill.verified && (
-                                  <span className="px-2 py-1 text-xs bg-green-100 text-green-800 rounded-full">
-                                    Verified
+                                  <span className="px-3 py-1 text-sm bg-green-100 text-green-800 rounded-full font-medium">
+                                    ✓ Verified
                                   </span>
                                 )}
                               </div>
@@ -2156,17 +2242,17 @@ export default function ApplicantProfileContent() {
                           )}
                         </div>
                         {editingSkill !== skill.id && (
-                          <div className="flex flex-col md:flex-row gap-2 ml-2">
+                          <div className="flex gap-2 ml-2">
                             <button 
                               onClick={() => startEditingSkill(skill)}
-                              className="p-2 text-blue-600 hover:text-blue-800 hover:bg-blue-50 rounded opacity-0 group-hover:opacity-100 transition-opacity"
+                              className="p-2 text-blue-600 hover:text-blue-800 hover:bg-blue-50 rounded-lg transition-colors"
                               title="Edit skill"
                             >
                               <Edit size={18} />
                             </button>
                             <button 
                               onClick={() => handleDeleteSkill(skill.id)}
-                              className="p-2 text-red-600 hover:text-red-800 hover:bg-red-50 rounded opacity-0 group-hover:opacity-100 transition-opacity"
+                              className="p-2 text-red-600 hover:text-red-800 hover:bg-red-50 rounded-lg transition-colors"
                               title="Delete skill"
                             >
                               <Trash2 size={18} />
@@ -2178,12 +2264,12 @@ export default function ApplicantProfileContent() {
                   ))}
                 </div>
               ) : (
-                <div className="text-center py-8 border-2 border-dashed border-gray-300 rounded-lg">
-                  <Target className="w-12 h-12 text-gray-400 mx-auto mb-3" />
-                  <p className="text-gray-500">No skills added yet.</p>
+                <div className="text-center py-12 border-2 border-dashed border-gray-300 rounded-lg">
+                  <Target className="w-16 h-16 text-gray-400 mx-auto mb-4" />
+                  <p className="text-gray-500 text-lg">No skills added yet.</p>
                   <button 
                     onClick={() => setShowAddSkill(true)}
-                    className="mt-3 text-purple-600 hover:text-purple-800 font-medium"
+                    className="mt-4 text-purple-600 hover:text-purple-800 font-medium text-lg"
                   >
                     Add your first skill
                   </button>
@@ -2201,7 +2287,7 @@ export default function ApplicantProfileContent() {
                 <button 
                   onClick={() => setShowAddEligibility(true)}
                   disabled={isUploading}
-                  className="flex items-center justify-center gap-2 px-3 py-2 text-sm bg-amber-600 text-white rounded-lg hover:bg-amber-700 w-full md:w-auto disabled:opacity-50"
+                  className="flex items-center justify-center gap-2 px-4 py-2 text-sm bg-amber-600 text-white rounded-lg hover:bg-amber-700 w-full md:w-auto disabled:opacity-50 font-medium"
                 >
                   <Plus size={16} />
                   Add Eligibility
@@ -2210,79 +2296,87 @@ export default function ApplicantProfileContent() {
 
               {/* Add Eligibility Form */}
               {showAddEligibility && (
-                <div className="mb-6 p-4 bg-gray-50 rounded-lg border">
-                  <h4 className="font-bold mb-4">Add Eligibility</h4>
+                <div className="mb-6 p-6 bg-gray-50 rounded-lg border border-gray-200">
+                  <div className="flex justify-between items-center mb-4">
+                    <h4 className="font-bold text-lg text-gray-900">Add Eligibility</h4>
+                    <button 
+                      onClick={() => setShowAddEligibility(false)}
+                      className="text-gray-500 hover:text-gray-700"
+                    >
+                      <X size={20} />
+                    </button>
+                  </div>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div>
-                      <label className="block text-sm font-medium mb-1">Eligibility Name *</label>
+                      <label className="block text-sm font-medium mb-2">Eligibility Name *</label>
                       <input
                         type="text"
                         value={newEligibility.eligibility_name}
                         onChange={(e) => setNewEligibility({...newEligibility, eligibility_name: e.target.value})}
-                        className="w-full px-3 py-2 border rounded-lg"
+                        className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                         required
                         placeholder="e.g., Civil Service Professional"
                       />
                     </div>
                     <div>
-                      <label className="block text-sm font-medium mb-1">License Number (Optional)</label>
+                      <label className="block text-sm font-medium mb-2">License Number (Optional)</label>
                       <input
                         type="text"
                         value={newEligibility.license_number}
                         onChange={(e) => setNewEligibility({...newEligibility, license_number: e.target.value})}
-                        className="w-full px-3 py-2 border rounded-lg"
+                        className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                         placeholder="e.g., 123456789"
                       />
                     </div>
                     <div>
-                      <label className="block text-sm font-medium mb-1">Rating (Optional)</label>
+                      <label className="block text-sm font-medium mb-2">Rating (Optional)</label>
                       <input
                         type="text"
                         value={newEligibility.rating}
                         onChange={(e) => setNewEligibility({...newEligibility, rating: e.target.value})}
-                        className="w-full px-3 py-2 border rounded-lg"
+                        className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                         placeholder="e.g., 85.50"
                       />
                     </div>
                     <div>
-                      <label className="block text-sm font-medium mb-1">Issuing Authority (Optional)</label>
+                      <label className="block text-sm font-medium mb-2">Issuing Authority (Optional)</label>
                       <input
                         type="text"
                         value={newEligibility.issuing_authority}
                         onChange={(e) => setNewEligibility({...newEligibility, issuing_authority: e.target.value})}
-                        className="w-full px-3 py-2 border rounded-lg"
+                        className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                         placeholder="e.g., Civil Service Commission"
                       />
                     </div>
                     <div>
-                      <label className="block text-sm font-medium mb-1">Date Issued (Optional)</label>
+                      <label className="block text-sm font-medium mb-2">Date Issued (Optional)</label>
                       <input
                         type="date"
                         value={newEligibility.date_issued}
                         onChange={(e) => setNewEligibility({...newEligibility, date_issued: e.target.value})}
-                        className="w-full px-3 py-2 border rounded-lg"
+                        className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                       />
                     </div>
                     <div>
-                      <label className="block text-sm font-medium mb-1">Expiry Date (Optional)</label>
+                      <label className="block text-sm font-medium mb-2">Expiry Date (Optional)</label>
                       <input
                         type="date"
                         value={newEligibility.expiry_date}
                         onChange={(e) => setNewEligibility({...newEligibility, expiry_date: e.target.value})}
-                        className="w-full px-3 py-2 border rounded-lg"
+                        className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                       />
                     </div>
                   </div>
-                  <div className="flex flex-col sm:flex-row gap-2 mt-4">
+                  <div className="flex flex-col sm:flex-row gap-3 mt-6">
                     <button 
                       onClick={handleAddEligibility}
-                      className="px-4 py-2 bg-amber-600 text-white rounded-lg hover:bg-amber-700 flex-1"
+                      className="px-6 py-3 bg-amber-600 text-white rounded-lg hover:bg-amber-700 flex-1 font-medium transition-colors"
                     >
                       Save Eligibility
                     </button>
                     <button 
                       onClick={() => setShowAddEligibility(false)}
-                      className="px-4 py-2 border rounded-lg hover:bg-gray-50 flex-1"
+                      className="px-6 py-3 border border-gray-300 rounded-lg hover:bg-gray-50 flex-1 font-medium transition-colors"
                     >
                       Cancel
                     </button>
@@ -2294,72 +2388,72 @@ export default function ApplicantProfileContent() {
               {profile?.eligibilities && profile.eligibilities.length > 0 ? (
                 <div className="space-y-6">
                   {profile.eligibilities.map((eligibility) => (
-                    <div key={eligibility.id} className="border-l-4 border-amber-500 pl-4 py-3 relative group">
+                    <div key={eligibility.id} className="border-l-4 border-amber-500 pl-4 py-3 relative bg-amber-50 rounded-r-lg">
                       <div className="flex justify-between items-start">
                         <div className="flex-1 min-w-0">
                           {editingEligibility === eligibility.id ? (
                             <div className="space-y-4">
                               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                 <div>
-                                  <label className="block text-sm font-medium mb-1">Eligibility Name *</label>
+                                  <label className="block text-sm font-medium mb-2">Eligibility Name *</label>
                                   <input
                                     type="text"
                                     value={editEligibilityData.eligibility_name}
                                     onChange={(e) => setEditEligibilityData({...editEligibilityData, eligibility_name: e.target.value})}
-                                    className="w-full px-3 py-2 border rounded-lg"
+                                    className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                                     required
                                   />
                                 </div>
                                 <div>
-                                  <label className="block text-sm font-medium mb-1">License Number (Optional)</label>
+                                  <label className="block text-sm font-medium mb-2">License Number (Optional)</label>
                                   <input
                                     type="text"
                                     value={editEligibilityData.license_number}
                                     onChange={(e) => setEditEligibilityData({...editEligibilityData, license_number: e.target.value})}
-                                    className="w-full px-3 py-2 border rounded-lg"
+                                    className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                                   />
                                 </div>
                                 <div>
-                                  <label className="block text-sm font-medium mb-1">Rating (Optional)</label>
+                                  <label className="block text-sm font-medium mb-2">Rating (Optional)</label>
                                   <input
                                     type="text"
                                     value={editEligibilityData.rating}
                                     onChange={(e) => setEditEligibilityData({...editEligibilityData, rating: e.target.value})}
-                                    className="w-full px-3 py-2 border rounded-lg"
+                                    className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                                   />
                                 </div>
                                 <div>
-                                  <label className="block text-sm font-medium mb-1">Issuing Authority (Optional)</label>
+                                  <label className="block text-sm font-medium mb-2">Issuing Authority (Optional)</label>
                                   <input
                                     type="text"
                                     value={editEligibilityData.issuing_authority}
                                     onChange={(e) => setEditEligibilityData({...editEligibilityData, issuing_authority: e.target.value})}
-                                    className="w-full px-3 py-2 border rounded-lg"
+                                    className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                                   />
                                 </div>
                                 <div>
-                                  <label className="block text-sm font-medium mb-1">Date Issued (Optional)</label>
+                                  <label className="block text-sm font-medium mb-2">Date Issued (Optional)</label>
                                   <input
                                     type="date"
                                     value={editEligibilityData.date_issued}
                                     onChange={(e) => setEditEligibilityData({...editEligibilityData, date_issued: e.target.value})}
-                                    className="w-full px-3 py-2 border rounded-lg"
+                                    className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                                   />
                                 </div>
                                 <div>
-                                  <label className="block text-sm font-medium mb-1">Expiry Date (Optional)</label>
+                                  <label className="block text-sm font-medium mb-2">Expiry Date (Optional)</label>
                                   <input
                                     type="date"
                                     value={editEligibilityData.expiry_date}
                                     onChange={(e) => setEditEligibilityData({...editEligibilityData, expiry_date: e.target.value})}
-                                    className="w-full px-3 py-2 border rounded-lg"
+                                    className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                                   />
                                 </div>
                               </div>
-                              <div className="flex gap-2">
+                              <div className="flex gap-3 pt-2">
                                 <button 
                                   onClick={() => handleEditEligibility(eligibility.id)}
-                                  className="px-4 py-2 bg-amber-600 text-white rounded-lg hover:bg-amber-700 flex-1"
+                                  className="px-6 py-3 bg-amber-600 text-white rounded-lg hover:bg-amber-700 flex-1 font-medium transition-colors"
                                 >
                                   Save Changes
                                 </button>
@@ -2375,7 +2469,7 @@ export default function ApplicantProfileContent() {
                                       issuing_authority: '',
                                     })
                                   }}
-                                  className="px-4 py-2 border rounded-lg hover:bg-gray-50 flex-1"
+                                  className="px-6 py-3 border border-gray-300 rounded-lg hover:bg-gray-50 flex-1 font-medium transition-colors"
                                 >
                                   Cancel
                                 </button>
@@ -2383,8 +2477,8 @@ export default function ApplicantProfileContent() {
                             </div>
                           ) : (
                             <>
-                              <h4 className="font-bold text-gray-900">{eligibility.eligibility_name}</h4>
-                              <div className="grid grid-cols-1 md:grid-cols-2 gap-2 mt-2">
+                              <h4 className="font-bold text-gray-900 text-lg">{eligibility.eligibility_name}</h4>
+                              <div className="grid grid-cols-1 md:grid-cols-2 gap-2 mt-3">
                                 {eligibility.license_number && (
                                   <p className="text-sm text-gray-600">
                                     <span className="font-medium">License #:</span> {eligibility.license_number}
@@ -2397,12 +2491,20 @@ export default function ApplicantProfileContent() {
                                 )}
                                 {eligibility.date_issued && (
                                   <p className="text-sm text-gray-600">
-                                    <span className="font-medium">Issued:</span> {new Date(eligibility.date_issued).toLocaleDateString()}
+                                    <span className="font-medium">Issued:</span> {new Date(eligibility.date_issued).toLocaleDateString('en-US', {
+                                      year: 'numeric',
+                                      month: 'long',
+                                      day: 'numeric'
+                                    })}
                                   </p>
                                 )}
                                 {eligibility.expiry_date && (
                                   <p className="text-sm text-gray-600">
-                                    <span className="font-medium">Expires:</span> {new Date(eligibility.expiry_date).toLocaleDateString()}
+                                    <span className="font-medium">Expires:</span> {new Date(eligibility.expiry_date).toLocaleDateString('en-US', {
+                                      year: 'numeric',
+                                      month: 'long',
+                                      day: 'numeric'
+                                    })}
                                   </p>
                                 )}
                                 {eligibility.issuing_authority && (
@@ -2415,17 +2517,17 @@ export default function ApplicantProfileContent() {
                           )}
                         </div>
                         {editingEligibility !== eligibility.id && (
-                          <div className="flex flex-col md:flex-row gap-2 ml-2">
+                          <div className="flex gap-2 ml-2">
                             <button 
                               onClick={() => startEditingEligibility(eligibility)}
-                              className="p-2 text-blue-600 hover:text-blue-800 hover:bg-blue-50 rounded opacity-0 group-hover:opacity-100 transition-opacity"
+                              className="p-2 text-blue-600 hover:text-blue-800 hover:bg-blue-50 rounded-lg transition-colors"
                               title="Edit eligibility"
                             >
                               <Edit size={18} />
                             </button>
                             <button 
                               onClick={() => handleDeleteEligibility(eligibility.id)}
-                              className="p-2 text-red-600 hover:text-red-800 hover:bg-red-50 rounded opacity-0 group-hover:opacity-100 transition-opacity"
+                              className="p-2 text-red-600 hover:text-red-800 hover:bg-red-50 rounded-lg transition-colors"
                               title="Delete eligibility"
                             >
                               <Trash2 size={18} />
@@ -2437,12 +2539,12 @@ export default function ApplicantProfileContent() {
                   ))}
                 </div>
               ) : (
-                <div className="text-center py-8 border-2 border-dashed border-gray-300 rounded-lg">
-                  <Award className="w-12 h-12 text-gray-400 mx-auto mb-3" />
-                  <p className="text-gray-500">No eligibilities added yet.</p>
+                <div className="text-center py-12 border-2 border-dashed border-gray-300 rounded-lg">
+                  <Award className="w-16 h-16 text-gray-400 mx-auto mb-4" />
+                  <p className="text-gray-500 text-lg">No eligibilities added yet.</p>
                   <button 
                     onClick={() => setShowAddEligibility(true)}
-                    className="mt-3 text-amber-600 hover:text-amber-800 font-medium"
+                    className="mt-4 text-amber-600 hover:text-amber-800 font-medium text-lg"
                   >
                     Add your first eligibility
                   </button>
@@ -2460,7 +2562,7 @@ export default function ApplicantProfileContent() {
                 <button 
                   onClick={() => setShowAddTraining(true)}
                   disabled={isUploading}
-                  className="flex items-center justify-center gap-2 px-3 py-2 text-sm bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 w-full md:w-auto disabled:opacity-50"
+                  className="flex items-center justify-center gap-2 px-4 py-2 text-sm bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 w-full md:w-auto disabled:opacity-50 font-medium"
                 >
                   <Plus size={16} />
                   Add Training
@@ -2469,91 +2571,99 @@ export default function ApplicantProfileContent() {
 
               {/* Add Training Form */}
               {showAddTraining && (
-                <div className="mb-6 p-4 bg-gray-50 rounded-lg border">
-                  <h4 className="font-bold mb-4">Add Training</h4>
+                <div className="mb-6 p-6 bg-gray-50 rounded-lg border border-gray-200">
+                  <div className="flex justify-between items-center mb-4">
+                    <h4 className="font-bold text-lg text-gray-900">Add Training</h4>
+                    <button 
+                      onClick={() => setShowAddTraining(false)}
+                      className="text-gray-500 hover:text-gray-700"
+                    >
+                      <X size={20} />
+                    </button>
+                  </div>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div>
-                      <label className="block text-sm font-medium mb-1">Training Name *</label>
+                      <label className="block text-sm font-medium mb-2">Training Name *</label>
                       <input
                         type="text"
                         value={newTraining.training_name}
                         onChange={(e) => setNewTraining({...newTraining, training_name: e.target.value})}
-                        className="w-full px-3 py-2 border rounded-lg"
+                        className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                         required
                         placeholder="e.g., Project Management Professional"
                       />
                     </div>
                     <div>
-                      <label className="block text-sm font-medium mb-1">Institution *</label>
+                      <label className="block text-sm font-medium mb-2">Institution *</label>
                       <input
                         type="text"
                         value={newTraining.institution}
                         onChange={(e) => setNewTraining({...newTraining, institution: e.target.value})}
-                        className="w-full px-3 py-2 border rounded-lg"
+                        className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                         required
                         placeholder="e.g., Philippine Management Association"
                       />
                     </div>
                     <div>
-                      <label className="block text-sm font-medium mb-1">Start Date (Optional)</label>
+                      <label className="block text-sm font-medium mb-2">Start Date (Optional)</label>
                       <input
                         type="date"
                         value={newTraining.start_date}
                         onChange={(e) => setNewTraining({...newTraining, start_date: e.target.value})}
-                        className="w-full px-3 py-2 border rounded-lg"
+                        className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                       />
                     </div>
                     <div>
-                      <label className="block text-sm font-medium mb-1">End Date (Optional)</label>
+                      <label className="block text-sm font-medium mb-2">End Date (Optional)</label>
                       <input
                         type="date"
                         value={newTraining.end_date}
                         onChange={(e) => setNewTraining({...newTraining, end_date: e.target.value})}
-                        className="w-full px-3 py-2 border rounded-lg"
+                        className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                       />
                     </div>
                     <div>
-                      <label className="block text-sm font-medium mb-1">Duration Hours (Optional)</label>
+                      <label className="block text-sm font-medium mb-2">Duration Hours (Optional)</label>
                       <input
                         type="number"
                         value={newTraining.duration_hours}
                         onChange={(e) => setNewTraining({...newTraining, duration_hours: e.target.value})}
-                        className="w-full px-3 py-2 border rounded-lg"
+                        className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                         min="1"
                         placeholder="e.g., 40"
                       />
                     </div>
                     <div>
-                      <label className="block text-sm font-medium mb-1">Certificate ID (Optional)</label>
+                      <label className="block text-sm font-medium mb-2">Certificate ID (Optional)</label>
                       <input
                         type="text"
                         value={newTraining.certificate_id}
                         onChange={(e) => setNewTraining({...newTraining, certificate_id: e.target.value})}
-                        className="w-full px-3 py-2 border rounded-lg"
+                        className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                         placeholder="e.g., PMP-2023-001"
                       />
                     </div>
                     <div className="md:col-span-2">
-                      <label className="block text-sm font-medium mb-1">Skills Learned (Optional)</label>
+                      <label className="block text-sm font-medium mb-2">Skills Learned (Optional)</label>
                       <textarea
                         value={newTraining.skills_learned}
                         onChange={(e) => setNewTraining({...newTraining, skills_learned: e.target.value})}
                         rows={3}
-                        className="w-full px-3 py-2 border rounded-lg"
+                        className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                         placeholder="List skills or competencies gained from this training..."
                       />
                     </div>
                   </div>
-                  <div className="flex flex-col sm:flex-row gap-2 mt-4">
+                  <div className="flex flex-col sm:flex-row gap-3 mt-6">
                     <button 
                       onClick={handleAddTraining}
-                      className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 flex-1"
+                      className="px-6 py-3 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 flex-1 font-medium transition-colors"
                     >
                       Save Training
                     </button>
                     <button 
                       onClick={() => setShowAddTraining(false)}
-                      className="px-4 py-2 border rounded-lg hover:bg-gray-50 flex-1"
+                      className="px-6 py-3 border border-gray-300 rounded-lg hover:bg-gray-50 flex-1 font-medium transition-colors"
                     >
                       Cancel
                     </button>
@@ -2565,83 +2675,83 @@ export default function ApplicantProfileContent() {
               {profile?.trainings && profile.trainings.length > 0 ? (
                 <div className="space-y-6">
                   {profile.trainings.map((training) => (
-                    <div key={training.id} className="border-l-4 border-indigo-500 pl-4 py-3 relative group">
+                    <div key={training.id} className="border-l-4 border-indigo-500 pl-4 py-3 relative bg-indigo-50 rounded-r-lg">
                       <div className="flex justify-between items-start">
                         <div className="flex-1 min-w-0">
                           {editingTraining === training.id ? (
                             <div className="space-y-4">
                               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                 <div>
-                                  <label className="block text-sm font-medium mb-1">Training Name *</label>
+                                  <label className="block text-sm font-medium mb-2">Training Name *</label>
                                   <input
                                     type="text"
                                     value={editTrainingData.training_name}
                                     onChange={(e) => setEditTrainingData({...editTrainingData, training_name: e.target.value})}
-                                    className="w-full px-3 py-2 border rounded-lg"
+                                    className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                                     required
                                   />
                                 </div>
                                 <div>
-                                  <label className="block text-sm font-medium mb-1">Institution *</label>
+                                  <label className="block text-sm font-medium mb-2">Institution *</label>
                                   <input
                                     type="text"
                                     value={editTrainingData.institution}
                                     onChange={(e) => setEditTrainingData({...editTrainingData, institution: e.target.value})}
-                                    className="w-full px-3 py-2 border rounded-lg"
+                                    className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                                     required
                                   />
                                 </div>
                                 <div>
-                                  <label className="block text-sm font-medium mb-1">Start Date (Optional)</label>
+                                  <label className="block text-sm font-medium mb-2">Start Date (Optional)</label>
                                   <input
                                     type="date"
                                     value={editTrainingData.start_date}
                                     onChange={(e) => setEditTrainingData({...editTrainingData, start_date: e.target.value})}
-                                    className="w-full px-3 py-2 border rounded-lg"
+                                    className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                                   />
                                 </div>
                                 <div>
-                                  <label className="block text-sm font-medium mb-1">End Date (Optional)</label>
+                                  <label className="block text-sm font-medium mb-2">End Date (Optional)</label>
                                   <input
                                     type="date"
                                     value={editTrainingData.end_date}
                                     onChange={(e) => setEditTrainingData({...editTrainingData, end_date: e.target.value})}
-                                    className="w-full px-3 py-2 border rounded-lg"
+                                    className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                                   />
                                 </div>
                                 <div>
-                                  <label className="block text-sm font-medium mb-1">Duration Hours (Optional)</label>
+                                  <label className="block text-sm font-medium mb-2">Duration Hours (Optional)</label>
                                   <input
                                     type="number"
                                     value={editTrainingData.duration_hours}
                                     onChange={(e) => setEditTrainingData({...editTrainingData, duration_hours: e.target.value})}
-                                    className="w-full px-3 py-2 border rounded-lg"
+                                    className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                                     min="1"
                                   />
                                 </div>
                                 <div>
-                                  <label className="block text-sm font-medium mb-1">Certificate ID (Optional)</label>
+                                  <label className="block text-sm font-medium mb-2">Certificate ID (Optional)</label>
                                   <input
                                     type="text"
                                     value={editTrainingData.certificate_id}
                                     onChange={(e) => setEditTrainingData({...editTrainingData, certificate_id: e.target.value})}
-                                    className="w-full px-3 py-2 border rounded-lg"
+                                    className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                                   />
                                 </div>
                                 <div className="md:col-span-2">
-                                  <label className="block text-sm font-medium mb-1">Skills Learned (Optional)</label>
+                                  <label className="block text-sm font-medium mb-2">Skills Learned (Optional)</label>
                                   <textarea
                                     value={editTrainingData.skills_learned}
                                     onChange={(e) => setEditTrainingData({...editTrainingData, skills_learned: e.target.value})}
                                     rows={3}
-                                    className="w-full px-3 py-2 border rounded-lg"
+                                    className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                                   />
                                 </div>
                               </div>
-                              <div className="flex gap-2">
+                              <div className="flex gap-3 pt-2">
                                 <button 
                                   onClick={() => handleEditTraining(training.id)}
-                                  className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 flex-1"
+                                  className="px-6 py-3 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 flex-1 font-medium transition-colors"
                                 >
                                   Save Changes
                                 </button>
@@ -2658,7 +2768,7 @@ export default function ApplicantProfileContent() {
                                       skills_learned: '',
                                     })
                                   }}
-                                  className="px-4 py-2 border rounded-lg hover:bg-gray-50 flex-1"
+                                  className="px-6 py-3 border border-gray-300 rounded-lg hover:bg-gray-50 flex-1 font-medium transition-colors"
                                 >
                                   Cancel
                                 </button>
@@ -2666,12 +2776,20 @@ export default function ApplicantProfileContent() {
                             </div>
                           ) : (
                             <>
-                              <h4 className="font-bold text-gray-900">{training.training_name}</h4>
-                              <p className="text-gray-700">{training.institution}</p>
-                              <div className="grid grid-cols-1 md:grid-cols-2 gap-2 mt-2">
+                              <h4 className="font-bold text-gray-900 text-lg">{training.training_name}</h4>
+                              <p className="text-gray-700 font-medium">{training.institution}</p>
+                              <div className="grid grid-cols-1 md:grid-cols-2 gap-2 mt-3">
                                 {training.start_date && training.end_date && (
                                   <p className="text-sm text-gray-600">
-                                    <span className="font-medium">Duration:</span> {new Date(training.start_date).toLocaleDateString()} – {new Date(training.end_date).toLocaleDateString()}
+                                    <span className="font-medium">Duration:</span> {new Date(training.start_date).toLocaleDateString('en-US', {
+                                      year: 'numeric',
+                                      month: 'long',
+                                      day: 'numeric'
+                                    })} – {new Date(training.end_date).toLocaleDateString('en-US', {
+                                      year: 'numeric',
+                                      month: 'long',
+                                      day: 'numeric'
+                                    })}
                                   </p>
                                 )}
                                 {training.duration_hours && (
@@ -2694,17 +2812,17 @@ export default function ApplicantProfileContent() {
                           )}
                         </div>
                         {editingTraining !== training.id && (
-                          <div className="flex flex-col md:flex-row gap-2 ml-2">
+                          <div className="flex gap-2 ml-2">
                             <button 
                               onClick={() => startEditingTraining(training)}
-                              className="p-2 text-blue-600 hover:text-blue-800 hover:bg-blue-50 rounded opacity-0 group-hover:opacity-100 transition-opacity"
+                              className="p-2 text-blue-600 hover:text-blue-800 hover:bg-blue-50 rounded-lg transition-colors"
                               title="Edit training"
                             >
                               <Edit size={18} />
                             </button>
                             <button 
                               onClick={() => handleDeleteTraining(training.id)}
-                              className="p-2 text-red-600 hover:text-red-800 hover:bg-red-50 rounded opacity-0 group-hover:opacity-100 transition-opacity"
+                              className="p-2 text-red-600 hover:text-red-800 hover:bg-red-50 rounded-lg transition-colors"
                               title="Delete training"
                             >
                               <Trash2 size={18} />
@@ -2716,12 +2834,12 @@ export default function ApplicantProfileContent() {
                   ))}
                 </div>
               ) : (
-                <div className="text-center py-8 border-2 border-dashed border-gray-300 rounded-lg">
-                  <BookOpen className="w-12 h-12 text-gray-400 mx-auto mb-3" />
-                  <p className="text-gray-500">No trainings added yet.</p>
+                <div className="text-center py-12 border-2 border-dashed border-gray-300 rounded-lg">
+                  <BookOpen className="w-16 h-16 text-gray-400 mx-auto mb-4" />
+                  <p className="text-gray-500 text-lg">No trainings added yet.</p>
                   <button 
                     onClick={() => setShowAddTraining(true)}
-                    className="mt-3 text-indigo-600 hover:text-indigo-800 font-medium"
+                    className="mt-4 text-indigo-600 hover:text-indigo-800 font-medium text-lg"
                   >
                     Add your first training
                   </button>

@@ -170,9 +170,7 @@ export default function ApplicantDashboardPage() {
             <p className="text-sm text-slate-700 mb-4">
               Finish your profile, then submit requirements for your selected position.
             </p>
-            <Button className="w-full bg-blue-600 hover:bg-blue-700">
-              Continue Application
-            </Button>
+           
           </CardContent>
         </Card>
       </div>
