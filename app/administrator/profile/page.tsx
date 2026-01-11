@@ -162,8 +162,46 @@ function ProfileContent() {
     }
   }
 
+  // Check storage setup on mount
+  const checkStorageSetup = async () => {
+    try {
+      const { data: buckets, error: bucketsError } = await supabase.storage.listBuckets()
+      
+      if (bucketsError) {
+        console.error('Cannot access storage:', bucketsError)
+        return { success: false, message: 'Cannot access storage API' }
+      }
+      
+      console.log('Available buckets:', buckets)
+      
+      const profileBucket = buckets.find(b => b.name === 'profile')
+      if (!profileBucket) {
+        console.warn('Profile bucket not found. Please create a bucket named "profile" in Supabase Storage.')
+        return { 
+          success: false, 
+          message: 'Profile bucket not found. Please contact administrator to create a "profile" bucket.' 
+        }
+      }
+      
+      return { 
+        success: true, 
+        message: 'Storage is properly configured.' 
+      }
+    } catch (error: any) {
+      console.error('Storage check error:', error)
+      return { success: false, message: error.message }
+    }
+  }
+
   useEffect(() => {
     fetchUserProfile()
+    
+    // Check storage configuration
+    checkStorageSetup().then(result => {
+      if (!result.success) {
+        console.warn('Storage setup issue:', result.message)
+      }
+    })
   }, [])
 
   const fetchUserProfile = async () => {
@@ -243,28 +281,83 @@ function ProfileContent() {
         return
       }
 
-      // Generate unique filename
+      // Get session for authentication
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session) {
+        setMessage({ type: 'error', text: 'You must be logged in to upload images' })
+        return
+      }
+
+      // Generate unique filename with user folder
       const fileExt = file.name.split('.').pop()
-      const fileName = `avatar-${userProfile.id}-${Date.now()}.${fileExt}`
+      const fileName = `${userProfile.id}/${Date.now()}.${fileExt}`
 
-      // Upload to storage
-      const { data: uploadData, error: uploadError } = await supabase.storage
-        .from('profile')
-        .upload(fileName, file, {
-          contentType: file.type,
-          upsert: true,
-          cacheControl: '3600'
-        })
+      // Try direct upload with fetch if Supabase client fails
+      const uploadUsingFetch = async () => {
+        const formData = new FormData()
+        formData.append('file', file)
 
-      if (uploadError) {
-        console.error('Upload error:', uploadError)
-        throw new Error(`Upload failed: ${uploadError.message}`)
+        const response = await fetch(
+          `${process.env.NEXT_PUBLIC_SUPABASE_URL}/storage/v1/object/profile/${fileName}`,
+          {
+            method: 'POST',
+            headers: {
+              'Authorization': `Bearer ${session.access_token}`,
+            },
+            body: formData
+          }
+        )
+
+        if (!response.ok) {
+          const errorText = await response.text()
+          throw new Error(`Upload failed: ${response.status} ${errorText}`)
+        }
+
+        return await response.json()
+      }
+
+      // Try Supabase client first, fallback to fetch
+      let uploadData
+      try {
+        const { data, error } = await supabase.storage
+          .from('profile')
+          .upload(fileName, file, {
+            contentType: file.type,
+            upsert: true,
+            cacheControl: '3600'
+          })
+
+        if (error) {
+          // If Supabase client fails, try fetch API
+          console.log('Supabase client upload failed, trying fetch API:', error.message)
+          uploadData = await uploadUsingFetch()
+        } else {
+          uploadData = data
+        }
+      } catch (supabaseError) {
+        // Fallback to fetch API
+        console.log('Falling back to fetch API due to:', supabaseError)
+        uploadData = await uploadUsingFetch()
       }
 
       // Get public URL
-      const { data: { publicUrl } } = supabase.storage
-        .from('profile')
-        .getPublicUrl(fileName)
+      const publicUrl = `${process.env.NEXT_PUBLIC_SUPABASE_URL}/storage/v1/object/public/profile/${fileName}`
+
+      // Clean up old avatar if exists
+      if (userProfile.avatar_url && userProfile.avatar_url.includes('profile')) {
+        try {
+          const oldUrlParts = userProfile.avatar_url.split('/')
+          const oldFileName = oldUrlParts[oldUrlParts.length - 1]
+          if (oldFileName && oldFileName !== fileName) {
+            await supabase.storage
+              .from('profile')
+              .remove([`${userProfile.id}/${oldFileName}`])
+              .catch(err => console.warn('Failed to delete old avatar:', err))
+          }
+        } catch (cleanupError) {
+          console.warn('Failed to clean up old avatar:', cleanupError)
+        }
+      }
 
       // Update profile in database
       const { error: updateError } = await supabase
@@ -296,10 +389,12 @@ function ProfileContent() {
       
       let errorMessage = 'Failed to upload profile picture. '
       
-      if (error.message?.includes('not found') || error.message?.includes('does not exist')) {
-        errorMessage += 'Storage bucket "profile" not found. Please check storage configuration.'
-      } else if (error.message?.includes('permission')) {
-        errorMessage += 'Permission denied. Please try again.'
+      if (error.message?.includes('bucket') || error.message?.includes('not found')) {
+        errorMessage += 'Storage bucket "profile" not found. Please contact administrator to create the bucket in Supabase Storage.'
+      } else if (error.message?.includes('permission') || error.message?.includes('403')) {
+        errorMessage += 'Permission denied. Please check storage bucket policies.'
+      } else if (error.message?.includes('Unexpected token')) {
+        errorMessage += 'Server returned invalid response. Please check storage configuration in Supabase.'
       } else if (error.message?.includes('Payload too large')) {
         errorMessage += 'File is too large. Maximum size is 5MB.'
       } else if (error.message?.includes('Invalid file type')) {

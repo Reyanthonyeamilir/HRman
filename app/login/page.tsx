@@ -9,6 +9,7 @@ import Image from 'next/image'
 export default function LoginPage() {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
+  const [showPassword, setShowPassword] = useState(false) // New state for password visibility
   const [msg, setMsg] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
   const [errors, setErrors] = useState<{ email?: string; password?: string }>({})
@@ -137,15 +138,14 @@ export default function LoginPage() {
     const next = search.get('next')
     
     console.log('🎯 Current user role for redirect:', role)
-    console.log('📁 Your dashboard is at: /app/administrator/dashboard/page.tsx')
-    console.log('✅ Redirecting to: /administrator/dashboard (lowercase)')
     
-   // In your login page - Line 125-127:
-const roleRedirects: { [key: string]: string } = {
-  'super_admin': '/administrator/dashboard', // UPPERCASE - CORRECT
-  'hr': '/administrator/dashboard',         // UPPERCASE - CORRECT
-  'applicant': '/applicant'
-}
+    // CORRECTED: Use lowercase paths that match your actual folder structure
+    const roleRedirects: { [key: string]: string } = {
+      'super_admin': '/administrator/dashboard',
+      'hr': '/administrator/dashboard',
+      'applicant': '/applicant'
+    }
+
     let redirectPath = roleRedirects[role] || '/applicant'
 
     console.log('🔄 Redirecting to:', redirectPath, 'for role:', role)
@@ -158,39 +158,63 @@ const roleRedirects: { [key: string]: string } = {
     router.replace(finalPath)
   }
 
-  // Temporary debug function
+  // Improved debug function - shows detailed info
   const debugUserRole = async () => {
     try {
-      const user = await getCurrentUser()
-      console.log('🔍 DEBUG - Current user:', user)
-      console.log('🔍 DEBUG - User role:', user?.profile?.role)
-      console.log('🔍 DEBUG - User email:', user?.email)
-      console.log('🔍 DEBUG - User ID:', user?.id)
+      console.log('🔍 === DEBUG USER ROLE ===')
       
-      // Check localStorage
+      // Check localStorage first
       if (typeof window !== 'undefined') {
-        console.log('🔍 DEBUG - localStorage role:', localStorage.getItem('user_role'))
-        console.log('🔍 DEBUG - localStorage user_id:', localStorage.getItem('user_id'))
+        console.log('📦 LocalStorage Data:')
+        console.log('   user_role:', localStorage.getItem('user_role'))
+        console.log('   user_id:', localStorage.getItem('user_id'))
+        console.log('   applicant_email:', localStorage.getItem('applicant_email'))
+        console.log('   applicant_name:', localStorage.getItem('applicant_name'))
       }
 
       // Check session
       const { data: { session } } = await supabase.auth.getSession()
-      console.log('🔍 DEBUG - Session exists:', !!session)
-      console.log('🔍 DEBUG - Session user:', session?.user)
+      console.log('🔐 Session Info:')
+      console.log('   Session exists:', !!session)
+      console.log('   User ID:', session?.user?.id)
+      console.log('   User Email:', session?.user?.email)
+      console.log('   Expires at:', session?.expires_at ? new Date(session.expires_at * 1000).toISOString() : 'N/A')
+
+      // Get current user from database
+      const user = await getCurrentUser()
+      console.log('👤 Database User Info:')
+      console.log('   User object:', user)
+      console.log('   Profile:', user?.profile)
+      console.log('   Role from profile:', user?.profile?.role)
+      console.log('   Email from profile:', user?.profile?.email)
+
+      // Also check profiles table directly
+      if (session?.user?.id) {
+        const { data: profileData, error } = await supabase
+          .from('profiles')
+          .select('*')
+          .eq('id', session.user.id)
+          .single()
+        
+        console.log('🗄️ Direct Profiles Table Query:')
+        console.log('   Profile data:', profileData)
+        console.log('   Error:', error)
+      }
+
+      console.log('🎯 Available Redirect Paths:')
+      console.log('   super_admin → /administrator/dashboard')
+      console.log('   hr → /administrator/dashboard')
+      console.log('   applicant → /applicant')
+
+      console.log('🔍 === END DEBUG ===')
+      
+      // Show alert with key info
+      const userRole = localStorage.getItem('user_role') || user?.profile?.role || 'unknown'
+      alert(`Debug Info:\n\nLocalStorage Role: ${localStorage.getItem('user_role')}\nDatabase Role: ${user?.profile?.role}\nSession: ${session ? 'Active' : 'No session'}\n\nUser ID: ${session?.user?.id}\nFinal Role: ${userRole}`)
+      
     } catch (error) {
       console.error('🔍 DEBUG - Error:', error)
-    }
-  }
-
-  // Clear session for testing
-  const clearSession = async () => {
-    try {
-      await supabase.auth.signOut()
-      localStorage.clear()
-      console.log('🧹 Session and localStorage cleared')
-      setMsg('Session cleared. Please refresh the page.')
-    } catch (error) {
-      console.error('Error clearing session:', error)
+      alert(`Debug Error: ${error}`)
     }
   }
 
@@ -290,19 +314,38 @@ const roleRedirects: { [key: string]: string } = {
 
                   <div>
                     <label className="block text-sm font-medium text-slate-700 mb-2">Password</label>
-                    <input
-                      className={`w-full h-11 rounded-lg border px-4 outline-none bg-white focus:ring-2 focus:ring-blue-600 focus:border-transparent transition-all ${
-                        errors.password ? 'border-rose-400 bg-rose-50' : 'border-slate-200'
-                      }`}
-                      type="password"
-                      placeholder="Enter your password"
-                      value={password}
-                      onChange={(e) => {
-                        setPassword(e.target.value)
-                        if (errors.password) setErrors({...errors, password: undefined})
-                      }}
-                      autoComplete="current-password"
-                    />
+                    <div className="relative">
+                      <input
+                        className={`w-full h-11 rounded-lg border px-4 pr-10 outline-none bg-white focus:ring-2 focus:ring-blue-600 focus:border-transparent transition-all ${
+                          errors.password ? 'border-rose-400 bg-rose-50' : 'border-slate-200'
+                        }`}
+                        type={showPassword ? "text" : "password"}
+                        placeholder="Enter your password"
+                        value={password}
+                        onChange={(e) => {
+                          setPassword(e.target.value)
+                          if (errors.password) setErrors({...errors, password: undefined})
+                        }}
+                        autoComplete="current-password"
+                      />
+                      <button
+                        type="button"
+                        className="absolute right-3 top-1/2 transform -translate-y-1/2 text-slate-500 hover:text-slate-700 focus:outline-none"
+                        onClick={() => setShowPassword(!showPassword)}
+                        aria-label={showPassword ? "Hide password" : "Show password"}
+                      >
+                        {showPassword ? (
+                          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.878 9.878L6.59 6.59m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.543 7a10.025 10.025 0 01-4.132 5.411m0 0L21 21" />
+                          </svg>
+                        ) : (
+                          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                          </svg>
+                        )}
+                      </button>
+                    </div>
                     {errors.password && (
                       <p className="mt-2 text-sm text-rose-600 flex items-center gap-1">
                         <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -355,21 +398,14 @@ const roleRedirects: { [key: string]: string } = {
                   </div>
                 )}
 
-                {/* Debug buttons - remove in production */}
-                <div className="mt-4 flex gap-2">
-                  <button 
-                    type="button" 
-                    onClick={clearSession}
-                    className="flex-1 p-2 bg-red-200 text-xs rounded hover:bg-red-300 transition-colors text-red-700"
-                  >
-                    Clear Session
-                  </button>
+                {/* Debug button only - session clearing removed */}
+                <div className="mt-4">
                   <button 
                     type="button" 
                     onClick={debugUserRole}
-                    className="flex-1 p-2 bg-blue-200 text-xs rounded hover:bg-blue-300 transition-colors text-blue-700"
+                    className="w-full p-2 bg-blue-100 text-xs rounded hover:bg-blue-200 transition-colors text-blue-700 font-medium"
                   >
-                    Debug Role
+                    Debug User Info (Dev Only)
                   </button>
                 </div>
 

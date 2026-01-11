@@ -38,7 +38,9 @@ import {
   BriefcaseBusiness,
   FileCheck,
   History,
-  BarChart3
+  BarChart3,
+  Menu,
+  X
 } from 'lucide-react'
 
 // Initialize Supabase client
@@ -98,7 +100,7 @@ export default function TaskLogsPage() {
   const [dateRange, setDateRange] = useState<string>('7days')
   const [pagination, setPagination] = useState<Pagination>({
     page: 1,
-    perPage: 20,
+    perPage: 10, // Reduced for better mobile display
     total: 0,
     totalPages: 0
   })
@@ -111,6 +113,18 @@ export default function TaskLogsPage() {
     actionsByType: {},
     entitiesByType: {}
   })
+  const [sidebarOpen, setSidebarOpen] = useState(false)
+  const [isMobile, setIsMobile] = useState(false)
+
+  useEffect(() => {
+    const checkMobile = () => {
+      setIsMobile(window.innerWidth < 768)
+    }
+    
+    checkMobile()
+    window.addEventListener('resize', checkMobile)
+    return () => window.removeEventListener('resize', checkMobile)
+  }, [])
 
   useEffect(() => {
     checkUserAndRedirect()
@@ -461,6 +475,7 @@ export default function TaskLogsPage() {
       approve: <CheckCircle className="h-4 w-4 text-green-600" />,
       reject: <XCircle className="h-4 w-4 text-red-600" />,
       upload: <FileCheck className="h-4 w-4 text-teal-600" />,
+      apply: <UserPlus className="h-4 w-4 text-amber-600" />,
       default: <Activity className="h-4 w-4 text-gray-600" />
     }
     return icons[action] || icons.default
@@ -498,7 +513,8 @@ export default function TaskLogsPage() {
       export: 'bg-indigo-100 text-indigo-800 border-indigo-200',
       approve: 'bg-green-100 text-green-800 border-green-200',
       reject: 'bg-red-100 text-red-800 border-red-200',
-      upload: 'bg-teal-100 text-teal-800 border-teal-200'
+      upload: 'bg-teal-100 text-teal-800 border-teal-200',
+      apply: 'bg-amber-100 text-amber-800 border-amber-200'
     }
 
     return (
@@ -525,8 +541,7 @@ export default function TaskLogsPage() {
         }),
         time: date.toLocaleTimeString('en-US', { 
           hour: '2-digit', 
-          minute: '2-digit',
-          second: '2-digit'
+          minute: '2-digit'
         }),
         full: date.toISOString()
       }
@@ -566,9 +581,9 @@ export default function TaskLogsPage() {
     const modalContent = `
       <div class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
         <div class="bg-white rounded-xl max-w-4xl w-full max-h-[90vh] overflow-hidden">
-          <div class="border-b border-gray-200 p-6">
+          <div class="border-b border-gray-200 p-4">
             <div class="flex items-center justify-between">
-              <h3 class="text-xl font-semibold text-gray-900">Log Details</h3>
+              <h3 class="text-lg font-semibold text-gray-900">Log Details</h3>
               <button onclick="document.getElementById('log-modal').remove()" class="text-gray-400 hover:text-gray-600">
                 <svg class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
@@ -576,9 +591,9 @@ export default function TaskLogsPage() {
               </button>
             </div>
           </div>
-          <div class="p-6 overflow-y-auto max-h-[calc(90vh-120px)]">
-            <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
-              <div class="space-y-4">
+          <div class="p-4 overflow-y-auto max-h-[calc(90vh-80px)]">
+            <div class="grid grid-cols-1 gap-4 mb-4">
+              <div class="space-y-3">
                 <div>
                   <label class="text-sm font-medium text-gray-500">Timestamp</label>
                   <div class="mt-1">
@@ -601,7 +616,7 @@ export default function TaskLogsPage() {
                   </div>
                 </div>
               </div>
-              <div class="space-y-4">
+              <div class="space-y-3">
                 <div>
                   <label class="text-sm font-medium text-gray-500">Entity</label>
                   <div class="mt-1">
@@ -622,7 +637,7 @@ export default function TaskLogsPage() {
             </div>
             <div>
               <label class="text-sm font-medium text-gray-500 mb-2 block">Details</label>
-              <div class="bg-gray-50 p-4 rounded-lg border border-gray-200">
+              <div class="bg-gray-50 p-3 rounded-lg border border-gray-200">
                 <pre class="whitespace-pre-wrap text-sm font-mono text-gray-800 overflow-x-auto">${details}</pre>
               </div>
             </div>
@@ -637,7 +652,7 @@ export default function TaskLogsPage() {
     document.body.appendChild(modalDiv)
   }
 
-  // Action options
+  // Action options (including applicant actions)
   const actionOptions = [
     { value: 'all', label: 'All Actions' },
     { value: 'create', label: 'Create' },
@@ -652,7 +667,8 @@ export default function TaskLogsPage() {
     { value: 'export', label: 'Export' },
     { value: 'approve', label: 'Approve' },
     { value: 'reject', label: 'Reject' },
-    { value: 'upload', label: 'Upload' }
+    { value: 'upload', label: 'Upload' },
+    { value: 'apply', label: 'Apply' }
   ]
 
   // Entity options based on your database
@@ -687,7 +703,7 @@ export default function TaskLogsPage() {
       onClick={onClick}
       disabled={disabled}
       className={`
-        px-4 py-2 rounded-lg font-medium transition-colors flex items-center justify-center gap-2 text-sm
+        px-3 py-2 rounded-lg font-medium transition-colors flex items-center justify-center gap-2 text-sm
         ${variant === 'default' ? 'bg-blue-600 text-white hover:bg-blue-700' : ''}
         ${variant === 'outline' ? 'border border-gray-300 text-gray-700 hover:bg-gray-50' : ''}
         ${variant === 'destructive' ? 'bg-red-600 text-white hover:bg-red-700' : ''}
@@ -714,26 +730,26 @@ export default function TaskLogsPage() {
     <select
       value={value}
       onChange={onChange}
-      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white"
+      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white text-sm"
     >
       {children}
     </select>
   )
 
   const Card = ({ children, className = '' }: any) => (
-    <div className={`bg-white rounded-xl border border-gray-200 shadow-sm ${className}`}>
+    <div className={`bg-white rounded-lg border border-gray-200 shadow-sm ${className}`}>
       {children}
     </div>
   )
 
   const CardHeader = ({ children, className = '' }: any) => (
-    <div className={`border-b border-gray-200 px-6 py-4 ${className}`}>
+    <div className={`border-b border-gray-200 px-4 py-3 ${className}`}>
       {children}
     </div>
   )
 
   const CardTitle = ({ children, className = '' }: any) => (
-    <h3 className={`text-lg font-semibold text-gray-900 ${className}`}>{children}</h3>
+    <h3 className={`text-base font-semibold text-gray-900 ${className}`}>{children}</h3>
   )
 
   const CardDescription = ({ children, className = '' }: any) => (
@@ -741,7 +757,7 @@ export default function TaskLogsPage() {
   )
 
   const CardContent = ({ children, className = '' }: any) => (
-    <div className={`p-6 ${className}`}>
+    <div className={`p-4 ${className}`}>
       {children}
     </div>
   )
@@ -775,7 +791,7 @@ export default function TaskLogsPage() {
               <div className="flex items-center gap-2">
                 <AlertTriangle className="h-4 w-4 text-yellow-600" />
                 <span className="text-sm text-yellow-700">
-                  You need <span className="font-bold">super_admin</span> privileges to access audit logs
+                  You need <span className="font-bold">super_admin</span> privileges to access task logs
                 </span>
               </div>
             </div>
@@ -799,32 +815,61 @@ export default function TaskLogsPage() {
     )
   }
 
-  // Main page with sidebar
+  // Mobile topbar
+  const MobileTopbar = () => (
+    <div className="md:hidden bg-white border-b border-gray-200 p-4">
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-3">
+          <button
+            onClick={() => setSidebarOpen(!sidebarOpen)}
+            className="p-2 rounded-lg hover:bg-gray-100"
+          >
+            {sidebarOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
+          </button>
+          <div className="flex items-center gap-2">
+            <History className="h-6 w-6 text-purple-600" />
+            <h1 className="text-lg font-semibold text-gray-900">Task Logs</h1>
+          </div>
+        </div>
+        <span className="text-xs bg-purple-100 text-purple-800 px-2 py-1 rounded-full font-medium">
+          Super Admin
+        </span>
+      </div>
+    </div>
+  )
+
   return (
     <div className="min-h-screen bg-gray-50">
+      {/* Mobile Topbar */}
+      <MobileTopbar />
+
+      {/* Mobile Sidebar Overlay */}
+      {sidebarOpen && isMobile && (
+        <div 
+          className="fixed inset-0 bg-black bg-opacity-50 z-40 md:hidden"
+          onClick={() => setSidebarOpen(false)}
+        />
+      )}
+
       <div className="flex">
         {/* Sidebar */}
-        <AdminHRSidebar />
+        <div className={`${isMobile && !sidebarOpen ? 'hidden' : 'block'} fixed md:relative z-50`}>
+          <AdminHRSidebar onClose={() => setSidebarOpen(false)} />
+        </div>
         
-        {/* Main Content - Adjusted for w-64 sidebar */}
-        <div className="flex-1 md:ml-64">
-          {/* Mobile Topbar - You might want to use the MobileTopbar from your sidebar component */}
-          <div className="md:hidden">
-            {/* Mobile header would go here */}
-          </div>
-          
-          {/* Main Content Area */}
-          <div className="p-4 md:p-6 overflow-auto">
-            <div className="max-w-7xl mx-auto space-y-6">
-              {/* Header with Super Admin Badge */}
-              <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+        {/* Main Content */}
+        <div className="flex-1 w-full md:ml-64">
+          <div className="p-3 md:p-6 overflow-auto">
+            <div className="max-w-7xl mx-auto space-y-4 md:space-y-6">
+              {/* Header - Hidden on mobile since we have MobileTopbar */}
+              <div className="hidden md:flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
                 <div>
                   <div className="flex items-center gap-3 mb-2">
                     <div className="p-2 bg-purple-100 rounded-lg">
                       <History className="h-8 w-8 text-purple-600" />
                     </div>
                     <div>
-                      <h1 className="text-2xl md:text-3xl font-bold text-gray-900">Audit Logs</h1>
+                      <h1 className="text-2xl md:text-3xl font-bold text-gray-900">Task Logs</h1>
                       <p className="text-gray-600">
                         Complete audit trail of all system activities
                       </p>
@@ -847,16 +892,16 @@ export default function TaskLogsPage() {
                   </div>
                 </div>
                 <div className="flex flex-wrap items-center gap-2">
-                  <Button variant="outline" onClick={handleRefresh} disabled={loading}>
-                    <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
+                  <Button variant="outline" onClick={handleRefresh} disabled={loading} className="text-xs">
+                    <RefreshCw className={`h-3 w-3 ${loading ? 'animate-spin' : ''}`} />
                     Refresh
                   </Button>
-                  <Button variant="outline" onClick={handleExport} disabled={loading}>
-                    <Download className="h-4 w-4" />
-                    Export CSV
+                  <Button variant="outline" onClick={handleExport} disabled={loading} className="text-xs">
+                    <Download className="h-3 w-3" />
+                    Export
                   </Button>
-                  <Button variant="destructive" onClick={handleClearLogs} disabled={loading}>
-                    <Trash2 className="h-4 w-4" />
+                  <Button variant="destructive" onClick={handleClearLogs} disabled={loading} className="text-xs">
+                    <Trash2 className="h-3 w-3" />
                     Clear All
                   </Button>
                 </div>
@@ -864,24 +909,24 @@ export default function TaskLogsPage() {
 
               {/* Filters */}
               <Card>
-                <CardContent>
-                  <form onSubmit={handleSearch} className="space-y-4">
-                    <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                <CardContent className="p-3 md:p-4">
+                  <form onSubmit={handleSearch} className="space-y-3 md:space-y-4">
+                    <div className="grid grid-cols-1 md:grid-cols-4 gap-3 md:gap-4">
                       <div className="space-y-2">
-                        <label className="text-sm font-medium text-gray-700">Search</label>
+                        <label className="text-xs md:text-sm font-medium text-gray-700">Search</label>
                         <div className="relative">
-                          <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
+                          <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-3 w-3 md:h-4 md:w-4 text-gray-400" />
                           <Input
-                            placeholder="Search by email, action, entity..."
+                            placeholder="Search logs..."
                             value={search}
                             onChange={(e: any) => setSearch(e.target.value)}
-                            className="pl-9"
+                            className="pl-8 md:pl-9 text-sm"
                           />
                         </div>
                       </div>
                       
                       <div className="space-y-2">
-                        <label className="text-sm font-medium text-gray-700">Action Type</label>
+                        <label className="text-xs md:text-sm font-medium text-gray-700">Action</label>
                         <Select 
                           value={actionFilter}
                           onChange={(e: any) => setActionFilter(e.target.value)}
@@ -895,7 +940,7 @@ export default function TaskLogsPage() {
                       </div>
 
                       <div className="space-y-2">
-                        <label className="text-sm font-medium text-gray-700">Entity Type</label>
+                        <label className="text-xs md:text-sm font-medium text-gray-700">Entity</label>
                         <Select 
                           value={entityFilter}
                           onChange={(e: any) => setEntityFilter(e.target.value)}
@@ -909,7 +954,7 @@ export default function TaskLogsPage() {
                       </div>
 
                       <div className="space-y-2">
-                        <label className="text-sm font-medium text-gray-700">Date Range</label>
+                        <label className="text-xs md:text-sm font-medium text-gray-700">Date Range</label>
                         <Select 
                           value={dateRange}
                           onChange={(e: any) => setDateRange(e.target.value)}
@@ -926,16 +971,16 @@ export default function TaskLogsPage() {
                     <div className="flex gap-2">
                       <Button 
                         type="submit"
-                        className="flex-1"
+                        className="flex-1 text-sm"
                         disabled={loading}
                       >
-                        <Search className="h-4 w-4" />
+                        <Search className="h-3 w-3 md:h-4 md:w-4" />
                         Apply Filters
                       </Button>
                       <Button 
                         type="button"
                         variant="outline"
-                        className="flex-1"
+                        className="flex-1 text-sm"
                         onClick={() => {
                           setSearch('')
                           setActionFilter('all')
@@ -945,132 +990,112 @@ export default function TaskLogsPage() {
                         }}
                         disabled={loading}
                       >
-                        <Filter className="h-4 w-4" />
-                        Reset Filters
+                        <Filter className="h-3 w-3 md:h-4 md:w-4" />
+                        Reset
                       </Button>
                     </div>
                   </form>
                 </CardContent>
               </Card>
 
-              {/* Stats Dashboard */}
-              <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
-                <Card>
-                  <CardContent className="pt-6">
+              {/* Stats Dashboard - Mobile optimized */}
+              <div className="grid grid-cols-2 md:grid-cols-5 gap-2 md:gap-4">
+                <Card className="overflow-hidden">
+                  <CardContent className="p-3">
                     <div className="flex items-center justify-between">
                       <div>
-                        <p className="text-sm text-gray-500">Total Logs</p>
-                        <p className="text-2xl font-bold text-gray-900">{stats.total.toLocaleString()}</p>
+                        <p className="text-xs md:text-sm text-gray-500">Total Logs</p>
+                        <p className="text-lg md:text-2xl font-bold text-gray-900">{stats.total.toLocaleString()}</p>
                       </div>
-                      <div className="p-2 bg-blue-100 rounded-lg">
-                        <History className="h-6 w-6 text-blue-600" />
+                      <div className="p-1 md:p-2 bg-blue-100 rounded-lg">
+                        <History className="h-4 w-4 md:h-6 md:w-6 text-blue-600" />
                       </div>
-                    </div>
-                    <div className="mt-2 text-xs text-gray-500">
-                      All-time system activities
                     </div>
                   </CardContent>
                 </Card>
 
-                <Card>
-                  <CardContent className="pt-6">
+                <Card className="overflow-hidden">
+                  <CardContent className="p-3">
                     <div className="flex items-center justify-between">
                       <div>
-                        <p className="text-sm text-gray-500">Today&apos;s Logs</p>
-                        <p className="text-2xl font-bold text-gray-900">{stats.today}</p>
+                        <p className="text-xs md:text-sm text-gray-500">Today</p>
+                        <p className="text-lg md:text-2xl font-bold text-gray-900">{stats.today}</p>
                       </div>
-                      <div className="p-2 bg-green-100 rounded-lg">
-                        <Calendar className="h-6 w-6 text-green-600" />
+                      <div className="p-1 md:p-2 bg-green-100 rounded-lg">
+                        <Calendar className="h-4 w-4 md:h-6 md:w-6 text-green-600" />
                       </div>
-                    </div>
-                    <div className="mt-2 text-xs text-gray-500">
-                      Activities in last 24 hours
                     </div>
                   </CardContent>
                 </Card>
 
-                <Card>
-                  <CardContent className="pt-6">
+                <Card className="overflow-hidden">
+                  <CardContent className="p-3">
                     <div className="flex items-center justify-between">
                       <div>
-                        <p className="text-sm text-gray-500">Unique Users</p>
-                        <p className="text-2xl font-bold text-gray-900">{stats.uniqueUsers}</p>
+                        <p className="text-xs md:text-sm text-gray-500">Users</p>
+                        <p className="text-lg md:text-2xl font-bold text-gray-900">{stats.uniqueUsers}</p>
                       </div>
-                      <div className="p-2 bg-purple-100 rounded-lg">
-                        <Users className="h-6 w-6 text-purple-600" />
+                      <div className="p-1 md:p-2 bg-purple-100 rounded-lg">
+                        <Users className="h-4 w-4 md:h-6 md:w-6 text-purple-600" />
                       </div>
-                    </div>
-                    <div className="mt-2 text-xs text-gray-500">
-                      Distinct users with activities
                     </div>
                   </CardContent>
                 </Card>
 
-                <Card>
-                  <CardContent className="pt-6">
+                <Card className="overflow-hidden col-span-2 md:col-span-1">
+                  <CardContent className="p-3">
                     <div className="flex items-center justify-between">
                       <div>
-                        <p className="text-sm text-gray-500">Top Action</p>
-                        <p className="text-2xl font-bold text-gray-900 capitalize">{stats.topAction.replace('_', ' ')}</p>
+                        <p className="text-xs md:text-sm text-gray-500">Top Action</p>
+                        <p className="text-sm md:text-base font-bold text-gray-900 truncate capitalize">
+                          {stats.topAction.replace('_', ' ')}
+                        </p>
                       </div>
-                      <div className="p-2 bg-orange-100 rounded-lg">
-                        <Activity className="h-6 w-6 text-orange-600" />
+                      <div className="p-1 md:p-2 bg-orange-100 rounded-lg">
+                        <Activity className="h-4 w-4 md:h-6 md:w-6 text-orange-600" />
                       </div>
-                    </div>
-                    <div className="mt-2 text-xs text-gray-500">
-                      Most frequent action type
                     </div>
                   </CardContent>
                 </Card>
 
-                <Card>
-                  <CardContent className="pt-6">
+                <Card className="overflow-hidden col-span-2 md:col-span-1">
+                  <CardContent className="p-3">
                     <div className="flex items-center justify-between">
                       <div>
-                        <p className="text-sm text-gray-500">Top Entity</p>
-                        <p className="text-2xl font-bold text-gray-900 capitalize">
+                        <p className="text-xs md:text-sm text-gray-500">Top Entity</p>
+                        <p className="text-sm md:text-base font-bold text-gray-900 truncate capitalize">
                           {stats.topEntity.replace('_', ' ')}
                         </p>
                       </div>
-                      <div className="p-2 bg-indigo-100 rounded-lg">
-                        <Database className="h-6 w-6 text-indigo-600" />
+                      <div className="p-1 md:p-2 bg-indigo-100 rounded-lg">
+                        <Database className="h-4 w-4 md:h-6 md:w-6 text-indigo-600" />
                       </div>
-                    </div>
-                    <div className="mt-2 text-xs text-gray-500">
-                      Most modified entity type
                     </div>
                   </CardContent>
                 </Card>
               </div>
 
-              {/* Action Distribution */}
+              {/* Action Distribution - Mobile optimized */}
               {Object.keys(stats.actionsByType).length > 0 && (
                 <Card>
-                  <CardHeader>
-                    <CardTitle>Action Distribution</CardTitle>
-                    <CardDescription>Breakdown of actions by type</CardDescription>
+                  <CardHeader className="p-3 md:p-4">
+                    <CardTitle className="text-base">Action Distribution</CardTitle>
+                    <CardDescription className="text-xs">Breakdown of actions by type</CardDescription>
                   </CardHeader>
-                  <CardContent>
-                    <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-3">
+                  <CardContent className="p-3 md:p-4">
+                    <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-2 md:gap-3">
                       {Object.entries(stats.actionsByType)
                         .sort((a, b) => b[1] - a[1])
+                        .slice(0, isMobile ? 4 : 6)
                         .map(([action, count]) => (
-                          <div key={action} className="bg-gray-50 p-4 rounded-lg border border-gray-200">
+                          <div key={action} className="bg-gray-50 p-2 md:p-3 rounded-lg border border-gray-200">
                             <div className="flex items-center justify-between">
                               <div>
-                                <div className="text-sm font-medium text-gray-900 capitalize">{action.replace('_', ' ')}</div>
-                                <div className="text-2xl font-bold text-gray-900 mt-1">{count}</div>
+                                <div className="text-xs font-medium text-gray-900 truncate capitalize">{action.replace('_', ' ')}</div>
+                                <div className="text-base md:text-lg font-bold text-gray-900 mt-1">{count}</div>
                               </div>
-                              <div className="p-2 bg-white rounded-lg">
+                              <div className="p-1 md:p-1.5 bg-white rounded-lg">
                                 {getActionIcon(action)}
-                              </div>
-                            </div>
-                            <div className="mt-2">
-                              <div className="w-full bg-gray-200 rounded-full h-2">
-                                <div 
-                                  className="bg-blue-600 h-2 rounded-full" 
-                                  style={{ width: `${(count / stats.total) * 100}%` }}
-                                />
                               </div>
                             </div>
                           </div>
@@ -1080,32 +1105,32 @@ export default function TaskLogsPage() {
                 </Card>
               )}
 
-              {/* Logs Table */}
+              {/* Logs Table - Mobile optimized */}
               <Card>
-                <CardHeader>
-                  <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                <CardHeader className="p-3 md:p-4">
+                  <div className="flex flex-col md:flex-row md:items-center justify-between gap-2 md:gap-4">
                     <div>
-                      <CardTitle>Activity Logs</CardTitle>
-                      <CardDescription>
-                        Showing {logs.length} of {pagination.total} logs (Page {pagination.page} of {pagination.totalPages})
+                      <CardTitle className="text-base">Activity Logs</CardTitle>
+                      <CardDescription className="text-xs">
+                        Page {pagination.page} of {pagination.totalPages} ({pagination.total} total)
                       </CardDescription>
                     </div>
-                    <div className="text-sm text-gray-600">
-                      Last updated: {new Date().toLocaleTimeString()}
+                    <div className="text-xs text-gray-600">
+                      {new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                     </div>
                   </div>
                 </CardHeader>
-                <CardContent>
+                <CardContent className="p-0 md:p-0">
                   {loading ? (
-                    <div className="flex flex-col items-center justify-center py-12">
-                      <Loader2 className="h-8 w-8 animate-spin text-blue-600 mb-4" />
-                      <p className="text-gray-600">Loading task logs...</p>
+                    <div className="flex flex-col items-center justify-center py-8 md:py-12">
+                      <Loader2 className="h-6 w-6 md:h-8 md:w-8 animate-spin text-blue-600 mb-3 md:mb-4" />
+                      <p className="text-sm text-gray-600">Loading task logs...</p>
                     </div>
                   ) : logs.length === 0 ? (
-                    <div className="text-center py-12">
-                      <FileText className="h-12 w-12 mx-auto text-gray-400 mb-4" />
-                      <h3 className="text-lg font-semibold text-gray-900 mb-2">No task logs found</h3>
-                      <p className="text-gray-500">
+                    <div className="text-center py-8 md:py-12 px-4">
+                      <FileText className="h-8 w-8 md:h-12 md:w-12 mx-auto text-gray-400 mb-3 md:mb-4" />
+                      <h3 className="text-base font-semibold text-gray-900 mb-2">No task logs found</h3>
+                      <p className="text-sm text-gray-500">
                         {search || actionFilter !== 'all' || entityFilter !== 'all' || dateRange !== 'all' 
                           ? 'Try adjusting your search filters' 
                           : 'No activity has been logged yet.'}
@@ -1113,17 +1138,17 @@ export default function TaskLogsPage() {
                     </div>
                   ) : (
                     <>
-                      <div className="overflow-x-auto border border-gray-200 rounded-lg">
+                      {/* Desktop Table */}
+                      <div className="hidden md:block overflow-x-auto border border-gray-200 rounded-lg">
                         <table className="w-full">
                           <thead>
                             <tr className="bg-gray-50 border-b border-gray-200">
-                              <th className="text-left py-3 px-4 font-medium text-gray-700">Timestamp</th>
-                              <th className="text-left py-3 px-4 font-medium text-gray-700">User</th>
-                              <th className="text-left py-3 px-4 font-medium text-gray-700">Action</th>
-                              <th className="text-left py-3 px-4 font-medium text-gray-700">Entity</th>
-                              <th className="text-left py-3 px-4 font-medium text-gray-700">Details</th>
-                              <th className="text-left py-3 px-4 font-medium text-gray-700">IP Address</th>
-                              <th className="text-left py-3 px-4 font-medium text-gray-700">Actions</th>
+                              <th className="text-left py-3 px-4 font-medium text-gray-700 text-sm">Timestamp</th>
+                              <th className="text-left py-3 px-4 font-medium text-gray-700 text-sm">User</th>
+                              <th className="text-left py-3 px-4 font-medium text-gray-700 text-sm">Action</th>
+                              <th className="text-left py-3 px-4 font-medium text-gray-700 text-sm">Entity</th>
+                              <th className="text-left py-3 px-4 font-medium text-gray-700 text-sm">Details</th>
+                              <th className="text-left py-3 px-4 font-medium text-gray-700 text-sm">Actions</th>
                             </tr>
                           </thead>
                           <tbody>
@@ -1132,18 +1157,15 @@ export default function TaskLogsPage() {
                               return (
                                 <tr key={log.id} className="border-b border-gray-100 hover:bg-gray-50 transition-colors">
                                   <td className="py-3 px-4">
-                                    <div className="font-medium text-gray-900">{date}</div>
+                                    <div className="font-medium text-gray-900 text-sm">{date}</div>
                                     <div className="text-xs text-gray-500 flex items-center gap-1">
                                       <Clock className="h-3 w-3" />
                                       {time}
                                     </div>
                                   </td>
                                   <td className="py-3 px-4">
-                                    <div className="font-medium text-gray-900 truncate max-w-[150px]" title={log.user_email}>
+                                    <div className="font-medium text-gray-900 text-sm truncate max-w-[150px]" title={log.user_email}>
                                       {log.user_email}
-                                    </div>
-                                    <div className="text-xs text-gray-500 truncate max-w-[150px]" title={log.user_id}>
-                                      {log.user_id.substring(0, 8)}...
                                     </div>
                                   </td>
                                   <td className="py-3 px-4">
@@ -1156,7 +1178,7 @@ export default function TaskLogsPage() {
                                     <div className="flex items-center gap-2">
                                       {getEntityIcon(log.entity_type)}
                                       <div>
-                                        <div className="font-medium text-gray-900 capitalize">
+                                        <div className="font-medium text-gray-900 text-sm capitalize">
                                           {log.entity_type.replace('_', ' ')}
                                         </div>
                                         {log.entity_name && (
@@ -1176,11 +1198,6 @@ export default function TaskLogsPage() {
                                     </div>
                                   </td>
                                   <td className="py-3 px-4">
-                                    <div className="text-xs font-mono text-gray-700 bg-gray-50 px-2 py-1 rounded border border-gray-200 truncate max-w-[120px]" title={log.ip_address || 'N/A'}>
-                                      {log.ip_address || 'N/A'}
-                                    </div>
-                                  </td>
-                                  <td className="py-3 px-4">
                                     <button
                                       onClick={() => handleViewDetails(log)}
                                       className="text-blue-600 hover:text-blue-700 text-sm flex items-center gap-1"
@@ -1196,36 +1213,91 @@ export default function TaskLogsPage() {
                         </table>
                       </div>
 
+                      {/* Mobile Cards View */}
+                      <div className="md:hidden space-y-3 p-3">
+                        {logs.map((log) => {
+                          const { date, time } = formatDateTime(log.created_at)
+                          return (
+                            <div key={log.id} className="bg-white border border-gray-200 rounded-lg p-3 space-y-2">
+                              <div className="flex items-start justify-between">
+                                <div>
+                                  <div className="flex items-center gap-2 mb-1">
+                                    {getActionIcon(log.action)}
+                                    {getActionBadge(log.action)}
+                                  </div>
+                                  <div className="text-xs text-gray-500 flex items-center gap-1">
+                                    <Clock className="h-3 w-3" />
+                                    {date} {time}
+                                  </div>
+                                </div>
+                                <button
+                                  onClick={() => handleViewDetails(log)}
+                                  className="text-blue-600 hover:text-blue-700 text-xs flex items-center gap-1"
+                                >
+                                  <Eye className="h-3 w-3" />
+                                  View
+                                </button>
+                              </div>
+                              
+                              <div className="flex items-center gap-2">
+                                {getEntityIcon(log.entity_type)}
+                                <div>
+                                  <div className="font-medium text-gray-900 text-sm capitalize">
+                                    {log.entity_type.replace('_', ' ')}
+                                  </div>
+                                  {log.entity_name && (
+                                    <div className="text-xs text-gray-500 truncate">
+                                      {log.entity_name}
+                                    </div>
+                                  )}
+                                </div>
+                              </div>
+                              
+                              <div className="text-sm font-medium text-gray-900 truncate">
+                                {log.user_email}
+                              </div>
+                              
+                              <div className="text-xs bg-gray-50 p-2 rounded border border-gray-200">
+                                <div className="text-gray-700 truncate">
+                                  {formatDetails(log.details).substring(0, 80)}
+                                  {formatDetails(log.details).length > 80 ? '...' : ''}
+                                </div>
+                              </div>
+                            </div>
+                          )
+                        })}
+                      </div>
+
                       {/* Pagination */}
                       {pagination.totalPages > 1 && (
-                        <div className="flex flex-col sm:flex-row items-center justify-between mt-6 gap-4">
-                          <div className="text-sm text-gray-500">
+                        <div className="flex flex-col sm:flex-row items-center justify-between p-3 md:p-6 pt-3 md:pt-4 gap-3 md:gap-4">
+                          <div className="text-xs md:text-sm text-gray-500">
                             Showing {(pagination.page - 1) * pagination.perPage + 1} to{' '}
                             {Math.min(pagination.page * pagination.perPage, pagination.total)} of{' '}
                             {pagination.total} entries
                           </div>
-                          <div className="flex items-center gap-2">
+                          <div className="flex items-center gap-1 md:gap-2">
                             <Button
                               variant="outline"
                               onClick={() => setPagination({ ...pagination, page: pagination.page - 1 })}
                               disabled={pagination.page === 1 || loading}
-                              className="px-3 py-1"
+                              className="px-2 md:px-3 py-1 text-xs"
                             >
-                              <ChevronLeft className="h-4 w-4" />
-                              Previous
+                              <ChevronLeft className="h-3 w-3 md:h-4 md:w-4" />
+                              Prev
                             </Button>
                             
                             <div className="flex items-center gap-1">
-                              {Array.from({ length: Math.min(5, pagination.totalPages) }, (_, i) => {
+                              {Array.from({ length: Math.min(3, pagination.totalPages) }, (_, i) => {
                                 let pageNum
-                                if (pagination.totalPages <= 5) {
+                                if (pagination.totalPages <= 3) {
                                   pageNum = i + 1
-                                } else if (pagination.page <= 3) {
+                                } else if (pagination.page <= 2) {
                                   pageNum = i + 1
-                                } else if (pagination.page >= pagination.totalPages - 2) {
-                                  pageNum = pagination.totalPages - 4 + i
+                                } else if (pagination.page >= pagination.totalPages - 1) {
+                                  pageNum = pagination.totalPages - 2 + i
                                 } else {
-                                  pageNum = pagination.page - 2 + i
+                                  pageNum = pagination.page - 1 + i
                                 }
                                 
                                 return (
@@ -1233,7 +1305,7 @@ export default function TaskLogsPage() {
                                     key={pageNum}
                                     variant={pagination.page === pageNum ? "default" : "outline"}
                                     onClick={() => setPagination({ ...pagination, page: pageNum })}
-                                    className="px-3 py-1 min-w-[40px]"
+                                    className="px-2 md:px-3 py-1 text-xs min-w-[32px] md:min-w-[40px]"
                                     disabled={loading}
                                   >
                                     {pageNum}
@@ -1246,10 +1318,10 @@ export default function TaskLogsPage() {
                               variant="outline"
                               onClick={() => setPagination({ ...pagination, page: pagination.page + 1 })}
                               disabled={pagination.page === pagination.totalPages || loading}
-                              className="px-3 py-1"
+                              className="px-2 md:px-3 py-1 text-xs"
                             >
                               Next
-                              <ChevronRight className="h-4 w-4" />
+                              <ChevronRight className="h-3 w-3 md:h-4 md:w-4" />
                             </Button>
                           </div>
                         </div>
@@ -1259,80 +1331,30 @@ export default function TaskLogsPage() {
                 </CardContent>
               </Card>
 
-              {/* Information Panel */}
-              <Card>
-                <CardContent className="pt-6">
-                  <div className="flex items-start gap-3">
-                    <AlertCircle className="h-5 w-5 text-blue-500 mt-0.5 flex-shrink-0" />
-                    <div className="space-y-4">
-                      <div>
-                        <h4 className="font-medium text-gray-900 mb-1">About Audit Logs</h4>
-                        <p className="text-sm text-gray-600">
-                          Audit logs track all user activities in the system including create, update, delete, view, and login actions. 
-                          This audit trail helps with security monitoring, debugging, and compliance requirements.
-                          All actions are automatically logged to provide a complete history of system activities.
+              {/* Quick Stats - Mobile optimized */}
+              <Card className="md:hidden">
+                <CardContent className="p-3">
+                  <div className="space-y-3">
+                    <div>
+                      <h4 className="text-sm font-medium text-gray-900 mb-2">Quick Stats</h4>
+                      <div className="grid grid-cols-2 gap-2">
+                        <div className="bg-gray-50 p-2 rounded-lg">
+                          <div className="text-xs text-gray-500">Actions Today</div>
+                          <div className="font-bold text-gray-900">{stats.today}</div>
+                        </div>
+                        <div className="bg-gray-50 p-2 rounded-lg">
+                          <div className="text-xs text-gray-500">Unique Users</div>
+                          <div className="font-bold text-gray-900">{stats.uniqueUsers}</div>
+                        </div>
+                      </div>
+                    </div>
+                    
+                    <div className="border-t border-gray-200 pt-3">
+                      <div className="flex items-center gap-2">
+                        <AlertCircle className="h-4 w-4 text-blue-500 flex-shrink-0" />
+                        <p className="text-xs text-gray-600">
+                          Task logs track all user activities including applicants' job applications, logins, and profile updates.
                         </p>
-                      </div>
-                      
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                        <div>
-                          <h5 className="text-sm font-medium text-gray-700 mb-2">Action Types</h5>
-                          <div className="flex flex-wrap gap-1">
-                            {actionOptions.slice(1).map(action => (
-                              <span 
-                                key={action.value}
-                                className="px-2 py-1 bg-gray-100 text-gray-800 text-xs rounded capitalize"
-                              >
-                                {action.label}
-                              </span>
-                            ))}
-                          </div>
-                        </div>
-                        <div>
-                          <h5 className="text-sm font-medium text-gray-700 mb-2">Entity Types</h5>
-                          <div className="flex flex-wrap gap-1">
-                            {entityOptions.slice(1).map(entity => (
-                              <span 
-                                key={entity.value}
-                                className="px-2 py-1 bg-gray-100 text-gray-800 text-xs rounded capitalize"
-                              >
-                                {entity.label}
-                              </span>
-                            ))}
-                          </div>
-                        </div>
-                      </div>
-
-                      <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-                        <div className="flex items-start gap-2">
-                          <Shield className="h-5 w-5 text-blue-600 mt-0.5 flex-shrink-0" />
-                          <div>
-                            <h5 className="font-medium text-blue-900 mb-1">Security & Compliance</h5>
-                            <p className="text-sm text-blue-700">
-                              • All actions are automatically logged with timestamp, user, and IP address<br/>
-                              • Complete audit trail for security investigations<br/>
-                              • Data retention for compliance requirements<br/>
-                              • Export capability for external audits<br/>
-                              • Super admin only access ensures data integrity
-                            </p>
-                          </div>
-                        </div>
-                      </div>
-
-                      <div className="bg-red-50 border border-red-200 rounded-lg p-4">
-                        <div className="flex items-start gap-2">
-                          <AlertTriangle className="h-5 w-5 text-red-600 mt-0.5 flex-shrink-0" />
-                          <div>
-                            <h5 className="font-medium text-red-900 mb-1">Important Notes</h5>
-                            <ul className="text-sm text-red-700 space-y-1">
-                              <li>• This page is <strong>restricted to Super Administrators only</strong></li>
-                              <li>• Audit logs contain sensitive system information</li>
-                              <li>• Clearing logs is irreversible - use with caution</li>
-                              <li>• Regular exports recommended for backup</li>
-                              <li>• Monitor for suspicious activity patterns</li>
-                            </ul>
-                          </div>
-                        </div>
                       </div>
                     </div>
                   </div>

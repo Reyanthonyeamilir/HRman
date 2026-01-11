@@ -16,7 +16,7 @@ import { getCurrentUser, signOut } from '@/lib/supabaseClient'
 const links = [
   { label: 'Profile', href: '/applicant/profile', icon: User },
   { label: 'Dashboard', href: '/applicant', icon: LayoutDashboard },
-  { label: 'Job Posting', href: '/applicant/job-postings', icon: Briefcase },
+  { label: 'Apply Job', href: '/applicant/job-postings', icon: Briefcase },
   { label: 'Requirements', href: '/applicant/requirements', icon: ClipboardList },
   { label: 'Track Application', href: '/applicant/track', icon: Compass },
 

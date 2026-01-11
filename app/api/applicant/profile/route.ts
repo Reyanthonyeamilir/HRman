@@ -15,10 +15,11 @@ const createServerSupabase = () => {
 
 export async function GET(request: NextRequest) {
   try {
-    console.log('📋 === Profile GET API Called ===')
+    console.log('🔍 [PROFILE API] GET request received')
     
     const authHeader = request.headers.get('Authorization')
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      console.log('❌ [PROFILE API] No authorization header')
       return NextResponse.json(
         { error: 'Unauthorized - No token provided' },
         { status: 401 }
@@ -28,20 +29,26 @@ export async function GET(request: NextRequest) {
     const token = authHeader.split(' ')[1]
     const supabase = createServerSupabase()
     
+    console.log('🔑 [PROFILE API] Token received, length:', token.length)
+    
     const { data: { user }, error: authError } = await supabase.auth.getUser(token)
     
     if (authError || !user) {
+      console.log('❌ [PROFILE API] Auth error:', authError?.message)
       return NextResponse.json(
         { error: 'Unauthorized - Invalid token' },
         { status: 401 }
       )
     }
 
+    console.log('✅ [PROFILE API] User authenticated:', user.id, user.email)
+    
     const userId = user.id
     const searchParams = request.nextUrl.searchParams
     const includeAll = searchParams.get('includeAll') === 'true'
     
-    // Fetch main profile
+    console.log('📋 [PROFILE API] Fetching profile for user:', userId)
+    
     const { data: profile, error: profileError } = await supabase
       .from('profiles')
       .select('*')
@@ -49,17 +56,36 @@ export async function GET(request: NextRequest) {
       .single()
 
     if (profileError) {
+      console.error('❌ [PROFILE API] Profile fetch error:', profileError)
       return NextResponse.json(
         { error: `Profile not found: ${profileError.message}` },
         { status: 404 }
       )
     }
 
+    console.log('✅ [PROFILE API] Profile found:', {
+      id: profile.id,
+      email: profile.email,
+      avatar_url: profile.avatar_url,
+      hasAvatar: !!profile.avatar_url,
+      avatarType: profile.avatar_url?.includes('ui-avatars.com') ? 'ui-avatars' : 
+                 profile.avatar_url?.includes('supabase') ? 'supabase' : 'other'
+    })
+    
+    if (profile.avatar_url) {
+      console.log('🖼️ [PROFILE API] Avatar URL analysis:', {
+        url: profile.avatar_url,
+        isValidURL: profile.avatar_url.startsWith('http'),
+        isSupabaseURL: profile.avatar_url.includes('supabase.co') || profile.avatar_url.includes('supabase.in')
+      })
+    }
+    
     if (!includeAll) {
+      console.log('📤 [PROFILE API] Returning basic profile')
       return NextResponse.json(profile)
     }
 
-    // Fetch all related data
+    console.log('📚 [PROFILE API] Fetching all related data')
     const [
       { data: educations },
       { data: work_experiences },
@@ -67,35 +93,11 @@ export async function GET(request: NextRequest) {
       { data: eligibilities },
       { data: trainings }
     ] = await Promise.all([
-      supabase
-        .from('educations')
-        .select('*')
-        .eq('profile_id', userId)
-        .order('created_at', { ascending: false }),
-      
-      supabase
-        .from('work_experiences')
-        .select('*')
-        .eq('profile_id', userId)
-        .order('start_date', { ascending: false }),
-      
-      supabase
-        .from('skills')
-        .select('*')
-        .eq('profile_id', userId)
-        .order('created_at', { ascending: false }),
-      
-      supabase
-        .from('eligibilities')
-        .select('*')
-        .eq('profile_id', userId)
-        .order('created_at', { ascending: false }),
-      
-      supabase
-        .from('trainings')
-        .select('*')
-        .eq('profile_id', userId)
-        .order('created_at', { ascending: false })
+      supabase.from('educations').select('*').eq('profile_id', userId).order('created_at', { ascending: false }),
+      supabase.from('work_experiences').select('*').eq('profile_id', userId).order('start_date', { ascending: false }),
+      supabase.from('skills').select('*').eq('profile_id', userId).order('created_at', { ascending: false }),
+      supabase.from('eligibilities').select('*').eq('profile_id', userId).order('created_at', { ascending: false }),
+      supabase.from('trainings').select('*').eq('profile_id', userId).order('created_at', { ascending: false })
     ])
 
     const response = {
@@ -107,10 +109,13 @@ export async function GET(request: NextRequest) {
       trainings: trainings || []
     }
 
+    console.log('📤 [PROFILE API] Sending full response')
+    console.log('🖼️ [PROFILE API] Final avatar_url:', response.avatar_url)
+    
     return NextResponse.json(response)
     
   } catch (error: any) {
-    console.error('Error in profile GET API:', error)
+    console.error('💥 [PROFILE API] Error in GET:', error)
     return NextResponse.json(
       { error: error.message || 'Internal server error' },
       { status: 500 }
@@ -120,7 +125,7 @@ export async function GET(request: NextRequest) {
 
 export async function PUT(request: NextRequest) {
   try {
-    console.log('✏️ === Profile PUT API Called ===')
+    console.log('✏️ [PROFILE API] PUT request received')
     
     const authHeader = request.headers.get('Authorization')
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
@@ -145,8 +150,12 @@ export async function PUT(request: NextRequest) {
     const userId = user.id
     const body = await request.json()
     
-    console.log('Updating profile for user:', userId)
-    console.log('Update data:', body)
+    console.log('📝 [PROFILE API] Updating profile:', {
+      userId,
+      avatar_url: body.avatar_url,
+      firstName: body.first_name,
+      lastName: body.last_name
+    })
     
     const updateData: any = {
       updated_at: new Date().toISOString()
@@ -163,7 +172,12 @@ export async function PUT(request: NextRequest) {
       }
     })
 
-    // Validate age if provided
+    // Clean up avatar URL if it exists
+    if (updateData.avatar_url) {
+      updateData.avatar_url = updateData.avatar_url.trim()
+      console.log('🖼️ [PROFILE API] Setting avatar_url to:', updateData.avatar_url)
+    }
+
     if (updateData.age !== undefined && updateData.age !== null) {
       const age = parseInt(updateData.age)
       if (isNaN(age) || age < 18 || age > 100) {
@@ -183,18 +197,20 @@ export async function PUT(request: NextRequest) {
       .single()
 
     if (error) {
-      console.error('Profile update error:', error)
+      console.error('❌ [PROFILE API] Update error:', error)
       return NextResponse.json(
         { error: `Update failed: ${error.message}` },
         { status: 400 }
       )
     }
 
-    console.log('✅ Profile updated successfully:', data)
+    console.log('✅ [PROFILE API] Profile updated successfully')
+    console.log('🖼️ [PROFILE API] New avatar_url:', data?.avatar_url)
+    
     return NextResponse.json(data)
     
   } catch (error: any) {
-    console.error('Error updating profile:', error)
+    console.error('💥 [PROFILE API] Error in PUT:', error)
     return NextResponse.json(
       { error: error.message || 'Internal server error' },
       { status: 500 }
