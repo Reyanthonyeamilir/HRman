@@ -186,38 +186,6 @@ export default function AdministratorDashboard() {
     }
   }
 
-  const handleManageUsers = () => {
-    if (user?.role === 'super_admin') {
-      router.push('/admin/addusers')
-    } else {
-      router.push('/hr/candidates')
-    }
-  }
-
-  const handleViewApplications = () => {
-    if (user?.role === 'super_admin') {
-      router.push('/admin/applications')
-    } else {
-      router.push('/hr/applications')
-    }
-  }
-
-  const handleJobPostings = () => {
-    if (user?.role === 'super_admin') {
-      router.push('/admin/jobposting')
-    } else {
-      router.push('/hr/jobs')
-    }
-  }
-
-  const handleSystemSettings = () => {
-    if (user?.role === 'super_admin') {
-      router.push('/admin/settings')
-    } else {
-      router.push('/hr/profile')
-    }
-  }
-
   const refreshStats = () => {
     loadStats()
     setSuccess('Statistics refreshed successfully!')
@@ -442,96 +410,20 @@ export default function AdministratorDashboard() {
             </div>
           </div>
 
-          {/* COMPACT QUICK ACTIONS */}
-          <div className="mb-4 flex-shrink-0">
-            <h2 className="text-lg font-semibold text-gray-900 mb-3">Quick Actions</h2>
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-              <button
-                onClick={handleManageUsers}
-                className="bg-white border border-gray-200 rounded-lg p-4 hover:border-blue-300 hover:shadow-sm transition-all text-left group"
-              >
-                <div className="flex items-center mb-2">
-                  <div className="p-1.5 bg-blue-50 rounded-lg group-hover:bg-blue-100 transition-colors">
-                    <Users className="h-4 w-4 text-blue-600" />
-                  </div>
-                </div>
-                <h3 className="text-sm font-semibold text-gray-900 mb-1">
-                  {user?.role === 'super_admin' ? 'Manage Users' : 'Candidates'}
-                </h3>
-                <p className="text-xs text-gray-500">
-                  {user?.role === 'super_admin' 
-                    ? 'Add system users' 
-                    : 'Browse profiles'}
-                </p>
-              </button>
-
-              <button
-                onClick={handleViewApplications}
-                className="bg-white border border-gray-200 rounded-lg p-4 hover:border-green-300 hover:shadow-sm transition-all text-left group"
-              >
-                <div className="flex items-center mb-2">
-                  <div className="p-1.5 bg-green-50 rounded-lg group-hover:bg-green-100 transition-colors">
-                    <FileText className="h-4 w-4 text-green-600" />
-                  </div>
-                </div>
-                <h3 className="text-sm font-semibold text-gray-900 mb-1">Applications</h3>
-                <p className="text-xs text-gray-500">Review applications</p>
-              </button>
-
-              <button
-                onClick={handleJobPostings}
-                className="bg-white border border-gray-200 rounded-lg p-4 hover:border-indigo-300 hover:shadow-sm transition-all text-left group"
-              >
-                <div className="flex items-center mb-2">
-                  <div className="p-1.5 bg-indigo-50 rounded-lg group-hover:bg-indigo-100 transition-colors">
-                    <Briefcase className="h-4 w-4 text-indigo-600" />
-                  </div>
-                </div>
-                <h3 className="text-sm font-semibold text-gray-900 mb-1">
-                  {user?.role === 'super_admin' ? 'Job Postings' : 'Jobs'}
-                </h3>
-                <p className="text-xs text-gray-500">
-                  {user?.role === 'super_admin' 
-                    ? 'Manage job posts' 
-                    : 'View listings'}
-                </p>
-              </button>
-
-              <button
-                onClick={handleSystemSettings}
-                className="bg-white border border-gray-200 rounded-lg p-4 hover:border-purple-300 hover:shadow-sm transition-all text-left group"
-              >
-                <div className="flex items-center mb-2">
-                  <div className="p-1.5 bg-purple-50 rounded-lg group-hover:bg-purple-100 transition-colors">
-                    <Shield className="h-4 w-4 text-purple-600" />
-                  </div>
-                </div>
-                <h3 className="text-sm font-semibold text-gray-900 mb-1">
-                  {user?.role === 'super_admin' ? 'Settings' : 'Profile'}
-                </h3>
-                <p className="text-xs text-gray-500">
-                  {user?.role === 'super_admin' 
-                    ? 'System settings' 
-                    : 'Your profile'}
-                </p>
-              </button>
-            </div>
-          </div>
-
-          {/* COMPACT WELCOME MESSAGE */}
-          <div className="bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-200 rounded-lg p-4 mb-4 flex-grow overflow-auto">
+          {/* COMPACT WELCOME MESSAGE - Removed Quick Actions and expanded this section */}
+          <div className="bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-200 rounded-lg p-6 flex-grow overflow-auto">
             <div className="h-full flex flex-col">
-              <div className="mb-3">
-                <h2 className="text-lg font-bold text-gray-900 mb-2">
-                  {user?.role === 'super_admin' ? 'Super Admin Controls' : 'HR Management Tools'}
+              <div className="mb-6">
+                <h2 className="text-xl font-bold text-gray-900 mb-3">
+                  {user?.role === 'super_admin' ? 'Super Admin Dashboard' : 'HR Manager Dashboard'}
                 </h2>
-                <p className="text-sm text-gray-700 mb-3">
+                <p className="text-sm text-gray-700 mb-4">
                   {user?.role === 'super_admin' 
-                    ? 'You have full system access to manage users, jobs, applications, and system settings.'
-                    : 'Manage job applications, candidates, and HR processes efficiently.'
+                    ? 'As a Super Administrator, you have full access to manage all aspects of the NORSU HR system. Use the sidebar to navigate between different management sections.'
+                    : 'Welcome to the HR Management Dashboard. Use the sidebar navigation to access candidate profiles, job applications, job postings, and other HR management tools.'
                   }
                 </p>
-                <div className="flex flex-wrap items-center gap-2 mb-3">
+                <div className="flex flex-wrap items-center gap-2 mb-4">
                   <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
                     <Building className="w-3 h-3 mr-1" />
                     NORSU HR System
@@ -539,33 +431,95 @@ export default function AdministratorDashboard() {
                   {user?.role === 'super_admin' && (
                     <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-purple-100 text-purple-800">
                       <Shield className="w-3 h-3 mr-1" />
-                      Full Access
+                      Full System Access
                     </span>
+                  )}
+                  <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
+                    <TrendingUp className="w-3 h-3 mr-1" />
+                    {stats.totalApplications} Total Applications
+                  </span>
+                </div>
+              </div>
+
+              {/* Key Features */}
+              <div className="mb-6">
+                <h3 className="text-lg font-semibold text-gray-900 mb-3">
+                  {user?.role === 'super_admin' ? 'System Management Areas' : 'Key Features'}
+                </h3>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {user?.role === 'super_admin' ? (
+                    <>
+                      <div className="bg-white rounded-lg border border-gray-200 p-4">
+                        <div className="flex items-center mb-2">
+                          <Users className="h-5 w-5 text-blue-600 mr-2" />
+                          <h4 className="font-medium text-gray-900">User Management</h4>
+                        </div>
+                        <p className="text-sm text-gray-600">Add and manage system users, HR staff, and administrators</p>
+                      </div>
+                      <div className="bg-white rounded-lg border border-gray-200 p-4">
+                        <div className="flex items-center mb-2">
+                          <FileText className="h-5 w-5 text-green-600 mr-2" />
+                          <h4 className="font-medium text-gray-900">Applications</h4>
+                        </div>
+                        <p className="text-sm text-gray-600">Review and manage all job applications across the system</p>
+                      </div>
+                      <div className="bg-white rounded-lg border border-gray-200 p-4">
+                        <div className="flex items-center mb-2">
+                          <Briefcase className="h-5 w-5 text-indigo-600 mr-2" />
+                          <h4 className="font-medium text-gray-900">Job Postings</h4>
+                        </div>
+                        <p className="text-sm text-gray-600">Create, edit, and manage job postings and listings</p>
+                      </div>
+                      <div className="bg-white rounded-lg border border-gray-200 p-4">
+                        <div className="flex items-center mb-2">
+                          <Shield className="h-5 w-5 text-purple-600 mr-2" />
+                          <h4 className="font-medium text-gray-900">System Settings</h4>
+                        </div>
+                        <p className="text-sm text-gray-600">Configure system parameters and security settings</p>
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      <div className="bg-white rounded-lg border border-gray-200 p-4">
+                        <div className="flex items-center mb-2">
+                          <Users className="h-5 w-5 text-blue-600 mr-2" />
+                          <h4 className="font-medium text-gray-900">Candidate Profiles</h4>
+                        </div>
+                        <p className="text-sm text-gray-600">Browse and review candidate information and profiles</p>
+                      </div>
+                      <div className="bg-white rounded-lg border border-gray-200 p-4">
+                        <div className="flex items-center mb-2">
+                          <FileText className="h-5 w-5 text-green-600 mr-2" />
+                          <h4 className="font-medium text-gray-900">Application Review</h4>
+                        </div>
+                        <p className="text-sm text-gray-600">Process and evaluate job applications efficiently</p>
+                      </div>
+                    </>
                   )}
                 </div>
               </div>
 
               {/* User Info - at bottom */}
-              <div className="mt-auto pt-3 border-t border-blue-200">
-                <div className="flex justify-between items-center">
+              <div className="mt-auto pt-4 border-t border-blue-200">
+                <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-3">
                   <div>
-                    <p className="text-xs text-gray-600">
-                      <span className="font-medium">Email:</span> {user?.email}
+                    <p className="text-sm text-gray-600">
+                      <span className="font-medium">Logged in as:</span> {user?.email}
                     </p>
-                    <p className="text-xs text-gray-600">
+                    <p className="text-sm text-gray-600">
                       <span className="font-medium">Role:</span> {user?.role === 'super_admin' ? 'Super Administrator' : 'HR Manager'}
                     </p>
                   </div>
                   <div className="text-right">
-                    <p className="text-xs text-gray-500">
+                    <p className="text-sm text-gray-600">
                       {new Date().toLocaleDateString('en-US', { 
-                        month: 'short', 
+                        month: 'long', 
                         day: 'numeric', 
                         year: 'numeric' 
                       })}
                     </p>
-                    <p className="text-xs text-gray-400 mt-1">
-                      NORSU HR Management System
+                    <p className="text-xs text-gray-500 mt-1">
+                      NORSU Human Resources Management System
                     </p>
                   </div>
                 </div>

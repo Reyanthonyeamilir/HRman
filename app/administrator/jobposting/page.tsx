@@ -9,7 +9,7 @@ import {
   Plus, Search, Edit, Trash2, Eye, MoreVertical, Briefcase, 
   MapPin, Calendar, Users, X, Building, Image as ImageIcon, 
   XCircle, Lock, UserCheck, Filter, Download, ChevronDown,
-  AlertCircle
+  AlertCircle, FileText
 } from 'lucide-react'
 import { useRouter } from 'next/navigation'
 
@@ -34,6 +34,7 @@ interface JobPosting {
   created_by: string
   applications_count?: number
   can_edit?: boolean
+  can_delete?: boolean // NEW: Track if job can be deleted
   creator_email?: string
   creator_name?: string
 }
@@ -187,8 +188,15 @@ export default function JobPostingsPage() {
 
       const processedJobs = jobsData?.map(job => {
         const isCreator = job.created_by === currentUser.id
-        const canEdit = currentUser.role === 'super_admin' || 
-                       (currentUser.role === 'hr' && isCreator)
+        
+        // HR can edit any job (not just their own)
+        const canEdit = currentUser.role === 'super_admin' || currentUser.role === 'hr'
+        
+        // HR can delete only if they created it AND it has no applications
+        // Super Admin can always delete
+        const hasApplications = (job.applications?.length || 0) > 0
+        const canDelete = currentUser.role === 'super_admin' || 
+                         (currentUser.role === 'hr' && isCreator && !hasApplications)
 
         const creatorName = job.profiles 
           ? `${job.profiles.first_name || ''} ${job.profiles.last_name || ''}`.trim() || job.profiles.email
@@ -198,6 +206,7 @@ export default function JobPostingsPage() {
           ...job,
           applications_count: job.applications?.length || 0,
           can_edit: canEdit,
+          can_delete: canDelete, // NEW: Track delete permission
           creator_email: job.profiles?.email || 'Unknown',
           creator_name: creatorName
         }
@@ -396,11 +405,6 @@ export default function JobPostingsPage() {
       return
     }
 
-    if (!job.can_edit && currentUser?.role === 'hr') {
-      alert(`You can only edit job postings you created.\n\nThis job was created by: ${job.creator_name}`)
-      return
-    }
-
     setEditFormData({
       id: job.id,
       job_title: job.job_title,
@@ -417,12 +421,6 @@ export default function JobPostingsPage() {
   const toggleJobStatus = async (jobId: string, currentStatus: JobStatus, jobTitle: string) => {
     if (!hasAccess()) {
       alert('Access denied. You do not have permission to update job status.')
-      return
-    }
-
-    const job = jobs.find(j => j.id === jobId)
-    if (job && !job.can_edit && currentUser?.role === 'hr') {
-      alert(`You can only update job postings you created.\n\nThis job was created by: ${job.creator_name}`)
       return
     }
 
@@ -458,40 +456,28 @@ export default function JobPostingsPage() {
     }
 
     const job = jobs.find(j => j.id === jobId)
-    if (job && !job.can_edit && currentUser?.role === 'hr') {
-      alert(`You can only delete job postings you created.\n\nThis job was created by: ${job.creator_name}`)
+    
+    // Check delete permission
+    if (!job?.can_delete) {
+      if (currentUser?.role === 'hr' && job) {
+        if (job.applications_count && job.applications_count > 0) {
+          alert(`Cannot delete "${jobTitle}" because it has ${job.applications_count} application(s).\n\nOnly Super Admin can delete jobs with applications.`)
+        } else if (job.created_by !== currentUser.id) {
+          alert(`You can only delete job postings you created.\n\nThis job was created by: ${job.creator_name}`)
+        }
+      }
       return
     }
 
     if (!confirm(`Are you sure you want to delete "${jobTitle}"? This action cannot be undone.`)) return
     
     try {
-      const job = jobs.find(j => j.id === jobId)
-      
-      const { data: applications, error: appsError } = await supabase
-        .from('applications')
-        .select('id')
-        .eq('job_id', jobId)
-
-      if (appsError) throw appsError
-
-      if (applications && applications.length > 0) {
-        if (!confirm(`This job has ${applications.length} application(s). Deleting will remove all associated applications. Continue?`)) {
-          return
-        }
-
-        const { error: deleteAppsError } = await supabase
-          .from('applications')
-          .delete()
-          .eq('job_id', jobId)
-
-        if (deleteAppsError) throw deleteAppsError
-      }
-
+      // Delete image if exists
       if (job?.image_path) {
         await deleteImage(job.image_path)
       }
 
+      // Delete the job (applications will cascade due to foreign key constraint)
       const { error } = await supabase
         .from('job_postings')
         .delete()
@@ -557,6 +543,26 @@ export default function JobPostingsPage() {
     if (!bulkAction || selectedJobs.length === 0) return
 
     try {
+      // Check permissions for selected jobs
+      const selectedJobObjects = jobs.filter(job => selectedJobs.includes(job.id))
+      
+      // For delete action, check if HR has permission for each job
+      if (bulkAction === 'delete') {
+        if (currentUser?.role === 'hr') {
+          const cannotDeleteJobs = selectedJobObjects.filter(job => !job.can_delete)
+          if (cannotDeleteJobs.length > 0) {
+            const jobList = cannotDeleteJobs.map(job => 
+              `• "${job.job_title}" (${job.applications_count || 0} applications)`
+            ).join('\n')
+            
+            alert(`Cannot delete the following jobs:\n\n${jobList}\n\nOnly Super Admin can delete jobs with applications.`)
+            return
+          }
+        }
+        
+        if (!confirm(`Are you sure you want to delete ${selectedJobs.length} job(s)? This action cannot be undone.`)) return
+      }
+
       switch (bulkAction) {
         case 'activate':
           await supabase
@@ -573,10 +579,8 @@ export default function JobPostingsPage() {
           break
 
         case 'delete':
-          if (!confirm(`Are you sure you want to delete ${selectedJobs.length} job(s)?`)) return
-          
-          for (const jobId of selectedJobs) {
-            const job = jobs.find(j => j.id === jobId)
+          // Delete images first
+          for (const job of selectedJobObjects) {
             if (job?.image_path) {
               await deleteImage(job.image_path)
             }
@@ -983,7 +987,7 @@ export default function JobPostingsPage() {
                 {currentUser?.role === 'super_admin' 
                   ? 'You have full administrative access to all job postings'
                   : currentUser?.role === 'hr'
-                  ? 'You can manage jobs you created'
+                  ? 'You can edit all jobs, but can only delete your own jobs without applications'
                   : 'View only access'}
               </p>
             </div>
@@ -1025,7 +1029,7 @@ export default function JobPostingsPage() {
                 : currentUser?.role === 'hr'
                 ? 'HR Manager'
                 : 'Viewer'}
-              {currentUser?.role === 'hr' && ' (Can only edit your own jobs)'}
+              {currentUser?.role === 'hr' && ' (Can edit all, delete only your own without applications)'}
             </div>
 
             <button
@@ -1229,8 +1233,10 @@ function JobCard({
   }
 
   const isCreator = currentUser?.id === job.created_by
-  const canEdit = job.can_edit || currentUser?.role === 'super_admin'
+  const canEdit = job.can_edit
+  const canDelete = job.can_delete
   const isHRUser = currentUser?.role === 'hr'
+  const isSuperAdmin = currentUser?.role === 'super_admin'
 
   return (
     <div className={`bg-white rounded-lg border p-6 hover:shadow-md transition-shadow relative ${selected ? 'ring-2 ring-blue-500' : ''}`}>
@@ -1244,8 +1250,16 @@ function JobCard({
         />
       </div>
 
+      {/* Applications Warning */}
+      {job.applications_count && job.applications_count > 0 && isHRUser && !isCreator && (
+        <div className="absolute top-4 right-4 flex items-center gap-1 text-yellow-600 bg-yellow-50 px-2 py-1 rounded text-xs">
+          <FileText className="h-3 w-3" />
+          <span>{job.applications_count} application(s) - Delete disabled</span>
+        </div>
+      )}
+
       {/* Creator Indicator */}
-      {isHRUser && !isCreator && (
+      {isHRUser && !isCreator && (!job.applications_count || job.applications_count === 0) && (
         <div className="absolute top-4 right-4 flex items-center gap-1 text-gray-400 text-xs">
           <Lock className="h-3 w-3" />
           <span>Created by: {job.creator_name}</span>
@@ -1267,10 +1281,16 @@ function JobCard({
                 <div className="flex-1">
                   <div className="flex items-start gap-2">
                     <h3 className="text-lg font-semibold text-gray-900">{job.job_title}</h3>
-                    {isHRUser && !isCreator && (
+                    {isHRUser && !isCreator && (!job.applications_count || job.applications_count === 0) && (
                       <span className="inline-flex items-center gap-1 bg-gray-100 text-gray-500 text-xs px-2 py-1 rounded">
                         <Lock className="h-3 w-3" />
-                        Read-only
+                        Read-only (delete)
+                      </span>
+                    )}
+                    {job.applications_count && job.applications_count > 0 && isHRUser && !isCreator && (
+                      <span className="inline-flex items-center gap-1 bg-yellow-100 text-yellow-800 text-xs px-2 py-1 rounded">
+                        <FileText className="h-3 w-3" />
+                        Has applications
                       </span>
                     )}
                   </div>
@@ -1295,6 +1315,17 @@ function JobCard({
                     )}>
                       {job.status === 'active' ? 'Active' : 'Closed'}
                     </span>
+                    {job.applications_count !== undefined && (
+                      <span className={cn(
+                        'flex items-center gap-1 px-2 py-1 rounded text-xs font-medium',
+                        job.applications_count > 0
+                          ? 'bg-blue-100 text-blue-800'
+                          : 'bg-gray-100 text-gray-800'
+                      )}>
+                        <Users className="h-3 w-3" />
+                        {job.applications_count} application{job.applications_count !== 1 ? 's' : ''}
+                      </span>
+                    )}
                   </div>
                 </div>
               </div>
@@ -1349,13 +1380,30 @@ function JobCard({
                   </button>
                   <button
                     onClick={() => {
-                      onDelete(job.id, job.job_title)
-                      setShowMenu(false)
+                      if (canDelete) {
+                        onDelete(job.id, job.job_title)
+                        setShowMenu(false)
+                      }
                     }}
-                    className="flex items-center gap-2 w-full px-4 py-2 text-sm text-red-700 hover:bg-red-50 transition-colors text-left"
+                    className={cn(
+                      'flex items-center gap-2 w-full px-4 py-2 text-sm transition-colors text-left',
+                      canDelete
+                        ? 'text-red-700 hover:bg-red-50'
+                        : 'text-gray-400 cursor-not-allowed'
+                    )}
+                    disabled={!canDelete}
+                    title={!canDelete ? 
+                      (isHRUser && job.applications_count && job.applications_count > 0 
+                        ? 'Has applications - only Super Admin can delete' 
+                        : 'Not created by you') 
+                      : ''
+                    }
                   >
                     <Trash2 className="h-4 w-4" />
                     Delete
+                    {!canDelete && isHRUser && (
+                      <span className="text-xs">(Locked)</span>
+                    )}
                   </button>
                 </div>
               )}
@@ -1376,11 +1424,11 @@ function JobCard({
                 href={`/admin/job-postings/${job.id}/applications`}
                 className="flex items-center gap-1 text-blue-600 hover:text-blue-700 hover:underline"
               >
-                <Users className="h-3 w-3" />
-                {job.applications_count} application{job.applications_count !== 1 ? 's' : ''}
+                <Eye className="h-3 w-3" />
+                View Applications
               </Link>
             )}
-            {isHRUser && (
+            {isHRUser && !isCreator && (
               <span className="flex items-center gap-1 text-gray-400">
                 Created by: {job.creator_name}
               </span>
@@ -1395,7 +1443,7 @@ function JobCard({
             className="inline-flex items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-gray-100 rounded-lg transition-colors"
           >
             <Eye className="h-4 w-4" />
-            View Applications
+            View Apps
           </Link>
           
           <button
@@ -1407,11 +1455,10 @@ function JobCard({
                 : "text-gray-400 cursor-not-allowed bg-gray-100"
             )}
             disabled={!canEdit}
-            title={!canEdit && isHRUser ? `Created by: ${job.creator_name}` : ""}
+            title={!canEdit ? "Cannot edit" : ""}
           >
             <Edit className="h-4 w-4" />
             Edit
-            {!canEdit && isHRUser && " (Not Yours)"}
           </button>
 
           <button
@@ -1425,26 +1472,34 @@ function JobCard({
                 : 'text-gray-400 cursor-not-allowed bg-gray-100'
             )}
             disabled={!canEdit}
-            title={!canEdit && isHRUser ? `Created by: ${job.creator_name}` : ""}
+            title={!canEdit ? "Cannot change status" : ""}
           >
             {job.status === 'active' ? 'Close Job' : 'Reopen Job'}
-            {!canEdit && isHRUser && " (Not Yours)"}
           </button>
 
           <button
             onClick={() => onDelete(job.id, job.job_title)}
             className={cn(
               "inline-flex items-center gap-2 px-3 py-2 text-sm rounded-lg transition-colors",
-              canEdit
+              canDelete
                 ? "text-red-700 hover:bg-red-50"
                 : "text-gray-400 cursor-not-allowed bg-gray-100"
             )}
-            disabled={!canEdit}
-            title={!canEdit && isHRUser ? `Created by: ${job.creator_name}` : ""}
+            disabled={!canDelete}
+            title={!canDelete ? 
+              (isHRUser && job.applications_count && job.applications_count > 0 
+                ? 'Has applications - only Super Admin can delete' 
+                : isHRUser && !isCreator
+                ? 'Not created by you'
+                : 'Cannot delete') 
+              : ''
+            }
           >
             <Trash2 className="h-4 w-4" />
             Delete
-            {!canEdit && isHRUser && " (Not Yours)"}
+            {!canDelete && isHRUser && (
+              <span className="text-xs">(Locked)</span>
+            )}
           </button>
         </div>
       </div>

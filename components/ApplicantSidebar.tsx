@@ -14,6 +14,7 @@ import { getCurrentUser, signOut } from '@/lib/supabaseClient'
 
 // ADD PROFILE LINK HERE:
 const links = [
+  { label: 'Instructions', href: '/applicant/instructions', icon: ClipboardList },
   { label: 'Profile', href: '/applicant/profile', icon: User },
   { label: 'Dashboard', href: '/applicant', icon: LayoutDashboard },
   { label: 'Apply Job', href: '/applicant/job-postings', icon: Briefcase },
