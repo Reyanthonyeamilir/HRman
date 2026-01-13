@@ -1,17 +1,18 @@
 // app/administrator/view-applications/page.tsx
 'use client'
 
-import { useState, useEffect } from 'react'
+import type { ReactNode } from 'react'    
+import { useState, useEffect, useRef } from 'react'
 import AdminHRSidebar, { MobileTopbar } from '@/components/adminhrsidebar'
 import { supabase } from '@/lib/supabaseClient'
 import { useRouter } from 'next/navigation'
-import { Shield, AlertCircle, Lock } from 'lucide-react'
+import { Shield, AlertCircle, Lock, Mail, FileText, Eye, GripVertical, Check, Star, Calendar, Briefcase, GraduationCap, MapPin, Phone, MoreVertical } from 'lucide-react'
 
 // Define proper types for the Button component
 interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
-  children: React.ReactNode
-  variant?: 'default' | 'outline' | 'secondary'
-  size?: 'default' | 'sm'
+  children: ReactNode
+  variant?: 'default' | 'outline' | 'secondary' | 'ghost'
+  size?: 'default' | 'sm' | 'lg' | 'icon'
   className?: string
   disabled?: boolean
   title?: string
@@ -28,18 +29,24 @@ const Button = ({
   title = '',
   ...props
 }: ButtonProps) => {
-  const baseStyles = 'inline-flex items-center justify-center rounded-md font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 disabled:opacity-50 disabled:pointer-events-none'
+  const baseStyles = 'inline-flex items-center justify-center rounded-lg font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 disabled:opacity-50 disabled:pointer-events-none whitespace-nowrap'
   
-  const variants = {
+  const variantStyles = {
     default: 'bg-blue-600 text-white hover:bg-blue-700',
     outline: 'border border-gray-300 bg-transparent hover:bg-gray-100 text-gray-900',
-    secondary: 'bg-gray-100 text-gray-900 hover:bg-gray-200'
-  }
+    secondary: 'bg-gray-100 text-gray-900 hover:bg-gray-200',
+    ghost: 'hover:bg-gray-100 text-gray-900'
+  } as const
   
-  const sizes = {
-    default: 'h-10 px-4 py-2',
-    sm: 'h-9 px-3 text-sm'
-  }
+  const sizeStyles = {
+    default: 'h-10 px-4 py-2 text-sm sm:text-base',
+    sm: 'h-9 px-3 text-xs sm:text-sm',
+    lg: 'h-12 px-6 py-3 text-base sm:text-lg',
+    icon: 'h-10 w-10 p-0'
+  } as const
+
+  const variantClass = variantStyles[variant || 'default']
+  const sizeClass = sizeStyles[size || 'default']
 
   return (
     <button
@@ -48,8 +55,8 @@ const Button = ({
       title={title}
       className={`
         ${baseStyles}
-        ${variants[variant]}  // TypeScript now knows this is valid
-        ${sizes[size]}         // TypeScript now knows this is valid
+        ${variantClass}
+        ${sizeClass}
         ${className}
       `}
       {...props}
@@ -160,6 +167,275 @@ interface ApplicantRecord {
   skills: string[]
   total_experience: number
   highest_education: string
+  avatar_url?: string
+  experience_details?: string[]
+  application_id?: string
+  job_location?: string
+}
+
+// Draggable Card Component
+interface DraggableCardProps {
+  record: ApplicantRecord
+  index: number
+  isDragging: boolean
+  isSelected: boolean
+  onDragStart: (e: React.DragEvent, index: number) => void
+  onDragOver: (e: React.DragEvent, index: number) => void
+  onDragEnd: () => void
+  onSelect: (id: string) => void
+  onViewResume: (url: string) => void
+  onStatusChange: (id: string, status: string) => void
+}
+
+const DraggableCard = ({
+  record,
+  index,
+  isDragging,
+  isSelected,
+  onDragStart,
+  onDragOver,
+  onDragEnd,
+  onSelect,
+  onViewResume,
+  onStatusChange
+}: DraggableCardProps) => {
+  const [showMenu, setShowMenu] = useState(false)
+  const menuRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(event.target as Node)) {
+        setShowMenu(false)
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [])
+
+  const getStatusColor = (status: string) => {
+    switch (status) {
+      case 'for_review': return 'bg-blue-100 text-blue-800 border-blue-200'
+      case 'shortlisted': return 'bg-amber-100 text-amber-800 border-amber-200'
+      case 'hired': return 'bg-emerald-100 text-emerald-800 border-emerald-200'
+      case 'rejected': return 'bg-red-100 text-red-800 border-red-200'
+      default: return 'bg-gray-100 text-gray-800 border-gray-200'
+    }
+  }
+
+  const formatDate = (dateString: string) => {
+    try {
+      return new Date(dateString).toLocaleDateString('en-US', {
+        month: 'short',
+        day: 'numeric',
+        year: 'numeric'
+      })
+    } catch (e) {
+      return dateString
+    }
+  }
+
+  return (
+    <div
+      draggable
+      onDragStart={(e) => onDragStart(e, index)}
+      onDragOver={(e) => onDragOver(e, index)}
+      onDragEnd={onDragEnd}
+      className={`
+        relative group bg-white rounded-xl border-2 transition-all duration-200
+        ${isSelected ? 'border-blue-500 ring-2 ring-blue-100' : 'border-gray-200 hover:border-blue-300'}
+        ${isDragging ? 'opacity-50 scale-95' : 'hover:shadow-lg'}
+        hover:shadow-gray-200 cursor-move
+      `}
+      style={{ touchAction: 'none' }}
+    >
+      {/* Drag Handle */}
+      <div 
+        className="absolute -left-3 top-1/2 transform -translate-y-1/2 opacity-0 group-hover:opacity-100 transition-opacity"
+        onMouseDown={(e) => e.preventDefault()}
+      >
+        <div className="bg-white border border-gray-300 rounded-lg p-1 shadow-sm cursor-grab active:cursor-grabbing">
+          <GripVertical className="h-4 w-4 text-gray-400" />
+        </div>
+      </div>
+
+      {/* Selection Checkbox */}
+      <div className="absolute top-3 right-3">
+        <input
+          type="checkbox"
+          checked={isSelected}
+          onChange={() => onSelect(record.id)}
+          className="h-5 w-5 text-blue-600 rounded border-gray-300 focus:ring-blue-500"
+        />
+      </div>
+
+      {/* Card Content */}
+      <div className="p-5">
+        {/* Header */}
+        <div className="flex items-start justify-between mb-4">
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-3 mb-2">
+              {/* Avatar */}
+              <div className="relative">
+                <div className="w-14 h-14 rounded-full bg-gradient-to-br from-blue-100 to-blue-200 flex items-center justify-center text-blue-600 font-semibold text-lg">
+                  {record.name.charAt(0).toUpperCase()}
+                </div>
+                {record.status === 'shortlisted' && (
+                  <div className="absolute -top-1 -right-1 bg-amber-500 text-white rounded-full p-1">
+                    <Star className="h-3 w-3" />
+                  </div>
+                )}
+              </div>
+
+              {/* Name and Info */}
+              <div className="flex-1 min-w-0">
+                <h3 className="text-lg font-semibold text-gray-900 truncate">
+                  {record.name}
+                </h3>
+                <div className="flex items-center gap-2 text-sm text-gray-600">
+                  <Mail className="h-3 w-3" />
+                  <span className="truncate">{record.email}</span>
+                </div>
+                {record.phone && (
+                  <div className="flex items-center gap-2 text-sm text-gray-600 mt-1">
+                    <Phone className="h-3 w-3" />
+                    <span>{record.phone}</span>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Job Title */}
+            <div className="mb-3">
+              <div className="flex items-center gap-2 text-gray-900">
+                <Briefcase className="h-4 w-4 text-blue-600" />
+                <span className="font-medium truncate">{record.job_applied}</span>
+              </div>
+              <div className="flex items-center gap-2 text-sm text-gray-600 mt-1 ml-6">
+                <MapPin className="h-3 w-3" />
+                <span className="truncate">{record.department} • {record.job_location || 'Remote'}</span>
+              </div>
+            </div>
+          </div>
+
+          {/* Status Dropdown Menu */}
+          <div className="relative" ref={menuRef}>
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={() => setShowMenu(!showMenu)}
+              className="opacity-0 group-hover:opacity-100 transition-opacity"
+            >
+              <MoreVertical className="h-5 w-5" />
+            </Button>
+            
+            {showMenu && (
+              <div className="absolute right-0 mt-2 w-48 bg-white rounded-lg shadow-lg border border-gray-200 z-10">
+                <div className="p-2">
+                  <div className="px-3 py-2 text-xs font-semibold text-gray-500 uppercase tracking-wider">
+                    Change Status
+                  </div>
+                  {['for_review', 'shortlisted', 'hired', 'rejected'].map((status) => (
+                    <button
+                      key={status}
+                      onClick={() => {
+                        onStatusChange(record.id, status)
+                        setShowMenu(false)
+                      }}
+                      className={`w-full text-left px-3 py-2 text-sm rounded-md hover:bg-gray-50 flex items-center justify-between ${
+                        record.status === status ? 'bg-blue-50 text-blue-700' : 'text-gray-700'
+                      }`}
+                    >
+                      <span>{status.replace('_', ' ')}</span>
+                      {record.status === status && <Check className="h-4 w-4" />}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Status Badge */}
+        <div className="mb-4">
+          <span className={`inline-flex items-center px-3 py-1 rounded-full text-xs font-medium border ${getStatusColor(record.status)}`}>
+            {record.status.replace('_', ' ').toUpperCase()}
+          </span>
+        </div>
+
+        {/* Details Grid */}
+        <div className="grid grid-cols-2 gap-3 mb-4">
+          <div className="flex items-center gap-2 text-sm">
+            <Calendar className="h-4 w-4 text-gray-400" />
+            <span className="text-gray-600">Applied:</span>
+            <span className="font-medium">{formatDate(record.date_applied)}</span>
+          </div>
+          <div className="flex items-center gap-2 text-sm">
+            <Briefcase className="h-4 w-4 text-gray-400" />
+            <span className="text-gray-600">Experience:</span>
+            <span className="font-medium">{record.total_experience} yrs</span>
+          </div>
+          <div className="flex items-center gap-2 text-sm">
+            <GraduationCap className="h-4 w-4 text-gray-400" />
+            <span className="text-gray-600">Education:</span>
+            <span className="font-medium truncate">{record.highest_education.split(' in ')[0]}</span>
+          </div>
+          <div className="flex items-center gap-2 text-sm">
+            <MapPin className="h-4 w-4 text-gray-400" />
+            <span className="text-gray-600">Age:</span>
+            <span className="font-medium">{record.age || 'N/A'}</span>
+          </div>
+        </div>
+
+        {/* Skills */}
+        {record.skills.length > 0 && (
+          <div className="mb-4">
+            <div className="text-xs font-medium text-gray-500 mb-2">SKILLS</div>
+            <div className="flex flex-wrap gap-2">
+              {record.skills.slice(0, 4).map((skill, idx) => (
+                <span
+                  key={idx}
+                  className="px-2 py-1 bg-gray-100 text-gray-700 rounded-md text-xs"
+                >
+                  {skill}
+                </span>
+              ))}
+              {record.skills.length > 4 && (
+                <span className="px-2 py-1 bg-gray-100 text-gray-700 rounded-md text-xs">
+                  +{record.skills.length - 4} more
+                </span>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* Action Buttons */}
+        <div className="flex gap-2 pt-4 border-t border-gray-100">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => onViewResume(record.resume_url || '')}
+            disabled={!record.resume_url}
+            className="flex-1"
+          >
+            <FileText className="h-4 w-4 mr-2" />
+            Resume
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={() => record.application_id && window.open(`/administrator/applications/${record.application_id}`, '_blank')}
+            title="View Details"
+            disabled={!record.application_id}
+          >
+            <Eye className="h-4 w-4" />
+          </Button>
+        </div>
+      </div>
+
+      {/* Drag Indicator */}
+      <div className="absolute inset-0 border-2 border-dashed border-blue-400 rounded-xl opacity-0 group-hover:opacity-20 pointer-events-none transition-opacity" />
+    </div>
+  )
 }
 
 export default function ViewApplicationsPage() {
@@ -175,11 +451,10 @@ export default function ViewApplicationsPage() {
   const [searchQuery, setSearchQuery] = useState('')
   const [selectedStatus, setSelectedStatus] = useState<string>('all')
   const [selectedDepartment, setSelectedDepartment] = useState<string>('all')
-  const [sortField, setSortField] = useState<keyof ApplicantRecord>('date_applied')
-  const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('desc')
   const [selectedApplicants, setSelectedApplicants] = useState<string[]>([])
   const [currentPage, setCurrentPage] = useState(1)
-  const itemsPerPage = 10
+  const [draggingIndex, setDraggingIndex] = useState<number | null>(null)
+  const itemsPerPage = 12
 
   useEffect(() => {
     checkUserAndRedirect()
@@ -195,16 +470,13 @@ export default function ViewApplicationsPage() {
     try {
       setLoadingUser(true)
       
-      // Check if user is authenticated
       const { data: { user } } = await supabase.auth.getUser()
       
       if (!user) {
-        // No user logged in, redirect to login
         router.push('/auth/login')
         return
       }
 
-      // Get user profile with role
       const { data: profile, error } = await supabase
         .from('profiles')
         .select('id, role, email, first_name, last_name')
@@ -215,7 +487,6 @@ export default function ViewApplicationsPage() {
 
       setCurrentUser(profile)
 
-      // Check if user has access (HR or Super Admin)
       if (!hasAccess(profile)) {
         setAccessDenied(true)
         setLoadingUser(false)
@@ -241,9 +512,6 @@ export default function ViewApplicationsPage() {
       setLoading(true)
       setError(null)
 
-      console.log('🔄 Fetching applications for table view...')
-
-      // Fetch all applications with both applicant and job posting details
       const { data: applicationsData, error: appsError } = await supabase
         .from('applications')
         .select(`
@@ -276,10 +544,7 @@ export default function ViewApplicationsPage() {
         `)
         .order('submitted_at', { ascending: false })
 
-      if (appsError) {
-        console.error('Error fetching applications:', appsError)
-        throw appsError
-      }
+      if (appsError) throw appsError
 
       const apps: Application[] = (applicationsData || []).map(app => ({
         id: app.id,
@@ -328,34 +593,20 @@ export default function ViewApplicationsPage() {
         }
       }))
 
-      console.log(`✅ Found ${apps.length} applications`)
       setApplications(apps)
       
-      // Fetch additional details for each applicant
       const records = await Promise.all(apps.map(async (app) => {
         try {
-          // Fetch qualifications and experience in parallel
           const [educationsResult, workExperiencesResult, skillsResult] = await Promise.all([
-            supabase
-              .from('educations')
-              .select('*')
-              .eq('profile_id', app.applicant_id)
-              .order('year_graduated', { ascending: false }),
-            supabase
-              .from('work_experiences')
-              .select('*')
-              .eq('profile_id', app.applicant_id),
-            supabase
-              .from('skills')
-              .select('*')
-              .eq('profile_id', app.applicant_id)
+            supabase.from('educations').select('*').eq('profile_id', app.applicant_id).order('year_graduated', { ascending: false }),
+            supabase.from('work_experiences').select('*').eq('profile_id', app.applicant_id),
+            supabase.from('skills').select('*').eq('profile_id', app.applicant_id)
           ])
 
           const educations: Education[] = educationsResult.data || []
           const workExperiences: WorkExperience[] = workExperiencesResult.data || []
           const skills: Skill[] = skillsResult.data || []
 
-          // Calculate total experience
           let totalExperience = 0
           workExperiences.forEach(work => {
             try {
@@ -363,12 +614,9 @@ export default function ViewApplicationsPage() {
               const endDate = work.currently_working ? new Date() : (work.end_date ? new Date(work.end_date) : new Date())
               const years = (endDate.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24 * 365.25)
               totalExperience += years
-            } catch (e) {
-              console.warn('Error calculating experience for work:', work.id, e)
-            }
+            } catch (e) {}
           })
 
-          // Get highest education
           let highestEducation = 'No education provided'
           if (educations.length > 0) {
             const edu = educations[0]
@@ -376,7 +624,6 @@ export default function ViewApplicationsPage() {
             highestEducation = `${degreeLevel}${edu.course_qualification}`
           }
 
-          // Get resume URL
           let resumeUrl = ''
           if (app.pdf_path) {
             try {
@@ -384,24 +631,12 @@ export default function ViewApplicationsPage() {
                 .from('applications')
                 .createSignedUrl(app.pdf_path, 3600)
               resumeUrl = data?.signedUrl || ''
-            } catch (err) {
-              console.error('Error fetching resume URL:', err)
-            }
-          }
-
-          // Get applicant full name
-          const getApplicantFullName = (applicant: Applicant): string => {
-            const parts = [
-              applicant.first_name,
-              applicant.middle_name,
-              applicant.last_name
-            ].filter(Boolean)
-            return parts.length > 0 ? parts.join(' ') : 'No Name Provided'
+            } catch (err) {}
           }
 
           const record: ApplicantRecord = {
             id: app.applicant_id,
-            name: getApplicantFullName(app.applicant),
+            name: `${app.applicant.first_name || ''} ${app.applicant.middle_name || ''} ${app.applicant.last_name || ''}`.trim() || 'No Name',
             email: app.applicant.email || 'No Email',
             phone: app.applicant.phone || 'N/A',
             job_applied: app.job_posting.job_title,
@@ -411,16 +646,18 @@ export default function ViewApplicationsPage() {
             resume_url: resumeUrl,
             age: app.applicant.age,
             address: app.applicant.address || 'N/A',
+            avatar_url: app.applicant.avatar_url,
             qualifications: educations.map(edu => edu.course_qualification),
             skills: skills.map(skill => skill.skill_name),
             total_experience: Math.round(totalExperience * 10) / 10,
-            highest_education: highestEducation
+            highest_education: highestEducation,
+            application_id: app.id,
+            job_location: app.job_posting.location
           }
 
           return record
         } catch (err) {
           console.error('Error processing applicant:', app.applicant_id, err)
-          // Return a basic record even if there's an error
           return {
             id: app.applicant_id,
             name: `${app.applicant.first_name || ''} ${app.applicant.middle_name || ''} ${app.applicant.last_name || ''}`.trim() || 'No Name',
@@ -433,44 +670,51 @@ export default function ViewApplicationsPage() {
             resume_url: '',
             age: app.applicant.age,
             address: app.applicant.address || 'N/A',
+            avatar_url: app.applicant.avatar_url,
             qualifications: [],
             skills: [],
             total_experience: 0,
-            highest_education: 'No education provided'
+            highest_education: 'No education provided',
+            application_id: app.id,
+            job_location: app.job_posting.location
           }
         }
       }))
 
       setApplicantRecords(records)
-      console.log(`✅ Processed ${records.length} applicant records`)
     } catch (err) {
-      console.error('❌ Error fetching applications:', err)
+      console.error('Error fetching applications:', err)
       setError(err instanceof Error ? err.message : 'An error occurred while fetching applications')
     } finally {
       setLoading(false)
     }
   }
 
-  const getApplicationStatusColor = (status: string) => {
-    switch (status) {
-      case 'for_review': return 'bg-blue-100 text-blue-800'
-      case 'shortlisted': return 'bg-amber-100 text-amber-800'
-      case 'hired': return 'bg-emerald-100 text-emerald-800'
-      case 'rejected': return 'bg-red-100 text-red-800'
-      default: return 'bg-gray-100 text-gray-800'
-    }
+  const handleDragStart = (e: React.DragEvent, index: number) => {
+    e.dataTransfer.setData('text/plain', index.toString())
+    setDraggingIndex(index)
   }
 
-  const formatDate = (dateString: string) => {
-    try {
-      return new Date(dateString).toLocaleDateString('en-US', {
-        year: 'numeric',
-        month: 'short',
-        day: 'numeric'
-      })
-    } catch (e) {
-      return dateString
-    }
+  const handleDragOver = (e: React.DragEvent, index: number) => {
+    e.preventDefault()
+  }
+
+  const handleDragEnd = () => {
+    setDraggingIndex(null)
+  }
+
+  const handleDrop = (e: React.DragEvent, dropIndex: number) => {
+    e.preventDefault()
+    const dragIndex = parseInt(e.dataTransfer.getData('text/plain'))
+    
+    if (dragIndex === dropIndex) return
+    
+    const updatedRecords = [...applicantRecords]
+    const [draggedItem] = updatedRecords.splice(dragIndex, 1)
+    updatedRecords.splice(dropIndex, 0, draggedItem)
+    
+    setApplicantRecords(updatedRecords)
+    setDraggingIndex(null)
   }
 
   const exportToCSV = () => {
@@ -480,7 +724,6 @@ export default function ViewApplicationsPage() {
     }
 
     try {
-      // Prepare data for CSV
       const csvData = [['ID', 'Name', 'Email', 'Phone', 'Job Applied', 'Department', 'Status', 'Date Applied', 'Age', 'Address', 'Highest Education', 'Total Experience (Years)', 'Skills', 'Qualifications']]
       
       filteredRecords.forEach(record => {
@@ -492,7 +735,7 @@ export default function ViewApplicationsPage() {
           record.job_applied,
           record.department,
           record.status,
-          formatDate(record.date_applied),
+          new Date(record.date_applied).toLocaleDateString('en-US'),
           record.age?.toString() || 'N/A',
           record.address || 'N/A',
           record.highest_education,
@@ -503,12 +746,10 @@ export default function ViewApplicationsPage() {
         csvData.push(row)
       })
       
-      // Convert to CSV string
       const csvContent = csvData.map(row => 
         row.map(cell => `"${cell}"`).join(',')
       ).join('\n')
       
-      // Create download link
       const blob = new Blob([csvContent], { type: 'text/csv' })
       const url = window.URL.createObjectURL(blob)
       const a = document.createElement('a')
@@ -518,20 +759,9 @@ export default function ViewApplicationsPage() {
       a.click()
       document.body.removeChild(a)
       window.URL.revokeObjectURL(url)
-      
-      console.log(`✅ Exported ${filteredRecords.length} records to CSV`)
     } catch (err) {
       console.error('Error exporting to CSV:', err)
       alert('Failed to export CSV file')
-    }
-  }
-
-  const handleSort = (field: keyof ApplicantRecord) => {
-    if (sortField === field) {
-      setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc')
-    } else {
-      setSortField(field)
-      setSortDirection('asc')
     }
   }
 
@@ -544,14 +774,66 @@ export default function ViewApplicationsPage() {
   }
 
   const selectAllApplicants = () => {
-    if (selectedApplicants.length === paginatedRecords.length && paginatedRecords.length > 0) {
+    if (selectedApplicants.length === filteredRecords.length && filteredRecords.length > 0) {
       setSelectedApplicants([])
     } else {
-      setSelectedApplicants(paginatedRecords.map(record => record.id))
+      setSelectedApplicants(filteredRecords.map(record => record.id))
     }
   }
 
-  // Filter and sort records
+  const handleStatusChange = async (applicantId: string, newStatus: string) => {
+    try {
+      // Find the application for this applicant
+      const application = applications.find(app => app.applicant_id === applicantId)
+      if (!application) {
+        console.error('Application not found for applicant:', applicantId)
+        return
+      }
+
+      // Update in database
+      const { error } = await supabase
+        .from('applications')
+        .update({ 
+          status: newStatus,
+          updated_at: new Date().toISOString() 
+        })
+        .eq('id', application.id)
+
+      if (error) {
+        console.error('Supabase update error:', error)
+        throw error
+      }
+
+      // Update local state - applications array
+      setApplications(prev => 
+        prev.map(app => 
+          app.id === application.id 
+            ? { ...app, status: newStatus as 'for_review' | 'shortlisted' | 'hired' | 'rejected' }
+            : app
+        )
+      )
+
+      // Update local state - applicantRecords array
+      setApplicantRecords(prev =>
+        prev.map(record =>
+          record.id === applicantId ? { ...record, status: newStatus } : record
+        )
+      )
+    } catch (err) {
+      console.error('Error updating status:', err)
+      alert('Failed to update status')
+    }
+  }
+
+  const handleViewResume = (url: string) => {
+    if (url) {
+      window.open(url, '_blank')
+    } else {
+      alert('No resume available for this applicant')
+    }
+  }
+
+  // Filter records
   const filteredRecords = applicantRecords
     .filter(record => {
       const matchesSearch = searchQuery === '' || 
@@ -565,23 +847,6 @@ export default function ViewApplicationsPage() {
       
       return matchesSearch && matchesStatus && matchesDepartment
     })
-    .sort((a, b) => {
-      const multiplier = sortDirection === 'asc' ? 1 : -1
-      
-      if (sortField === 'date_applied') {
-        return multiplier * (new Date(a[sortField]).getTime() - new Date(b[sortField]).getTime())
-      }
-      
-      if (sortField === 'total_experience') {
-        return multiplier * (a[sortField] - b[sortField])
-      }
-      
-      if (typeof a[sortField] === 'string' && typeof b[sortField] === 'string') {
-        return multiplier * a[sortField].localeCompare(b[sortField])
-      }
-      
-      return 0
-    })
 
   // Pagination
   const totalPages = Math.ceil(filteredRecords.length / itemsPerPage)
@@ -590,6 +855,15 @@ export default function ViewApplicationsPage() {
 
   // Get unique departments for filter
   const uniqueDepartments = [...new Set(applicantRecords.map(record => record.department).filter(Boolean))]
+
+  // Get status counts
+  const statusCounts = {
+    total: applicantRecords.length,
+    hired: applicantRecords.filter(r => r.status === 'hired').length,
+    shortlisted: applicantRecords.filter(r => r.status === 'shortlisted').length,
+    for_review: applicantRecords.filter(r => r.status === 'for_review').length,
+    rejected: applicantRecords.filter(r => r.status === 'rejected').length
+  }
 
   // Show loading state
   if (loadingUser) {
@@ -643,18 +917,19 @@ export default function ViewApplicationsPage() {
                   </div>
                 </div>
                 <div className="flex flex-col sm:flex-row gap-3">
-                  <button
+                  <Button 
                     onClick={() => router.push('/dashboard')}
-                    className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors"
+                    className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors w-full sm:w-auto"
                   >
                     Go to Dashboard
-                  </button>
-                  <button
+                  </Button>
+                  <Button 
                     onClick={() => router.back()}
-                    className="border border-gray-300 text-gray-700 px-4 py-2 rounded-lg hover:bg-gray-50 transition-colors"
+                    variant="outline"
+                    className="border border-gray-300 text-gray-700 px-4 py-2 rounded-lg hover:bg-gray-50 transition-colors w-full sm:w-auto"
                   >
                     Go Back
-                  </button>
+                  </Button>
                 </div>
               </div>
             </div>
@@ -697,62 +972,56 @@ export default function ViewApplicationsPage() {
         <MobileTopbar onMenu={() => setSidebarOpen(true)} />
         
         <main className="p-4 md:p-6">
-          {/* Header with Role Badge */}
+          {/* Header */}
           <div className="mb-6">
-            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-4">
               <div>
-                <div className="flex items-center gap-3 mb-2">
-                  <h1 className="text-2xl lg:text-3xl font-bold text-gray-900">
-                    Applicant Records
-                  </h1>
-                  <span className={`inline-flex items-center gap-1 px-3 py-1 rounded-full text-sm font-medium ${
-                    currentUser?.role === 'super_admin' 
-                      ? 'bg-purple-100 text-purple-800' 
-                      : 'bg-blue-100 text-blue-800'
-                  }`}>
-                    {currentUser?.role === 'super_admin' ? (
-                      <>
-                        <Shield className="h-3 w-3" />
-                        Super Administrator
-                      </>
-                    ) : (
-                      'HR Manager'
-                    )}
-                  </span>
-                </div>
+                <h1 className="text-2xl md:text-3xl font-bold text-gray-900">
+                  Applicant Dashboard
+                </h1>
                 <p className="text-gray-600 mt-2">
-                  View and manage all applicant information in tabular format
+                  Drag and drop cards to organize applicants visually
                 </p>
               </div>
               
-              <div className="flex flex-wrap gap-3">
+              <div className="flex flex-col sm:flex-row gap-3">
                 <Button 
                   onClick={() => router.push('/administrator/applications')}
                   variant="outline"
-                  className="whitespace-nowrap"
+                  className="w-full sm:w-auto justify-center"
                 >
                   ← Back to Applications
                 </Button>
                 <Button 
                   onClick={exportToCSV}
-                  className="bg-green-600 hover:bg-green-700 text-white"
-                  disabled={!hasAccess()}
+                  className="bg-green-600 hover:bg-green-700 text-white w-full sm:w-auto justify-center"
                 >
-                  <svg className="h-4 w-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-                  </svg>
-                  Export to CSV
+                  Export CSV
                 </Button>
               </div>
             </div>
+
+            {/* Role Badge */}
+            <div className="flex items-center gap-2 mb-4">
+              <span className={`inline-flex items-center gap-2 px-3 py-1 rounded-full text-sm font-medium ${
+                currentUser?.role === 'super_admin' 
+                  ? 'bg-purple-100 text-purple-800' 
+                  : 'bg-blue-100 text-blue-800'
+              }`}>
+                <Shield className="h-3 w-3" />
+                {currentUser?.role === 'super_admin' ? 'Super Administrator' : 'HR Manager'}
+              </span>
+              <span className="text-sm text-gray-500">
+                {selectedApplicants.length > 0 && `${selectedApplicants.length} selected`}
+              </span>
+            </div>
           </div>
 
+          {/* Error Alert */}
           {error && (
-            <div className="bg-red-50 border border-red-200 rounded-lg p-4 mb-6">
+            <div className="bg-red-50 border border-red-200 rounded-xl p-4 mb-6">
               <div className="flex items-center">
-                <svg className="h-5 w-5 text-red-400 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                </svg>
+                <AlertCircle className="h-5 w-5 text-red-400 mr-2" />
                 <p className="text-red-800">{error}</p>
               </div>
               <Button 
@@ -766,9 +1035,34 @@ export default function ViewApplicationsPage() {
             </div>
           )}
 
-          {/* Filters */}
-          <div className="bg-white rounded-lg border border-gray-200 p-4 lg:p-6 mb-6">
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          {/* Stats Cards */}
+          <div className="grid grid-cols-2 lg:grid-cols-5 gap-4 mb-6">
+            <div className="bg-white rounded-xl border border-gray-200 p-4">
+              <div className="text-2xl font-bold text-gray-900">{statusCounts.total}</div>
+              <div className="text-sm text-gray-600">Total Applicants</div>
+            </div>
+            <div className="bg-white rounded-xl border border-gray-200 p-4">
+              <div className="text-2xl font-bold text-blue-600">{statusCounts.for_review}</div>
+              <div className="text-sm text-gray-600">For Review</div>
+            </div>
+            <div className="bg-white rounded-xl border border-gray-200 p-4">
+              <div className="text-2xl font-bold text-amber-600">{statusCounts.shortlisted}</div>
+              <div className="text-sm text-gray-600">Shortlisted</div>
+            </div>
+            <div className="bg-white rounded-xl border border-gray-200 p-4">
+              <div className="text-2xl font-bold text-emerald-600">{statusCounts.hired}</div>
+              <div className="text-sm text-gray-600">Hired</div>
+            </div>
+            <div className="bg-white rounded-xl border border-gray-200 p-4">
+              <div className="text-2xl font-bold text-red-600">{statusCounts.rejected}</div>
+              <div className="text-sm text-gray-600">Rejected</div>
+            </div>
+          </div>
+
+          {/* Filters and Controls */}
+          <div className="bg-white rounded-xl border border-gray-200 p-4 mb-6">
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+              {/* Search */}
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">Search</label>
                 <div className="relative">
@@ -777,14 +1071,15 @@ export default function ViewApplicationsPage() {
                   </svg>
                   <input
                     type="text"
-                    placeholder="Search by name, email, job, or department..."
+                    placeholder="Search applicants..."
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
                     className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                   />
                 </div>
               </div>
-              
+
+              {/* Status Filter */}
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">Status</label>
                 <select
@@ -799,7 +1094,8 @@ export default function ViewApplicationsPage() {
                   <option value="rejected">Rejected</option>
                 </select>
               </div>
-              
+
+              {/* Department Filter */}
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">Department</label>
                 <select
@@ -813,325 +1109,145 @@ export default function ViewApplicationsPage() {
                   ))}
                 </select>
               </div>
-            </div>
-            
-            <div className="mt-4 flex justify-between items-center">
-              <div className="text-sm text-gray-600">
-                Showing {filteredRecords.length} of {applicantRecords.length} records
-                {selectedApplicants.length > 0 && (
-                  <span className="ml-2 text-blue-600">
-                    • {selectedApplicants.length} selected
-                  </span>
-                )}
+
+              {/* Actions */}
+              <div className="flex flex-col justify-end gap-2">
+                <div className="flex gap-2">
+                  <Button
+                    onClick={selectAllApplicants}
+                    variant="outline"
+                    size="sm"
+                    className="flex-1"
+                  >
+                    {selectedApplicants.length === filteredRecords.length ? 'Deselect All' : 'Select All'}
+                  </Button>
+                  <Button
+                    onClick={fetchApplications}
+                    variant="outline"
+                    size="sm"
+                    className="flex-1"
+                  >
+                    Refresh
+                  </Button>
+                </div>
+                <div className="text-xs text-gray-500 text-center">
+                  {filteredRecords.length} applicants found
+                </div>
               </div>
-              <Button 
-                onClick={fetchApplications}
-                variant="outline"
-                size="sm"
-              >
-                <svg className="h-4 w-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-                </svg>
-                Refresh
-              </Button>
             </div>
           </div>
 
-          {/* Table */}
-          <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
-            <div className="overflow-x-auto">
-              <table className="min-w-full divide-y divide-gray-200">
-                <thead className="bg-gray-50">
-                  <tr>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-12">
-                      <input
-                        type="checkbox"
-                        checked={selectedApplicants.length === paginatedRecords.length && paginatedRecords.length > 0}
-                        onChange={selectAllApplicants}
-                        className="h-4 w-4 text-blue-600 rounded border-gray-300"
-                        disabled={!hasAccess()}
-                      />
-                    </th>
-                    <th 
-                      className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100"
-                      onClick={() => handleSort('name')}
-                    >
-                      <div className="flex items-center">
-                        Applicant
-                        {sortField === 'name' && (
-                          <svg className={`h-4 w-4 ml-1 ${sortDirection === 'asc' ? 'transform rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 15l7-7 7 7" />
-                          </svg>
-                        )}
-                      </div>
-                    </th>
-                    <th 
-                      className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100"
-                      onClick={() => handleSort('job_applied')}
-                    >
-                      <div className="flex items-center">
-                        Job Applied
-                        {sortField === 'job_applied' && (
-                          <svg className={`h-4 w-4 ml-1 ${sortDirection === 'asc' ? 'transform rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 15l7-7 7 7" />
-                          </svg>
-                        )}
-                      </div>
-                    </th>
-                    <th 
-                      className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100"
-                      onClick={() => handleSort('department')}
-                    >
-                      <div className="flex items-center">
-                        Department
-                        {sortField === 'department' && (
-                          <svg className={`h-4 w-4 ml-1 ${sortDirection === 'asc' ? 'transform rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 15l7-7 7 7" />
-                          </svg>
-                        )}
-                      </div>
-                    </th>
-                    <th 
-                      className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100"
-                      onClick={() => handleSort('status')}
-                    >
-                      <div className="flex items-center">
-                        Status
-                        {sortField === 'status' && (
-                          <svg className={`h-4 w-4 ml-1 ${sortDirection === 'asc' ? 'transform rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 15l7-7 7 7" />
-                          </svg>
-                        )}
-                      </div>
-                    </th>
-                    <th 
-                      className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100"
-                      onClick={() => handleSort('date_applied')}
-                    >
-                      <div className="flex items-center">
-                        Date Applied
-                        {sortField === 'date_applied' && (
-                          <svg className={`h-4 w-4 ml-1 ${sortDirection === 'asc' ? 'transform rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 15l7-7 7 7" />
-                          </svg>
-                        )}
-                      </div>
-                    </th>
-                    <th 
-                      className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100"
-                      onClick={() => handleSort('total_experience')}
-                    >
-                      <div className="flex items-center">
-                        Experience
-                        {sortField === 'total_experience' && (
-                          <svg className={`h-4 w-4 ml-1 ${sortDirection === 'asc' ? 'transform rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 15l7-7 7 7" />
-                          </svg>
-                        )}
-                      </div>
-                    </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Actions
-                    </th>
-                  </tr>
-                </thead>
-                <tbody className="bg-white divide-y divide-gray-200">
-                  {paginatedRecords.length === 0 ? (
-                    <tr>
-                      <td colSpan={8} className="px-6 py-12 text-center">
-                        <svg className="h-12 w-12 text-gray-300 mx-auto mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
-                        </svg>
-                        <p className="text-gray-500 text-lg">No applicant records found</p>
-                        <p className="text-gray-400 text-sm mt-1">
-                          {searchQuery || selectedStatus !== 'all' || selectedDepartment !== 'all' 
-                            ? 'Try adjusting your filters' 
-                            : 'No applications have been submitted yet'}
-                        </p>
-                      </td>
-                    </tr>
-                  ) : (
-                    paginatedRecords.map((record) => (
-                      <tr key={record.id} className="hover:bg-gray-50">
-                        <td className="px-6 py-4 whitespace-nowrap">
-                          <input
-                            type="checkbox"
-                            checked={selectedApplicants.includes(record.id)}
-                            onChange={() => toggleSelectApplicant(record.id)}
-                            className="h-4 w-4 text-blue-600 rounded border-gray-300"
-                            disabled={!hasAccess()}
-                          />
-                        </td>
-                        <td className="px-6 py-4">
-                          <div className="flex items-center">
-                            <div>
-                              <div className="text-sm font-medium text-gray-900">{record.name}</div>
-                              <div className="text-sm text-gray-500">{record.email}</div>
-                              <div className="text-xs text-gray-400 mt-1">
-                                {record.phone} • Age: {record.age || 'N/A'}
-                              </div>
-                            </div>
-                          </div>
-                        </td>
-                        <td className="px-6 py-4">
-                          <div className="text-sm font-medium text-gray-900">{record.job_applied}</div>
-                          <div className="text-xs text-gray-500 mt-1">
-                            Education: {record.highest_education}
-                          </div>
-                        </td>
-                        <td className="px-6 py-4">
-                          <div className="text-sm text-gray-900">{record.department}</div>
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap">
-                          <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${getApplicationStatusColor(record.status)}`}>
-                            {record.status.replace('_', ' ').toUpperCase()}
-                          </span>
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                          {formatDate(record.date_applied)}
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap">
-                          <div className="text-sm text-gray-900">{record.total_experience} years</div>
-                          <div className="text-xs text-gray-500">
-                            {record.skills.slice(0, 3).join(', ')}
-                            {record.skills.length > 3 && '...'}
-                          </div>
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                          <div className="flex gap-2">
-                            {record.resume_url && (
-                              <Button
-                                onClick={() => window.open(record.resume_url, '_blank')}
-                                variant="outline"
-                                size="sm"
-                                title="View Resume"
-                              >
-                                <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
-                                </svg>
-                              </Button>
-                            )}
-                            <Button
-                              onClick={() => {
-                                const emailSubject = `Regarding your application for ${record.job_applied}`
-                                const emailBody = `Dear ${record.name},\n\n`
-                                window.location.href = `mailto:${record.email}?subject=${encodeURIComponent(emailSubject)}&body=${encodeURIComponent(emailBody)}`
-                              }}
-                              variant="outline"
-                              size="sm"
-                              title="Contact Applicant"
-                            >
-                              <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 4.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
-                              </svg>
-                            </Button>
-                          </div>
-                        </td>
-                      </tr>
-                    ))
-                  )}
-                </tbody>
-              </table>
-            </div>
-
-            {/* Pagination */}
-            {totalPages > 1 && (
-              <div className="px-6 py-4 border-t border-gray-200">
-                <div className="flex items-center justify-between">
-                  <div className="text-sm text-gray-700">
-                    Showing <span className="font-medium">{startIndex + 1}</span> to{' '}
-                    <span className="font-medium">{Math.min(startIndex + itemsPerPage, filteredRecords.length)}</span> of{' '}
-                    <span className="font-medium">{filteredRecords.length}</span> results
-                  </div>
-                  <div className="flex gap-2">
-                    <Button
-                      onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
-                      disabled={currentPage === 1}
-                      variant="outline"
-                      size="sm"
-                    >
-                      Previous
-                    </Button>
-                    <div className="flex items-center gap-1">
-                      {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
-                        let pageNum
-                        if (totalPages <= 5) {
-                          pageNum = i + 1
-                        } else if (currentPage <= 3) {
-                          pageNum = i + 1
-                        } else if (currentPage >= totalPages - 2) {
-                          pageNum = totalPages - 4 + i
-                        } else {
-                          pageNum = currentPage - 2 + i
-                        }
-                        
-                        return (
-                          <button
-                            key={pageNum}
-                            onClick={() => setCurrentPage(pageNum)}
-                            className={`px-3 py-1 rounded-md text-sm ${
-                              currentPage === pageNum
-                                ? 'bg-blue-600 text-white'
-                                : 'text-gray-700 hover:bg-gray-100'
-                            }`}
-                          >
-                            {pageNum}
-                          </button>
-                        )
-                      })}
-                      {totalPages > 5 && <span className="text-gray-500">...</span>}
-                    </div>
-                    <Button
-                      onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages))}
-                      disabled={currentPage === totalPages}
-                      variant="outline"
-                      size="sm"
-                    >
-                      Next
-                    </Button>
-                  </div>
+          {/* Draggable Cards Grid */}
+          <div
+            onDragOver={(e) => e.preventDefault()}
+            onDrop={(e) => handleDrop(e, paginatedRecords.length)}
+            className="mb-6"
+          >
+            {paginatedRecords.length === 0 ? (
+              <div className="text-center py-12 bg-white rounded-xl border border-gray-200">
+                <div className="inline-flex items-center justify-center w-16 h-16 bg-gray-100 rounded-full mb-4">
+                  <AlertCircle className="h-8 w-8 text-gray-400" />
                 </div>
+                <h3 className="text-lg font-medium text-gray-900 mb-2">No applicants found</h3>
+                <p className="text-gray-600 max-w-md mx-auto">
+                  {searchQuery || selectedStatus !== 'all' || selectedDepartment !== 'all' 
+                    ? 'Try adjusting your filters to see more results.'
+                    : 'No applications have been submitted yet.'}
+                </p>
               </div>
+            ) : (
+              <>
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+                  {paginatedRecords.map((record, index) => (
+                    <DraggableCard
+                      key={record.id}
+                      record={record}
+                      index={startIndex + index}
+                      isDragging={draggingIndex === startIndex + index}
+                      isSelected={selectedApplicants.includes(record.id)}
+                      onDragStart={handleDragStart}
+                      onDragOver={(e) => handleDragOver(e, startIndex + index)}
+                      onDragEnd={handleDragEnd}
+                      onSelect={toggleSelectApplicant}
+                      onViewResume={handleViewResume}
+                      onStatusChange={handleStatusChange}
+                    />
+                  ))}
+                </div>
+
+                {/* Pagination */}
+                {totalPages > 1 && (
+                  <div className="mt-6 flex flex-col sm:flex-row items-center justify-between gap-4">
+                    <div className="text-sm text-gray-700">
+                      Showing <span className="font-medium">{startIndex + 1}</span> to{' '}
+                      <span className="font-medium">{Math.min(startIndex + itemsPerPage, filteredRecords.length)}</span> of{' '}
+                      <span className="font-medium">{filteredRecords.length}</span> applicants
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Button
+                        onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
+                        disabled={currentPage === 1}
+                        variant="outline"
+                        size="sm"
+                      >
+                        Previous
+                      </Button>
+                      <div className="flex items-center gap-1">
+                        {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
+                          let pageNum
+                          if (totalPages <= 5) {
+                            pageNum = i + 1
+                          } else if (currentPage <= 3) {
+                            pageNum = i + 1
+                          } else if (currentPage >= totalPages - 2) {
+                            pageNum = totalPages - 4 + i
+                          } else {
+                            pageNum = currentPage - 2 + i
+                          }
+                          
+                          return (
+                            <button
+                              key={pageNum}
+                              onClick={() => setCurrentPage(pageNum)}
+                              className={`w-10 h-10 rounded-lg text-sm ${
+                                currentPage === pageNum
+                                  ? 'bg-blue-600 text-white'
+                                  : 'text-gray-700 hover:bg-gray-100'
+                              }`}
+                            >
+                              {pageNum}
+                            </button>
+                          )
+                        })}
+                      </div>
+                      <Button
+                        onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages))}
+                        disabled={currentPage === totalPages}
+                        variant="outline"
+                        size="sm"
+                      >
+                        Next
+                      </Button>
+                    </div>
+                  </div>
+                )}
+              </>
             )}
           </div>
 
-          {/* Summary Cards */}
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mt-6">
-            <div className="bg-white rounded-lg border border-gray-200 p-4">
-              <div className="text-2xl font-bold text-blue-600">{applicantRecords.length}</div>
-              <div className="text-sm text-gray-600">Total Applicants</div>
-            </div>
-            <div className="bg-white rounded-lg border border-gray-200 p-4">
-              <div className="text-2xl font-bold text-emerald-600">
-                {applicantRecords.filter(r => r.status === 'hired').length}
-              </div>
-              <div className="text-sm text-gray-600">Hired</div>
-            </div>
-            <div className="bg-white rounded-lg border border-gray-200 p-4">
-              <div className="text-2xl font-bold text-amber-600">
-                {applicantRecords.filter(r => r.status === 'shortlisted').length}
-              </div>
-              <div className="text-sm text-gray-600">Shortlisted</div>
-            </div>
-            <div className="bg-white rounded-lg border border-gray-200 p-4">
-              <div className="text-2xl font-bold text-blue-600">
-                {applicantRecords.filter(r => r.status === 'for_review').length}
-              </div>
-              <div className="text-sm text-gray-600">For Review</div>
-            </div>
-          </div>
-
-          {/* Security Notice */}
-          <div className="mt-6 bg-blue-50 border border-blue-200 rounded-lg p-4">
+          {/* Instructions */}
+          <div className="bg-blue-50 border border-blue-200 rounded-xl p-4">
             <div className="flex items-start gap-3">
-              <Shield className="h-5 w-5 text-blue-600 mt-0.5 flex-shrink-0" />
+              <GripVertical className="h-5 w-5 text-blue-600 mt-0.5 flex-shrink-0" />
               <div>
-                <h4 className="font-medium text-blue-900 mb-1">Security Notice</h4>
-                <p className="text-sm text-blue-700">
-                  This page contains sensitive applicant information. Access is restricted to HR Managers and Super Administrators only.
-                  Applicants cannot view this page or access other applicants' data.
-                </p>
+                <h4 className="font-medium text-blue-900 mb-1">How to use this dashboard</h4>
+                <ul className="text-sm text-blue-700 space-y-1">
+                  <li>• Drag and drop cards to organize applicants visually</li>
+                  <li>• Click and drag the handle on the left side of any card</li>
+                  <li>• Select multiple applicants using checkboxes for bulk actions</li>
+                  <li>• Click the menu icon on any card to change status</li>
+                  <li>• Hover over cards to see drag indicators</li>
+                </ul>
               </div>
             </div>
           </div>
