@@ -1,4 +1,3 @@
-// components/adminhrsidebar.tsx - Adjusted to be slightly bigger
 'use client'
 
 import Link from "next/link"
@@ -145,6 +144,45 @@ export default function AdminHRSidebar({ mobileOpen, onMobileClose }: HRSidebarP
     return userProfile?.email?.charAt(0).toUpperCase() || 'H'
   }
 
+  // Avatar Component for consistent sizing
+  const AvatarDisplay = ({ 
+    avatarUrl, 
+    initials, 
+    size = "md" 
+  }: { 
+    avatarUrl: string | null, 
+    initials: string, 
+    size?: "sm" | "md" 
+  }) => {
+    const sizeClasses = {
+      sm: "w-9 h-9",
+      md: "w-10 h-10"
+    }
+    
+    const textSizeClasses = {
+      sm: "text-xs",
+      md: "text-sm"
+    }
+
+    return (
+      <div className={`relative ${sizeClasses[size]} bg-gradient-to-br from-blue-600 to-blue-700 rounded-full flex items-center justify-center border-2 border-blue-400 overflow-hidden`}>
+        {avatarUrl ? (
+          <Image
+            src={avatarUrl}
+            alt="Profile"
+            fill
+            className="object-cover w-full h-full"
+            sizes="(max-width: 768px) 36px, 40px"
+          />
+        ) : (
+          <span className={`${textSizeClasses[size]} font-bold text-white`}>
+            {initials}
+          </span>
+        )}
+      </div>
+    )
+  }
+
   // Show loading state
   if (loading) {
     return (
@@ -170,14 +208,16 @@ export default function AdminHRSidebar({ mobileOpen, onMobileClose }: HRSidebarP
         {/* Logo Section - Slightly bigger */}
         <div className="flex-shrink-0 border-b border-blue-800 bg-[#11214a] py-5 px-4">
           <div className="flex flex-col items-center justify-center">
-            <Image
-              src="/images/norsu.png"
-              alt="NORSU HR Logo"
-              width={50}
-              height={50}
-              className="rounded-xl mb-2"
-              priority
-            />
+            <div className="relative w-12 h-12 rounded-xl mb-2 overflow-hidden">
+              <Image
+                src="/images/norsu.png"
+                alt="NORSU HR Logo"
+                fill
+                className="object-cover"
+                sizes="48px"
+                priority
+              />
+            </div>
             <h1 className="text-base font-semibold text-center mb-1">
               {userProfile.role === 'super_admin' ? 'NORSU HR Admin' : 'NORSU HR Manager'}
             </h1>
@@ -192,21 +232,11 @@ export default function AdminHRSidebar({ mobileOpen, onMobileClose }: HRSidebarP
             className="flex items-center gap-3 p-3 bg-blue-900/30 rounded-lg border border-blue-700/50 hover:bg-blue-800/50 transition-colors"
           >
             <div className="flex-shrink-0">
-              <div className="w-10 h-10 bg-gradient-to-br from-blue-600 to-blue-700 rounded-full flex items-center justify-center border-2 border-blue-400">
-                {userProfile.avatar_url ? (
-                  <Image
-                    src={userProfile.avatar_url}
-                    alt="Profile"
-                    width={40}
-                    height={40}
-                    className="rounded-full"
-                  />
-                ) : (
-                  <span className="text-sm font-bold text-white">
-                    {getInitials()}
-                  </span>
-                )}
-              </div>
+              <AvatarDisplay 
+                avatarUrl={userProfile.avatar_url}
+                initials={getInitials()}
+                size="md"
+              />
             </div>
             <div className="flex-1 min-w-0">
               <p className="text-sm font-semibold text-white truncate">{getDisplayName()}</p>
@@ -285,14 +315,16 @@ export default function AdminHRSidebar({ mobileOpen, onMobileClose }: HRSidebarP
           <div className="flex-shrink-0 border-b border-blue-800 bg-[#11214a] py-5 px-4">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-3">
-                <Image
-                  src="/images/norsu.png"
-                  alt="NORSU HR Logo"
-                  width={40}
-                  height={40}
-                  className="rounded-lg"
-                  priority
-                />
+                <div className="relative w-10 h-10 rounded-lg overflow-hidden">
+                  <Image
+                    src="/images/norsu.png"
+                    alt="NORSU HR Logo"
+                    fill
+                    className="object-cover"
+                    sizes="40px"
+                    priority
+                  />
+                </div>
                 <div className="text-left">
                   <h1 className="text-sm font-semibold">NORSU HR</h1>
                   <p className="text-xs text-blue-300">Mobile Menu</p>
@@ -315,21 +347,11 @@ export default function AdminHRSidebar({ mobileOpen, onMobileClose }: HRSidebarP
               className="flex items-center gap-3 p-3 bg-blue-900/30 rounded-lg border border-blue-700/50 hover:bg-blue-800/50 transition-colors"
             >
               <div className="flex-shrink-0">
-                <div className="w-10 h-10 bg-gradient-to-br from-blue-600 to-blue-700 rounded-full flex items-center justify-center border-2 border-blue-400">
-                  {userProfile.avatar_url ? (
-                    <Image
-                      src={userProfile.avatar_url}
-                      alt="Profile"
-                      width={40}
-                      height={40}
-                      className="rounded-full"
-                    />
-                  ) : (
-                    <span className="text-sm font-bold text-white">
-                      {getInitials()}
-                    </span>
-                  )}
-                </div>
+                <AvatarDisplay 
+                  avatarUrl={userProfile.avatar_url}
+                  initials={getInitials()}
+                  size="md"
+                />
               </div>
               <div className="flex-1 min-w-0">
                 <p className="text-sm font-semibold text-white truncate">{getDisplayName()}</p>
@@ -450,6 +472,34 @@ export function MobileTopbar({ onMenu }: { onMenu: () => void }) {
     return userProfile.email?.charAt(0).toUpperCase() || 'H'
   }
 
+  // Avatar Component for mobile
+  const MobileAvatar = () => {
+    if (!userProfile) return null
+    
+    return (
+      <Link 
+        href="/administrator/profile" 
+        className="flex items-center"
+      >
+        <div className="relative w-9 h-9 bg-gradient-to-br from-blue-600 to-blue-700 rounded-full flex items-center justify-center border-2 border-blue-400 overflow-hidden">
+          {userProfile.avatar_url ? (
+            <Image
+              src={userProfile.avatar_url}
+              alt="Profile"
+              fill
+              className="object-cover w-full h-full"
+              sizes="36px"
+            />
+          ) : (
+            <span className="text-xs font-bold text-white">
+              {getInitials()}
+            </span>
+          )}
+        </div>
+      </Link>
+    )
+  }
+
   return (
     <div className="lg:hidden sticky top-0 z-40 flex items-center justify-between border-b border-blue-800 bg-[#0b1b3b] px-4 py-3">
       <div className="flex items-center gap-3">
@@ -462,14 +512,16 @@ export function MobileTopbar({ onMenu }: { onMenu: () => void }) {
         </button>
         
         <div className="flex items-center gap-2">
-          <Image 
-            src="/images/norsu.png" 
-            width={28} 
-            height={28} 
-            alt="NORSU Logo" 
-            className="rounded-sm border border-blue-600" 
-            priority
-          />
+          <div className="relative w-7 h-7 rounded-sm border border-blue-600 overflow-hidden">
+            <Image 
+              src="/images/norsu.png" 
+              alt="NORSU Logo" 
+              fill
+              className="object-cover"
+              sizes="28px"
+              priority
+            />
+          </div>
           <div>
             <h1 className="text-sm font-semibold text-white">{getTitle()}</h1>
             <p className="text-xs text-blue-200">
@@ -479,28 +531,7 @@ export function MobileTopbar({ onMenu }: { onMenu: () => void }) {
         </div>
       </div>
       
-      {userProfile && (
-        <Link 
-          href="/administrator/profile" 
-          className="flex items-center"
-        >
-          <div className="w-9 h-9 bg-gradient-to-br from-blue-600 to-blue-700 rounded-full flex items-center justify-center border-2 border-blue-400">
-            {userProfile.avatar_url ? (
-              <Image
-                src={userProfile.avatar_url}
-                alt="Profile"
-                width={36}
-                height={36}
-                className="rounded-full"
-              />
-            ) : (
-              <span className="text-xs font-bold text-white">
-                {getInitials()}
-              </span>
-            )}
-          </div>
-        </Link>
-      )}
+      <MobileAvatar />
     </div>
   )
 }
