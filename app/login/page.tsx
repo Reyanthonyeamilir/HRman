@@ -1,4 +1,3 @@
-// app/login/page.tsx
 'use client'
 import Link from 'next/link'
 import { useRouter, useSearchParams } from 'next/navigation'
@@ -9,7 +8,7 @@ import Image from 'next/image'
 export default function LoginPage() {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
-  const [showPassword, setShowPassword] = useState(false) // New state for password visibility
+  const [showPassword, setShowPassword] = useState(false)
   const [msg, setMsg] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
   const [errors, setErrors] = useState<{ email?: string; password?: string }>({})
@@ -139,7 +138,6 @@ export default function LoginPage() {
     
     console.log('🎯 Current user role for redirect:', role)
     
-    // CORRECTED: Use lowercase paths that match your actual folder structure
     const roleRedirects: { [key: string]: string } = {
       'super_admin': '/administrator/dashboard',
       'hr': '/administrator/dashboard',
@@ -154,11 +152,9 @@ export default function LoginPage() {
     const finalPath = next || redirectPath
     console.log('🚀 Final destination:', finalPath)
 
-    // Use replace to prevent back navigation to login
     router.replace(finalPath)
   }
 
-  // Improved debug function - shows detailed info
   const debugUserRole = async () => {
     try {
       console.log('🔍 === DEBUG USER ROLE ===')
@@ -220,7 +216,6 @@ export default function LoginPage() {
 
   const canSubmit = email.trim() && password.trim() && !loading
 
-  // Show loading while checking session
   if (isCheckingSession) {
     return (
       <main className="min-h-screen bg-gradient-to-br from-[#0a1630] via-[#0f2a5c] to-[#1a3f8a] flex items-center justify-center">
@@ -234,7 +229,6 @@ export default function LoginPage() {
 
   return (
     <main className="min-h-screen bg-gradient-to-br from-[#0a1630] via-[#0f2a5c] to-[#1a3f8a]">
-      {/* Background Image Section */}
       <div className="relative w-full min-h-screen overflow-hidden">
         {/* Background Image */}
         <div className="absolute inset-0">
@@ -253,7 +247,6 @@ export default function LoginPage() {
           {/* Enhanced Gradient Overlay */}
           <div className="absolute inset-0 bg-gradient-to-r from-[#0a1630]/95 via-[#0a1630]/80 to-[#0a1630]/95 md:from-[#0a1630]/90 md:via-[#0a1630]/60 md:to-transparent"></div>
           <div className="absolute inset-0 bg-gradient-to-t from-[#0a1630] via-transparent to-transparent"></div>
-          {/* Subtle Pattern Overlay */}
           <div className="absolute inset-0 bg-[url('data:image/svg+xml,%3Csvg%20width%3D%2220%22%20height%3D%2220%22%20viewBox%3D%220%200%2020%2020%22%20xmlns%3D%22http%3A//www.w3.org/2000/svg%22%3E%3Cg%20fill%3D%22%23ffffff%22%20fill-opacity%3D%220.05%22%3E%3Ccircle%20cx%3D%223%22%20cy%3D%223%22%20r%3D%221%22/%3E%3Ccircle%20cx%3D%2210%22%20cy%3D%2210%22%20r%3D%221%22/%3E%3C/g%3E%3C/svg%3E')]"></div>
         </div>
 
@@ -354,6 +347,16 @@ export default function LoginPage() {
                         {errors.password}
                       </p>
                     )}
+                    
+                    {/* Forgot Password Link - ADDED HERE */}
+                    <div className="flex justify-end mt-2">
+                      <Link 
+                        href="/forgot-password" 
+                        className="text-sm text-blue-600 hover:text-blue-800 hover:underline transition-colors"
+                      >
+                        Forgot password?
+                      </Link>
+                    </div>
                   </div>
 
                   <button
@@ -398,7 +401,7 @@ export default function LoginPage() {
                   </div>
                 )}
 
-                {/* Debug button only - session clearing removed */}
+                {/* Debug button */}
                 <div className="mt-4">
                   <button 
                     type="button" 
@@ -419,7 +422,6 @@ export default function LoginPage() {
 
               {/* Right: CTA */}
               <div className="bg-gradient-to-br from-blue-800 to-blue-900 text-white p-6 md:p-8 flex flex-col items-center justify-center relative overflow-hidden">
-                {/* Background Pattern */}
                 <div className="absolute inset-0 bg-[url('data:image/svg+xml,%3Csvg%20width%3D%2220%22%20height%3D%2220%22%20viewBox%3D%220%200%2020%2020%22%20xmlns%3D%22http%3A//www.w3.org/2000/svg%22%3E%3Cg%20fill%3D%22%23ffffff%22%20fill-opacity%3D%220.1%22%3E%3Ccircle%20cx%3D%223%22%20cy%3D%223%22%20r%3D%221%22/%3E%3Ccircle%20cx%3D%2210%22%20cy%3D%2210%22%20r%3D%221%22/%3E%3C/g%3E%3C/svg%3E')]"></div>
                 
                 <div className="relative z-10 text-center">

@@ -201,6 +201,74 @@ export async function signOut() {
   }
 }
 
+/* ---------- Password Reset Functions ---------- */
+export async function requestPasswordReset(email: string) {
+  try {
+    console.log('🔧 Requesting password reset for:', email);
+    
+    // Get the current origin
+    const origin = window.location.origin;
+    console.log('📍 Origin:', origin);
+    console.log('🔗 Redirect URL:', `${origin}/reset-password`);
+    
+    // Use the Supabase resetPasswordForEmail method
+    const { error } = await supabase.auth.resetPasswordForEmail(email, {
+      redirectTo: `${origin}/reset-password`,
+    });
+
+    if (error) {
+      console.error('❌ Password reset request error:', error);
+      throw error;
+    }
+
+    console.log('✅ Password reset email sent successfully');
+    return { success: true, message: 'Password reset email sent. Check your inbox.' };
+  } catch (error: any) {
+    console.error('❌ Error in requestPasswordReset:', error);
+    
+    // User-friendly error messages
+    let errorMessage = 'Failed to send reset email. Please try again.';
+    
+    if (error.message?.includes('rate limit')) {
+      errorMessage = 'Too many attempts. Please wait a few minutes before trying again.';
+    } else if (error.message?.includes('email')) {
+      errorMessage = 'Please enter a valid email address.';
+    } else if (error.message?.includes('user not found')) {
+      errorMessage = 'No account found with this email address.';
+    }
+    
+    return { 
+      success: false, 
+      error: errorMessage,
+      details: error.message 
+    };
+  }
+}
+
+export async function updateUserPassword(newPassword: string) {
+  try {
+    console.log('🔧 Updating user password...');
+    
+    const { error } = await supabase.auth.updateUser({
+      password: newPassword
+    });
+
+    if (error) {
+      console.error('❌ Update password error:', error);
+      throw error;
+    }
+
+    console.log('✅ Password updated successfully');
+    return { success: true, message: 'Password updated successfully.' };
+  } catch (error: any) {
+    console.error('❌ Error in updateUserPassword:', error);
+    return { 
+      success: false, 
+      error: error.message || 'Failed to update password. Please try again.'
+    };
+  }
+}
+
 export async function getCurrentUser(): Promise<User | null> {
   try {
     console.log('🔍 Getting current user...');
