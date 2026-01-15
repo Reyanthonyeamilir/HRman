@@ -15,15 +15,23 @@ import {
   LogOut, Clock, Edit, X, MessageSquare, User, Calendar,
   Building, MapPin, Eye, RefreshCw
 } from 'lucide-react'
-import { 
-  listActiveJobs, 
-  submitApplication, 
-  listMyApplications, 
-  getSignedUrl, 
-  getCurrentUser, 
-  checkRecentApplication,
-  updateApplication
-} from '@/lib/applicant'
+
+// Dynamically import the Supabase-related functions to avoid SSR issues
+const loadApplicantFunctions = () => {
+  if (typeof window === 'undefined') {
+    return Promise.resolve({
+      listActiveJobs: async () => [],
+      submitApplication: async () => { throw new Error('Function not available during SSR') },
+      listMyApplications: async () => [],
+      getSignedUrl: async () => '',
+      getCurrentUser: async () => null,
+      updateApplication: async () => { throw new Error('Function not available during SSR') },
+      supabase: { auth: { signOut: async () => {} } }
+    })
+  }
+  
+  return import('@/lib/applicant')
+}
 
 type Job = { 
   id: string; 
@@ -55,7 +63,7 @@ type Row = {
 const COOLDOWN_PERIOD = 24 * 60 * 60 * 1000 // 24 hours in milliseconds
 const MAX_APPLICATIONS_PER_DAY = 3
 
-function RequirementsContent() {
+export default function RequirementsPage() {
   const params = useSearchParams()
   const initPos = params.get('position') || '—'
   const router = useRouter()
@@ -95,11 +103,22 @@ function RequirementsContent() {
   // File input reference
   const fileInputRef = React.useRef<HTMLInputElement>(null)
 
+  // Load applicant functions only on client side
+  const [applicantFunctions, setApplicantFunctions] = React.useState<any>(null)
+
+  React.useEffect(() => {
+    loadApplicantFunctions().then(functions => {
+      setApplicantFunctions(functions)
+    })
+  }, [])
+
   // Check authentication on component mount
   React.useEffect(() => {
+    if (!applicantFunctions) return
+
     const checkAuth = async () => {
       try {
-        const user = await getCurrentUser()
+        const user = await applicantFunctions.getCurrentUser()
         if (!user) {
           router.push('/login?next=/applicant/requirements')
           return
@@ -112,11 +131,11 @@ function RequirementsContent() {
     }
 
     checkAuth()
-  }, [router])
+  }, [applicantFunctions, router])
 
   // load jobs + my applications after auth is confirmed
   React.useEffect(() => {
-    if (!authChecked) return
+    if (!authChecked || !applicantFunctions) return
 
     let alive = true
 
@@ -126,8 +145,8 @@ function RequirementsContent() {
         setError(null)
         
         const [activeJobs, myApplications] = await Promise.all([
-          listActiveJobs(),
-          listMyApplications()
+          applicantFunctions.listActiveJobs(),
+          applicantFunctions.listMyApplications()
         ])
 
         if (!alive) return
@@ -171,7 +190,7 @@ function RequirementsContent() {
     return () => {
       alive = false
     }
-  }, [initPos, authChecked])
+  }, [initPos, authChecked, applicantFunctions])
 
   // Check spam protection rules for NEW applications only
   const checkSpamProtection = async (applications: Row[]) => {
@@ -253,6 +272,11 @@ function RequirementsContent() {
   }
 
   async function onSubmit() {
+    if (!applicantFunctions) {
+      setError('Application functions not loaded yet. Please try again.')
+      return
+    }
+
     // Clear previous messages
     setError(null)
     setSuccess(null)
@@ -301,7 +325,7 @@ function RequirementsContent() {
           return
         }
 
-        await updateApplication(editingApplicationId, { 
+        await applicantFunctions.updateApplication(editingApplicationId, { 
           file, 
           applicant_comment: editingApplication.applicant_comment
         })
@@ -312,7 +336,7 @@ function RequirementsContent() {
         
       } else {
         // SUBMIT NEW APPLICATION
-        const id = await submitApplication({ 
+        const id = await applicantFunctions.submitApplication({ 
           job_id: jobId!, 
           file: file!, 
           applicant_comment: applicantComment
@@ -330,7 +354,7 @@ function RequirementsContent() {
       }
       
       // Refresh applications list
-      const data = await listMyApplications()
+      const data = await applicantFunctions.listMyApplications()
       setRows(data as Row[])
       
       // Re-check spam protection
@@ -410,13 +434,13 @@ function RequirementsContent() {
 
   // Update cooldown check when jobId changes (for new applications only)
   React.useEffect(() => {
-    if (jobId && !editingApplicationId) {
+    if (jobId && !editingApplicationId && applicantFunctions) {
       checkSpamProtection(rows)
     }
-  }, [jobId, editingApplicationId])
+  }, [jobId, editingApplicationId, applicantFunctions, rows])
 
-  // Show loading while checking authentication
-  if (!authChecked) {
+  // Show loading while checking authentication or loading functions
+  if (!authChecked || !applicantFunctions) {
     return (
       <div className="flex justify-center items-center min-h-[60vh]">
         <div className="text-center">
@@ -424,8 +448,8 @@ function RequirementsContent() {
             <div className="h-16 w-16 rounded-full border-4 border-blue-100"></div>
             <div className="absolute top-0 left-0 h-16 w-16 rounded-full border-4 border-blue-600 border-t-transparent animate-spin"></div>
           </div>
-          <p className="mt-4 text-gray-600 font-medium">Verifying your session...</p>
-          <p className="text-sm text-gray-400 mt-1">Please wait while we secure your connection</p>
+          <p className="mt-4 text-gray-600 font-medium">Loading Application Portal...</p>
+          <p className="text-sm text-gray-400 mt-1">Please wait while we prepare your dashboard</p>
         </div>
       </div>
     )
@@ -450,8 +474,9 @@ function RequirementsContent() {
                 variant="outline" 
                 size="sm"
                 onClick={async () => {
-                  const { supabase } = await import('@/lib/applicant')
-                  await supabase.auth.signOut()
+                  if (applicantFunctions?.supabase) {
+                    await applicantFunctions.supabase.auth.signOut()
+                  }
                   router.push('/login')
                 }}
                 className="bg-white/10 hover:bg-white/20 text-white border-white/30 backdrop-blur-sm"
@@ -846,7 +871,7 @@ function RequirementsContent() {
               onClick={async () => {
                 setLoadingTable(true)
                 try {
-                  const data = await listMyApplications()
+                  const data = await applicantFunctions.listMyApplications()
                   setRows(data as Row[])
                 } catch (error) {
                   console.error('Failed to refresh:', error)
@@ -908,6 +933,7 @@ function RequirementsContent() {
                           row={r} 
                           onEdit={() => handleEditApplication(r)}
                           isEditing={editingApplicationId === r.id}
+                          applicantFunctions={applicantFunctions}
                         />
                       ))
                     )}
@@ -987,25 +1013,16 @@ function RequirementsContent() {
   )
 }
 
-function formatDate(s: string) {
-  const d = new Date(s)
-  return Number.isNaN(d.getTime()) ? s : d.toLocaleDateString('en-US', {
-    month: 'short',
-    day: 'numeric',
-    year: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit'
-  })
-}
-
 function SubmissionRow({ 
   row, 
   onEdit,
-  isEditing
+  isEditing,
+  applicantFunctions
 }: { 
   row: Row
   onEdit: () => void
   isEditing: boolean
+  applicantFunctions: any
 }) {
   const [url, setUrl] = React.useState<string | null>(null)
   const [loadingUrl, setLoadingUrl] = React.useState<boolean>(false)
@@ -1015,12 +1032,12 @@ function SubmissionRow({
     setLoadingUrl(true)
     
     ;(async () => {
-      if (!row.pdf_path) {
+      if (!row.pdf_path || !applicantFunctions) {
         setLoadingUrl(false)
         return
       }
       try {
-        const u = await getSignedUrl(row.pdf_path)
+        const u = await applicantFunctions.getSignedUrl(row.pdf_path)
         if (alive) setUrl(u)
       } catch (e) {
         console.error('[getSignedUrl] failed:', e)
@@ -1032,7 +1049,7 @@ function SubmissionRow({
     return () => {
       alive = false
     }
-  }, [row.pdf_path])
+  }, [row.pdf_path, applicantFunctions])
 
   const getStatusBadge = (status: string) => {
     const statusConfig = {
@@ -1168,9 +1185,4 @@ function SubmissionRow({
       </TableCell>
     </TableRow>
   )
-}
-
-// Export the main component
-export default function RequirementsPage() {
-  return <RequirementsContent />
 }

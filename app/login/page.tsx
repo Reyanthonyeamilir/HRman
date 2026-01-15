@@ -401,17 +401,7 @@ export default function LoginPage() {
                   </div>
                 )}
 
-                {/* Debug button */}
-                <div className="mt-4">
-                  <button 
-                    type="button" 
-                    onClick={debugUserRole}
-                    className="w-full p-2 bg-blue-100 text-xs rounded hover:bg-blue-200 transition-colors text-blue-700 font-medium"
-                  >
-                    Debug User Info (Dev Only)
-                  </button>
-                </div>
-
+        
                 <div className="mt-6 pt-4 border-t border-slate-200">
                   <p className="text-center text-xs text-slate-600 mt-2">
                     Don't have an account?{' '}
