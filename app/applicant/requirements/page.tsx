@@ -1,5 +1,28 @@
 'use client'
 
+import { Suspense } from 'react'
+
+// This is the wrapper component with Suspense boundary
+export default function RequirementsPage() {
+  return (
+    <Suspense fallback={
+      <div className="flex justify-center items-center min-h-screen">
+        <div className="text-center">
+          <div className="relative">
+            <div className="h-16 w-16 rounded-full border-4 border-blue-100"></div>
+            <div className="absolute top-0 left-0 h-16 w-16 rounded-full border-4 border-blue-600 border-t-transparent animate-spin"></div>
+          </div>
+          <p className="mt-4 text-gray-600 font-medium">Loading Application Portal...</p>
+          <p className="text-sm text-gray-400 mt-1">Please wait while we prepare your dashboard</p>
+        </div>
+      </div>
+    }>
+      <RequirementsContent />
+    </Suspense>
+  )
+}
+
+// Your existing component (put ALL your original code here)
 import * as React from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -240,7 +263,7 @@ function SubmissionRow({
   )
 }
 
-export default function RequirementsPage() {
+function RequirementsContent() {
   const params = useSearchParams()
   const initPos = params.get('position') || '—'
   const router = useRouter()
