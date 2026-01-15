@@ -16,21 +16,24 @@ import {
   Building, MapPin, Eye, RefreshCw
 } from 'lucide-react'
 
-// Dynamically import the Supabase-related functions to avoid SSR issues
-const loadApplicantFunctions = () => {
+// Client-only function to load applicant functions
+const loadApplicantFunctions = async () => {
   if (typeof window === 'undefined') {
-    return Promise.resolve({
+    // Return dummy functions during SSR
+    return {
       listActiveJobs: async () => [],
-      submitApplication: async () => { throw new Error('Function not available during SSR') },
+      submitApplication: async () => { throw new Error('Not available during SSR') },
       listMyApplications: async () => [],
       getSignedUrl: async () => '',
       getCurrentUser: async () => null,
-      updateApplication: async () => { throw new Error('Function not available during SSR') },
+      updateApplication: async () => { throw new Error('Not available during SSR') },
       supabase: { auth: { signOut: async () => {} } }
-    })
+    }
   }
   
-  return import('@/lib/applicant')
+  // Dynamically import only on client side
+  const module = await import('@/lib/applicant')
+  return module
 }
 
 type Job = { 
@@ -62,6 +65,180 @@ type Row = {
 // Constants for anti-spam protection
 const COOLDOWN_PERIOD = 24 * 60 * 60 * 1000 // 24 hours in milliseconds
 const MAX_APPLICATIONS_PER_DAY = 3
+
+function SubmissionRow({ 
+  row, 
+  onEdit,
+  isEditing,
+  applicantFunctions
+}: { 
+  row: Row
+  onEdit: () => void
+  isEditing: boolean
+  applicantFunctions: any
+}) {
+  const [url, setUrl] = React.useState<string | null>(null)
+  const [loadingUrl, setLoadingUrl] = React.useState<boolean>(false)
+
+  React.useEffect(() => {
+    let alive = true
+    setLoadingUrl(true)
+    
+    ;(async () => {
+      if (!row.pdf_path || !applicantFunctions) {
+        setLoadingUrl(false)
+        return
+      }
+      try {
+        const u = await applicantFunctions.getSignedUrl(row.pdf_path)
+        if (alive) setUrl(u)
+      } catch (e) {
+        console.error('[getSignedUrl] failed:', e)
+      } finally {
+        if (alive) setLoadingUrl(false)
+      }
+    })()
+
+    return () => {
+      alive = false
+    }
+  }, [row.pdf_path, applicantFunctions])
+
+  const getStatusBadge = (status: string) => {
+    const statusConfig = {
+      'for_review': { 
+        color: 'bg-blue-100 text-blue-800 border-blue-200',
+        icon: '⏳'
+      },
+      'shortlisted': { 
+        color: 'bg-green-100 text-green-800 border-green-200',
+        icon: '✅'
+      },
+      'hired': { 
+        color: 'bg-emerald-100 text-emerald-800 border-emerald-200',
+        icon: '🏆'
+      },
+      'rejected': { 
+        color: 'bg-red-100 text-red-800 border-red-200',
+        icon: '❌'
+      }
+    }
+    
+    const config = statusConfig[status as keyof typeof statusConfig] || {
+      color: 'bg-gray-100 text-gray-800 border-gray-200',
+      icon: '📋'
+    }
+    
+    const displayStatus = status === 'for_review' ? 'For Review' : 
+                         status === 'shortlisted' ? 'Shortlisted' :
+                         status.charAt(0).toUpperCase() + status.slice(1)
+    
+    return (
+      <Badge variant="outline" className={`${config.color} font-medium`}>
+        <span className="mr-1">{config.icon}</span>
+        {displayStatus}
+      </Badge>
+    )
+  }
+
+  // Only 'for_review' applications can be edited
+  const canEdit = row.status === 'for_review'
+
+  return (
+    <TableRow className={`${isEditing ? 'bg-blue-50' : 'hover:bg-gray-50'} transition-colors`}>
+      <TableCell className="py-4">
+        <div className="flex items-center gap-3">
+          <div className={`h-10 w-10 rounded-lg flex items-center justify-center ${
+            isEditing ? 'bg-blue-100' : 'bg-gray-100'
+          }`}>
+            <Building className={`h-5 w-5 ${isEditing ? 'text-blue-600' : 'text-gray-500'}`} />
+          </div>
+          <div>
+            <div className="font-semibold text-gray-900 truncate max-w-[180px]">{row.job_title}</div>
+            <div className="text-xs text-gray-500 mt-1">{row.job_status}</div>
+            {isEditing && (
+              <Badge className="mt-1 bg-blue-100 text-blue-700 border-blue-300 text-xs">
+                Currently Editing
+              </Badge>
+            )}
+          </div>
+        </div>
+      </TableCell>
+      <TableCell className="hidden sm:table-cell py-4">
+        {getStatusBadge(row.status || row.job_status)}
+      </TableCell>
+      <TableCell className="hidden lg:table-cell py-4">
+        <div className="flex items-center gap-2">
+          <FileText className="h-4 w-4 text-gray-400" />
+          <span className="text-sm text-gray-600 truncate max-w-[120px]" title={row.pdf_path}>
+            {row.pdf_path.split('/').pop()}
+          </span>
+        </div>
+      </TableCell>
+      <TableCell className="hidden xl:table-cell py-4 max-w-[200px]">
+        {row.applicant_comment ? (
+          <div className="group relative">
+            <div className="truncate text-sm text-gray-600 cursor-help" title={row.applicant_comment}>
+              {row.applicant_comment}
+            </div>
+            <div className="absolute left-0 top-full mt-2 p-2 bg-white border border-gray-200 rounded-lg shadow-lg z-10 opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 w-64">
+              <div className="text-xs font-medium text-gray-700 mb-1">Your Comment:</div>
+              <div className="text-sm text-gray-600">{row.applicant_comment}</div>
+            </div>
+          </div>
+        ) : (
+          <span className="text-gray-400 text-sm">—</span>
+        )}
+      </TableCell>
+      <TableCell className="py-4">
+        <div className="flex items-center gap-2">
+          <Calendar className="h-4 w-4 text-gray-400" />
+          <div className="text-sm text-gray-600">
+            {new Date(row.submitted_at).toLocaleDateString()}
+          </div>
+        </div>
+      </TableCell>
+      <TableCell className="py-4 text-right">
+        <div className="flex items-center justify-end gap-2">
+          {loadingUrl ? (
+            <div className="h-8 w-8 rounded-full border-2 border-blue-100 border-t-blue-600 animate-spin"></div>
+          ) : url ? (
+            <Button 
+              variant="outline" 
+              size="sm"
+              asChild
+              className="border-gray-300 hover:bg-gray-50"
+            >
+              <a href={url} target="_blank" rel="noreferrer" className="flex items-center gap-2">
+                <Eye className="h-4 w-4" />
+                <span className="hidden sm:inline">View PDF</span>
+              </a>
+            </Button>
+          ) : (
+            <span className="text-gray-400 text-sm">—</span>
+          )}
+          
+          {canEdit && (
+            <Button
+              variant={isEditing ? "secondary" : "outline"}
+              size="sm"
+              onClick={onEdit}
+              disabled={isEditing}
+              className={`flex items-center gap-2 ${
+                isEditing 
+                  ? 'bg-blue-100 text-blue-700 border-blue-300' 
+                  : 'border-gray-300 hover:bg-gray-100'
+              }`}
+            >
+              <Edit className="h-4 w-4" />
+              <span className="hidden sm:inline">{isEditing ? 'Editing...' : 'Edit File'}</span>
+            </Button>
+          )}
+        </div>
+      </TableCell>
+    </TableRow>
+  )
+}
 
 export default function RequirementsPage() {
   const params = useSearchParams()
@@ -1010,179 +1187,5 @@ export default function RequirementsPage() {
         </div>
       </div>
     </div>
-  )
-}
-
-function SubmissionRow({ 
-  row, 
-  onEdit,
-  isEditing,
-  applicantFunctions
-}: { 
-  row: Row
-  onEdit: () => void
-  isEditing: boolean
-  applicantFunctions: any
-}) {
-  const [url, setUrl] = React.useState<string | null>(null)
-  const [loadingUrl, setLoadingUrl] = React.useState<boolean>(false)
-
-  React.useEffect(() => {
-    let alive = true
-    setLoadingUrl(true)
-    
-    ;(async () => {
-      if (!row.pdf_path || !applicantFunctions) {
-        setLoadingUrl(false)
-        return
-      }
-      try {
-        const u = await applicantFunctions.getSignedUrl(row.pdf_path)
-        if (alive) setUrl(u)
-      } catch (e) {
-        console.error('[getSignedUrl] failed:', e)
-      } finally {
-        if (alive) setLoadingUrl(false)
-      }
-    })()
-
-    return () => {
-      alive = false
-    }
-  }, [row.pdf_path, applicantFunctions])
-
-  const getStatusBadge = (status: string) => {
-    const statusConfig = {
-      'for_review': { 
-        color: 'bg-blue-100 text-blue-800 border-blue-200',
-        icon: '⏳'
-      },
-      'shortlisted': { 
-        color: 'bg-green-100 text-green-800 border-green-200',
-        icon: '✅'
-      },
-      'hired': { 
-        color: 'bg-emerald-100 text-emerald-800 border-emerald-200',
-        icon: '🏆'
-      },
-      'rejected': { 
-        color: 'bg-red-100 text-red-800 border-red-200',
-        icon: '❌'
-      }
-    }
-    
-    const config = statusConfig[status as keyof typeof statusConfig] || {
-      color: 'bg-gray-100 text-gray-800 border-gray-200',
-      icon: '📋'
-    }
-    
-    const displayStatus = status === 'for_review' ? 'For Review' : 
-                         status === 'shortlisted' ? 'Shortlisted' :
-                         status.charAt(0).toUpperCase() + status.slice(1)
-    
-    return (
-      <Badge variant="outline" className={`${config.color} font-medium`}>
-        <span className="mr-1">{config.icon}</span>
-        {displayStatus}
-      </Badge>
-    )
-  }
-
-  // Only 'for_review' applications can be edited
-  const canEdit = row.status === 'for_review'
-
-  return (
-    <TableRow className={`${isEditing ? 'bg-blue-50' : 'hover:bg-gray-50'} transition-colors`}>
-      <TableCell className="py-4">
-        <div className="flex items-center gap-3">
-          <div className={`h-10 w-10 rounded-lg flex items-center justify-center ${
-            isEditing ? 'bg-blue-100' : 'bg-gray-100'
-          }`}>
-            <Building className={`h-5 w-5 ${isEditing ? 'text-blue-600' : 'text-gray-500'}`} />
-          </div>
-          <div>
-            <div className="font-semibold text-gray-900 truncate max-w-[180px]">{row.job_title}</div>
-            <div className="text-xs text-gray-500 mt-1">{row.job_status}</div>
-            {isEditing && (
-              <Badge className="mt-1 bg-blue-100 text-blue-700 border-blue-300 text-xs">
-                Currently Editing
-              </Badge>
-            )}
-          </div>
-        </div>
-      </TableCell>
-      <TableCell className="hidden sm:table-cell py-4">
-        {getStatusBadge(row.status || row.job_status)}
-      </TableCell>
-      <TableCell className="hidden lg:table-cell py-4">
-        <div className="flex items-center gap-2">
-          <FileText className="h-4 w-4 text-gray-400" />
-          <span className="text-sm text-gray-600 truncate max-w-[120px]" title={row.pdf_path}>
-            {row.pdf_path.split('/').pop()}
-          </span>
-        </div>
-      </TableCell>
-      <TableCell className="hidden xl:table-cell py-4 max-w-[200px]">
-        {row.applicant_comment ? (
-          <div className="group relative">
-            <div className="truncate text-sm text-gray-600 cursor-help" title={row.applicant_comment}>
-              {row.applicant_comment}
-            </div>
-            <div className="absolute left-0 top-full mt-2 p-2 bg-white border border-gray-200 rounded-lg shadow-lg z-10 opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 w-64">
-              <div className="text-xs font-medium text-gray-700 mb-1">Your Comment:</div>
-              <div className="text-sm text-gray-600">{row.applicant_comment}</div>
-            </div>
-          </div>
-        ) : (
-          <span className="text-gray-400 text-sm">—</span>
-        )}
-      </TableCell>
-      <TableCell className="py-4">
-        <div className="flex items-center gap-2">
-          <Calendar className="h-4 w-4 text-gray-400" />
-          <div className="text-sm text-gray-600">
-            {new Date(row.submitted_at).toLocaleDateString()}
-          </div>
-        </div>
-      </TableCell>
-      <TableCell className="py-4 text-right">
-        <div className="flex items-center justify-end gap-2">
-          {loadingUrl ? (
-            <div className="h-8 w-8 rounded-full border-2 border-blue-100 border-t-blue-600 animate-spin"></div>
-          ) : url ? (
-            <Button 
-              variant="outline" 
-              size="sm"
-              asChild
-              className="border-gray-300 hover:bg-gray-50"
-            >
-              <a href={url} target="_blank" rel="noreferrer" className="flex items-center gap-2">
-                <Eye className="h-4 w-4" />
-                <span className="hidden sm:inline">View PDF</span>
-              </a>
-            </Button>
-          ) : (
-            <span className="text-gray-400 text-sm">—</span>
-          )}
-          
-          {canEdit && (
-            <Button
-              variant={isEditing ? "secondary" : "outline"}
-              size="sm"
-              onClick={onEdit}
-              disabled={isEditing}
-              className={`flex items-center gap-2 ${
-                isEditing 
-                  ? 'bg-blue-100 text-blue-700 border-blue-300' 
-                  : 'border-gray-300 hover:bg-gray-100'
-              }`}
-            >
-              <Edit className="h-4 w-4" />
-              <span className="hidden sm:inline">{isEditing ? 'Editing...' : 'Edit File'}</span>
-            </Button>
-          )}
-        </div>
-      </TableCell>
-    </TableRow>
   )
 }
