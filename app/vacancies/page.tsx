@@ -20,6 +20,47 @@ interface JobPosting {
   profiles: { email: string }[] | null
 }
 
+// Helper function to get proper image URL from Supabase Storage
+const getImageUrl = (imagePath: string | null): string | null => {
+  if (!imagePath) return null
+  
+  // Debug original path
+  console.log('Original image_path:', imagePath)
+  
+  // If it's already a full URL, return it
+  if (imagePath.startsWith('http')) return imagePath
+  
+  // If it starts with /storage, it's already a full path
+  if (imagePath.startsWith('/storage/v1/object/public/')) {
+    return `https://ssjpadxflmkzkytmxnjd.supabase.co${imagePath}`
+  }
+  
+  // Common bucket names to try
+  const bucketNames = ['job-images', 'jobs', 'images', 'vacancies', 'uploads']
+  
+  for (const bucketName of bucketNames) {
+    // Try different path patterns
+    const patterns = [
+      `${bucketName}/${imagePath}`,
+      imagePath,
+      `${bucketName}/${imagePath.replace(/^\//, '')}`
+    ]
+    
+    for (const pattern of patterns) {
+      const url = `https://ssjpadxflmkzkytmxnjd.supabase.co/storage/v1/object/public/${pattern}`
+      console.log('Trying URL:', url)
+      
+      // Test if URL is accessible (optional, can be commented out)
+      // This is a lightweight check
+      const testUrl = url
+      
+      return testUrl
+    }
+  }
+  
+  return null
+}
+
 export default function VacanciesPage() {
   const [jobs, setJobs] = React.useState<JobPosting[]>([])
   const [loading, setLoading] = React.useState(true)
@@ -29,6 +70,8 @@ export default function VacanciesPage() {
   const fetchJobs = async () => {
     try {
       setLoading(true)
+      console.log('Fetching jobs...')
+      
       const { data, error } = await supabase
         .from("job_postings")
         .select(`
@@ -37,16 +80,24 @@ export default function VacanciesPage() {
         .eq("status", "active")
         .order("date_posted", { ascending: false })
       
-      if (error) throw error
+      if (error) {
+        console.error('Supabase error:', error)
+        throw error
+      }
       
+      console.log('Raw data from Supabase:', data)
+      
+      // Transform the data
       const transformedData = data?.map(job => ({
         ...job,
         profiles: job.profiles?.[0] ? [job.profiles[0]] : null
       })) || []
       
+      console.log('Transformed jobs:', transformedData)
       setJobs(transformedData)
+      
     } catch (err) {
-      console.error(err)
+      console.error('Fetch error:', err)
       setError("Failed to load job vacancies. Please try again later.")
     } finally {
       setLoading(false)
@@ -73,9 +124,9 @@ export default function VacanciesPage() {
   const getJobType = (dept: string | null) => {
     if (!dept) return "General"
     const d = dept.toLowerCase()
-    if (d.includes("college") || d.includes("professor")) return "Faculty"
-    if (d.includes("hr") || d.includes("admin")) return "Admin"
-    if (d.includes("it") || d.includes("support")) return "Staff"
+    if (d.includes("college") || d.includes("professor") || d.includes("faculty")) return "Faculty"
+    if (d.includes("hr") || d.includes("admin") || d.includes("administrative")) return "Admin"
+    if (d.includes("it") || d.includes("support") || d.includes("staff") || d.includes("technical")) return "Staff"
     return "General"
   }
 
@@ -95,6 +146,30 @@ export default function VacanciesPage() {
     job.location?.toLowerCase().includes(searchTerm.toLowerCase()) ||
     job.job_description?.toLowerCase().includes(searchTerm.toLowerCase())
   )
+
+  // Test image URLs
+  React.useEffect(() => {
+    if (jobs.length > 0) {
+      console.log('=== IMAGE URL DEBUGGING ===')
+      jobs.forEach(job => {
+        const imageUrl = getImageUrl(job.image_path)
+        console.log(`Job: ${job.job_title}`)
+        console.log(`  Original path: ${job.image_path}`)
+        console.log(`  Generated URL: ${imageUrl}`)
+        
+        // Test if URL is accessible (async)
+        if (imageUrl) {
+          fetch(imageUrl, { method: 'HEAD' })
+            .then(response => {
+              console.log(`  Status: ${response.status} ${response.statusText}`)
+            })
+            .catch(err => {
+              console.log(`  Error: ${err.message}`)
+            })
+        }
+      })
+    }
+  }, [jobs])
 
   return (
     <>
@@ -271,105 +346,112 @@ export default function VacanciesPage() {
               </div>
             ) : (
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-                {filteredJobs.map((job) => (
-                  <article
-                    key={job.id}
-                    className="group overflow-hidden rounded-xl border border-white/10 bg-white/5 backdrop-blur-md transition-all duration-300 hover:-translate-y-1 hover:border-white/20 hover:bg-white/10 hover:shadow-xl"
-                  >
-                    {/* Image Section */}
-                    <div className="relative h-32 overflow-hidden bg-gradient-to-br from-[#0b1b3b] via-[#1e3a8a] to-[#2563eb]">
-                      {job.image_path ? (
-                        <div className="relative h-full w-full">
-                          <Image
-                            src={job.image_path}
-                            alt={job.job_title}
-                            fill
-                            className="object-cover transition-transform duration-500 group-hover:scale-105"
-                            sizes="(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 33vw"
-                            onError={(e) => {
-                              e.currentTarget.style.display = 'none'
-                              const container = e.currentTarget.parentElement
-                              if (container) {
-                                const fallback = container.querySelector('.image-fallback') as HTMLElement
-                                if (fallback) {
-                                  fallback.style.display = 'flex'
+                {filteredJobs.map((job) => {
+                  const imageUrl = getImageUrl(job.image_path)
+                  
+                  return (
+                    <article
+                      key={job.id}
+                      className="group overflow-hidden rounded-xl border border-white/10 bg-white/5 backdrop-blur-md transition-all duration-300 hover:-translate-y-1 hover:border-white/20 hover:bg-white/10 hover:shadow-xl"
+                    >
+                      {/* Image Section */}
+                      <div className="relative h-32 overflow-hidden bg-gradient-to-br from-[#0b1b3b] via-[#1e3a8a] to-[#2563eb]">
+                        {imageUrl ? (
+                          <div className="relative h-full w-full">
+                            <Image
+                              src={imageUrl}
+                              alt={job.job_title}
+                              fill
+                              className="object-cover transition-transform duration-500 group-hover:scale-105"
+                              sizes="(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 33vw"
+                              unoptimized={true} // Try this if images still don't load
+                              onError={(e) => {
+                                console.error('Image failed to load:', imageUrl)
+                                e.currentTarget.style.display = 'none'
+                                const container = e.currentTarget.parentElement
+                                if (container) {
+                                  const fallback = container.querySelector('.image-fallback') as HTMLElement
+                                  if (fallback) {
+                                    fallback.style.display = 'flex'
+                                  }
                                 }
-                              }
-                            }}
-                          />
-                          <div 
-                            className="image-fallback hidden absolute inset-0 flex items-center justify-center bg-gradient-to-br from-[#0b1b3b] to-[#1e3a8a]"
-                            style={{ display: 'none' }}
-                          >
+                              }}
+                              onLoad={() => console.log('Image loaded successfully:', imageUrl)}
+                            />
+                            <div 
+                              className="image-fallback hidden absolute inset-0 flex items-center justify-center bg-gradient-to-br from-[#0b1b3b] to-[#1e3a8a]"
+                              style={{ display: 'none' }}
+                            >
+                              <div className="text-center">
+                                <Building2 className="mx-auto mb-1 h-6 w-6 text-[#2563eb]" />
+                                <p className="text-xs font-bold text-[#2563eb]">NORSU HRM</p>
+                              </div>
+                            </div>
+                          </div>
+                        ) : (
+                          <div className="flex h-full w-full items-center justify-center">
                             <div className="text-center">
                               <Building2 className="mx-auto mb-1 h-6 w-6 text-[#2563eb]" />
                               <p className="text-xs font-bold text-[#2563eb]">NORSU HRM</p>
                             </div>
                           </div>
-                        </div>
-                      ) : (
-                        <div className="flex h-full w-full items-center justify-center">
-                          <div className="text-center">
-                            <Building2 className="mx-auto mb-1 h-6 w-6 text-[#2563eb]" />
-                            <p className="text-xs font-bold text-[#2563eb]">NORSU HRM</p>
-                          </div>
-                        </div>
-                      )}
-                      <div className="absolute left-2 top-2">
-                        <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium backdrop-blur-sm ${getJobTypeColor(getJobType(job.department))}`}>
-                          {getJobType(job.department)}
-                        </span>
-                      </div>
-                      <div className="absolute inset-0 bg-gradient-to-t from-[#0b1b3b]/80 via-transparent to-transparent"></div>
-                    </div>
-
-                    {/* Details Section */}
-                    <div className="p-4">
-                      <h3 className="mb-2 line-clamp-2 text-base font-bold text-white group-hover:text-[#c7d7ff]">
-                        {job.job_title}
-                      </h3>
-                      
-                      {/* Job Meta Information */}
-                      <div className="mb-3 space-y-1.5">
-                        {job.department && (
-                          <div className="flex items-center gap-2 text-[#c7d7ff]">
-                            <Building2 className="h-3 w-3 flex-shrink-0 text-[#2563eb]" />
-                            <span className="text-xs truncate">{job.department}</span>
-                          </div>
                         )}
-                        {job.location && (
-                          <div className="flex items-center gap-2 text-[#c7d7ff]">
-                            <MapPin className="h-3 w-3 flex-shrink-0 text-[#2563eb]" />
-                            <span className="text-xs truncate">{job.location}</span>
-                          </div>
-                        )}
-                        <div className="flex items-center gap-2 text-[#94a3b8]">
-                          <Calendar className="h-3 w-3 flex-shrink-0 text-[#2563eb]" />
-                          <span className="text-xs">Posted: {formatDate(job.date_posted)}</span>
+                        <div className="absolute left-2 top-2">
+                          <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium backdrop-blur-sm ${getJobTypeColor(getJobType(job.department))}`}>
+                            {getJobType(job.department)}
+                          </span>
                         </div>
-                        <div className="flex items-center gap-2 font-semibold text-[#2563eb]">
-                          <Clock className="h-3 w-3 flex-shrink-0" />
-                          <span className="text-xs">Apply by: {getDeadlineDate(job.date_posted)}</span>
-                        </div>
+                        <div className="absolute inset-0 bg-gradient-to-t from-[#0b1b3b]/80 via-transparent to-transparent"></div>
                       </div>
 
-                      {/* Description */}
-                      <p className="mb-3 line-clamp-2 text-xs leading-relaxed text-[#c7d7ff]">
-                        {job.job_description || "Join our team and contribute to the academic excellence of NORSU."}
-                      </p>
+                      {/* Details Section */}
+                      <div className="p-4">
+                        <h3 className="mb-2 line-clamp-2 text-base font-bold text-white group-hover:text-[#c7d7ff]">
+                          {job.job_title}
+                        </h3>
+                        
+                        {/* Job Meta Information */}
+                        <div className="mb-3 space-y-1.5">
+                          {job.department && (
+                            <div className="flex items-center gap-2 text-[#c7d7ff]">
+                              <Building2 className="h-3 w-3 flex-shrink-0 text-[#2563eb]" />
+                              <span className="text-xs truncate">{job.department}</span>
+                            </div>
+                          )}
+                          {job.location && (
+                            <div className="flex items-center gap-2 text-[#c7d7ff]">
+                              <MapPin className="h-3 w-3 flex-shrink-0 text-[#2563eb]" />
+                              <span className="text-xs truncate">{job.location}</span>
+                            </div>
+                          )}
+                          <div className="flex items-center gap-2 text-[#94a3b8]">
+                            <Calendar className="h-3 w-3 flex-shrink-0 text-[#2563eb]" />
+                            <span className="text-xs">Posted: {formatDate(job.date_posted)}</span>
+                          </div>
+                          <div className="flex items-center gap-2 font-semibold text-[#2563eb]">
+                            <Clock className="h-3 w-3 flex-shrink-0" />
+                            <span className="text-xs">Apply by: {getDeadlineDate(job.date_posted)}</span>
+                          </div>
+                        </div>
 
-                      {/* Action Button */}
-                      <Button
-                        asChild
-                        className="w-full rounded-lg border-0 bg-gradient-to-r from-[#2563eb] to-[#1d4ed8] px-3 py-2 text-xs font-semibold text-white transition-all duration-200 hover:scale-105 hover:from-[#1d4ed8] hover:to-[#2563eb]"
-                      >
-                        <Link href={`/vacancies/${job.id}`}>
-                          View Details
-                        </Link>
-                      </Button>
-                    </div>
-                  </article>
-                ))}
+                        {/* Description */}
+                        <p className="mb-3 line-clamp-2 text-xs leading-relaxed text-[#c7d7ff]">
+                          {job.job_description || "Join our team and contribute to the academic excellence of NORSU."}
+                        </p>
+
+                        {/* Action Button */}
+                        <Button
+                          asChild
+                          className="w-full rounded-lg border-0 bg-gradient-to-r from-[#2563eb] to-[#1d4ed8] px-3 py-2 text-xs font-semibold text-white transition-all duration-200 hover:scale-105 hover:from-[#1d4ed8] hover:to-[#2563eb]"
+                        >
+                          <Link href={`/vacancies/${job.id}`}>
+                            View Details
+                          </Link>
+                        </Button>
+                      </div>
+                    </article>
+                  )
+                })}
               </div>
             )}
           </div>

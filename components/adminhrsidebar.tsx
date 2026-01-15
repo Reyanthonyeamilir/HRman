@@ -18,13 +18,15 @@ import {
   Menu,
   Mail,
   ClipboardList,
-  Compass
+  Compass,
+  Bell // Added Bell import
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { supabase } from '@/lib/supabaseClient'
 import { useState, useEffect } from "react"
 import Image from "next/image"
 import { cn } from "@/lib/utils"
+import { Badge } from "@/components/ui/badge" // Added Badge import
 
 interface UserProfile {
   id: string
@@ -45,6 +47,9 @@ export default function AdminHRSidebar({ mobileOpen, onMobileClose }: HRSidebarP
   const router = useRouter()
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null)
   const [loading, setLoading] = useState(true)
+  const [avatarFullUrl, setAvatarFullUrl] = useState<string | null>(null)
+  const [imageError, setImageError] = useState(false)
+  const [unreadCount, setUnreadCount] = useState(0) // Added unreadCount state
 
   useEffect(() => {
     fetchUserProfile()
@@ -52,6 +57,9 @@ export default function AdminHRSidebar({ mobileOpen, onMobileClose }: HRSidebarP
 
   const fetchUserProfile = async () => {
     try {
+      setLoading(true)
+      setImageError(false)
+      
       const { data: { user }, error: userError } = await supabase.auth.getUser()
       
       if (userError) {
@@ -81,6 +89,92 @@ export default function AdminHRSidebar({ mobileOpen, onMobileClose }: HRSidebarP
 
       if (profile) {
         setUserProfile(profile)
+        
+        // Construct full avatar URL if it exists
+        let avatarUrl = null
+        if (profile.avatar_url) {
+          console.log('Avatar URL from database:', profile.avatar_url)
+          
+          // If it's already a full URL, use it as is
+          if (profile.avatar_url.startsWith('http')) {
+            avatarUrl = profile.avatar_url
+          } else {
+            // For Supabase storage paths
+            // Remove leading slash if present
+            const filePath = profile.avatar_url.startsWith('/') 
+              ? profile.avatar_url.slice(1) 
+              : profile.avatar_url
+            
+            // Try to construct the correct Supabase storage URL
+            const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
+            
+            if (supabaseUrl) {
+              // Check if it's already a full storage URL
+              if (filePath.includes('storage/v1/object/public/')) {
+                avatarUrl = filePath
+              } else {
+                // Construct the URL based on the path structure
+                // If the path has UUID folder structure
+                if (filePath.includes('/')) {
+                  // Path like: "c3cff6e5-90a4-4540-9cf1-e17332ad0b79/1768457894195.jpg"
+                  avatarUrl = `${supabaseUrl}/storage/v1/object/public/profile/${filePath}`
+                } else {
+                  // Just a filename
+                  avatarUrl = `${supabaseUrl}/storage/v1/object/public/profile/${filePath}`
+                }
+              }
+            }
+            
+            console.log('Constructed avatar URL:', avatarUrl)
+          }
+        }
+        
+        setAvatarFullUrl(avatarUrl)
+        
+        // Fetch unread notifications count
+        const { count } = await supabase
+          .from('notifications')
+          .select('*', { count: 'exact', head: true })
+          .eq('user_id', user.id)
+          .eq('is_read', false)
+        
+        setUnreadCount(count || 0)
+        
+        // Set up real-time subscription for notifications
+        const channel = supabase
+          .channel(`notifications-admin-${user.id}`)
+          .on(
+            'postgres_changes',
+            {
+              event: 'INSERT',
+              schema: 'public',
+              table: 'notifications',
+              filter: `user_id=eq.${user.id}`
+            },
+            () => {
+              setUnreadCount(prev => prev + 1)
+            }
+          )
+          .on(
+            'postgres_changes',
+            {
+              event: 'UPDATE',
+              schema: 'public',
+              table: 'notifications',
+              filter: `user_id=eq.${user.id}`
+            },
+            (payload) => {
+              if (payload.new.is_read === true && payload.old.is_read === false) {
+                setUnreadCount(prev => Math.max(0, prev - 1))
+              }
+            }
+          )
+          .subscribe()
+        
+        // Cleanup function for the effect
+        return () => {
+          supabase.removeChannel(channel)
+        }
       }
     } catch (error) {
       console.error('Error fetching profile:', error)
@@ -94,6 +188,7 @@ export default function AdminHRSidebar({ mobileOpen, onMobileClose }: HRSidebarP
     { name: 'Job Postings', href: '/administrator/jobposting', icon: Briefcase },
     { name: 'Applications', href: '/administrator/applications', icon: FileText },
     { name: 'Profile', href: '/administrator/profile', icon: User },
+    { name: 'Notifications', href: '/notifications', icon: Bell }, // Added Notifications
   ]
 
   const adminOnlyNavigation = [
@@ -146,12 +241,8 @@ export default function AdminHRSidebar({ mobileOpen, onMobileClose }: HRSidebarP
 
   // Avatar Component for consistent sizing
   const AvatarDisplay = ({ 
-    avatarUrl, 
-    initials, 
     size = "md" 
   }: { 
-    avatarUrl: string | null, 
-    initials: string, 
     size?: "sm" | "md" 
   }) => {
     const sizeClasses = {
@@ -166,20 +257,56 @@ export default function AdminHRSidebar({ mobileOpen, onMobileClose }: HRSidebarP
 
     return (
       <div className={`relative ${sizeClasses[size]} bg-gradient-to-br from-blue-600 to-blue-700 rounded-full flex items-center justify-center border-2 border-blue-400 overflow-hidden`}>
-        {avatarUrl ? (
+        {avatarFullUrl && !imageError ? (
           <Image
-            src={avatarUrl}
+            src={avatarFullUrl}
             alt="Profile"
             fill
             className="object-cover w-full h-full"
             sizes="(max-width: 768px) 36px, 40px"
+            onError={() => {
+              console.error('Image failed to load:', avatarFullUrl)
+              setImageError(true)
+            }}
+            unoptimized={true}
           />
         ) : (
           <span className={`${textSizeClasses[size]} font-bold text-white`}>
-            {initials}
+            {getInitials()}
           </span>
         )}
       </div>
+    )
+  }
+
+  // Mobile Avatar Component
+  const MobileAvatar = () => {
+    const sizeClasses = "w-9 h-9"
+    const textSizeClasses = "text-xs"
+
+    return (
+      <Link 
+        href="/administrator/profile" 
+        className="flex items-center"
+      >
+        <div className={`relative ${sizeClasses} bg-gradient-to-br from-blue-600 to-blue-700 rounded-full flex items-center justify-center border-2 border-blue-400 overflow-hidden`}>
+          {avatarFullUrl && !imageError ? (
+            <Image
+              src={avatarFullUrl}
+              alt="Profile"
+              fill
+              className="object-cover w-full h-full"
+              sizes="36px"
+              onError={() => setImageError(true)}
+              unoptimized={true}
+            />
+          ) : (
+            <span className={`${textSizeClasses} font-bold text-white`}>
+              {getInitials()}
+            </span>
+          )}
+        </div>
+      </Link>
     )
   }
 
@@ -232,11 +359,7 @@ export default function AdminHRSidebar({ mobileOpen, onMobileClose }: HRSidebarP
             className="flex items-center gap-3 p-3 bg-blue-900/30 rounded-lg border border-blue-700/50 hover:bg-blue-800/50 transition-colors"
           >
             <div className="flex-shrink-0">
-              <AvatarDisplay 
-                avatarUrl={userProfile.avatar_url}
-                initials={getInitials()}
-                size="md"
-              />
+              <AvatarDisplay size="md" />
             </div>
             <div className="flex-1 min-w-0">
               <p className="text-sm font-semibold text-white truncate">{getDisplayName()}</p>
@@ -261,20 +384,33 @@ export default function AdminHRSidebar({ mobileOpen, onMobileClose }: HRSidebarP
             <ul className="space-y-1.5">
               {fullNavigation.map(({ name, href, icon: Icon }) => {
                 const active = isActive(href)
+                const isNotifications = href === '/notifications'
+                
                 return (
                   <li key={href}>
                     <Link
                       href={href}
                       className={cn(
-                        'flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm transition-all duration-200',
+                        'flex items-center justify-between rounded-lg px-3 py-2.5 text-sm transition-all duration-200',
                         'hover:bg-blue-700 hover:text-white',
                         active 
                           ? 'bg-blue-600 text-white shadow-md' 
                           : 'text-gray-200 hover:shadow-sm'
                       )}
                     >
-                      <Icon className="size-4 flex-shrink-0" />
-                      <span className="truncate">{name}</span>
+                      <div className="flex items-center gap-3">
+                        <Icon className="size-4 flex-shrink-0" />
+                        <span className="truncate">{name}</span>
+                      </div>
+                      {/* Show badge for notifications if there are unread */}
+                      {isNotifications && unreadCount > 0 && (
+                        <span className={cn(
+                          "flex items-center justify-center h-5 min-w-5 px-1 text-xs font-semibold rounded-full",
+                          active ? "bg-white text-blue-600" : "bg-red-500 text-white"
+                        )}>
+                          {unreadCount > 9 ? '9+' : unreadCount}
+                        </span>
+                      )}
                     </Link>
                   </li>
                 )
@@ -347,11 +483,7 @@ export default function AdminHRSidebar({ mobileOpen, onMobileClose }: HRSidebarP
               className="flex items-center gap-3 p-3 bg-blue-900/30 rounded-lg border border-blue-700/50 hover:bg-blue-800/50 transition-colors"
             >
               <div className="flex-shrink-0">
-                <AvatarDisplay 
-                  avatarUrl={userProfile.avatar_url}
-                  initials={getInitials()}
-                  size="md"
-                />
+                <AvatarDisplay size="md" />
               </div>
               <div className="flex-1 min-w-0">
                 <p className="text-sm font-semibold text-white truncate">{getDisplayName()}</p>
@@ -371,21 +503,34 @@ export default function AdminHRSidebar({ mobileOpen, onMobileClose }: HRSidebarP
               <ul className="space-y-1.5">
                 {fullNavigation.map(({ name, href, icon: Icon }) => {
                   const active = isActive(href)
+                  const isNotifications = href === '/notifications'
+                  
                   return (
                     <li key={href}>
                       <Link
                         href={href}
                         onClick={onMobileClose}
                         className={cn(
-                          'flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm transition-all duration-200',
+                          'flex items-center justify-between rounded-lg px-3 py-2.5 text-sm transition-all duration-200',
                           'hover:bg-blue-700 hover:text-white',
                           active 
                             ? 'bg-blue-600 text-white shadow-md' 
                             : 'text-gray-200 hover:shadow-sm'
                         )}
                       >
-                        <Icon className="size-4 flex-shrink-0" />
-                        <span className="truncate">{name}</span>
+                        <div className="flex items-center gap-3">
+                          <Icon className="size-4 flex-shrink-0" />
+                          <span className="truncate">{name}</span>
+                        </div>
+                        {/* Show badge for notifications if there are unread */}
+                        {isNotifications && unreadCount > 0 && (
+                          <span className={cn(
+                            "flex items-center justify-center h-5 min-w-5 px-1 text-xs font-semibold rounded-full",
+                            active ? "bg-white text-blue-600" : "bg-red-500 text-white"
+                          )}>
+                            {unreadCount > 9 ? '9+' : unreadCount}
+                          </span>
+                        )}
                       </Link>
                     </li>
                   )
@@ -421,19 +566,63 @@ export default function AdminHRSidebar({ mobileOpen, onMobileClose }: HRSidebarP
 export function MobileTopbar({ onMenu }: { onMenu: () => void }) {
   const pathname = usePathname()
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null)
+  const [avatarFullUrl, setAvatarFullUrl] = useState<string | null>(null)
+  const [imageError, setImageError] = useState(false)
   const [loading, setLoading] = useState(true)
+  const [unreadCount, setUnreadCount] = useState(0) // Added unreadCount
 
   useEffect(() => {
     const fetchProfile = async () => {
       try {
+        setLoading(true)
+        setImageError(false)
+        
         const { data: { user } } = await supabase.auth.getUser()
         if (user) {
-          const { data } = await supabase
+          const { data: profile } = await supabase
             .from('profiles')
             .select('*')
             .eq('id', user.id)
             .single()
-          setUserProfile(data)
+          
+          setUserProfile(profile)
+          
+          // Construct full avatar URL if it exists
+          if (profile?.avatar_url) {
+            let avatarUrl = null
+            if (profile.avatar_url.startsWith('http')) {
+              avatarUrl = profile.avatar_url
+            } else {
+              const filePath = profile.avatar_url.startsWith('/') 
+                ? profile.avatar_url.slice(1) 
+                : profile.avatar_url
+              
+              const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
+              
+              if (supabaseUrl) {
+                if (filePath.includes('storage/v1/object/public/')) {
+                  avatarUrl = filePath
+                } else {
+                  if (filePath.includes('/')) {
+                    avatarUrl = `${supabaseUrl}/storage/v1/object/public/profile/${filePath}`
+                  } else {
+                    avatarUrl = `${supabaseUrl}/storage/v1/object/public/profile/${filePath}`
+                  }
+                }
+              }
+            }
+            
+            setAvatarFullUrl(avatarUrl)
+          }
+          
+          // Fetch unread notifications count
+          const { count } = await supabase
+            .from('notifications')
+            .select('*', { count: 'exact', head: true })
+            .eq('user_id', user.id)
+            .eq('is_read', false)
+          
+          setUnreadCount(count || 0)
         }
       } catch (error) {
         console.error('Error fetching profile:', error)
@@ -451,6 +640,7 @@ export function MobileTopbar({ onMenu }: { onMenu: () => void }) {
     if (pathname.includes('/administrator/profile')) return 'Profile'
     if (pathname.includes('/administrator/addusers')) return 'Add Users'
     if (pathname.includes('/administrator/tasklogs')) return 'Task Logs'
+    
     return 'Administrator'
   }
 
@@ -477,26 +667,71 @@ export function MobileTopbar({ onMenu }: { onMenu: () => void }) {
     if (!userProfile) return null
     
     return (
-      <Link 
-        href="/administrator/profile" 
-        className="flex items-center"
-      >
-        <div className="relative w-9 h-9 bg-gradient-to-br from-blue-600 to-blue-700 rounded-full flex items-center justify-center border-2 border-blue-400 overflow-hidden">
-          {userProfile.avatar_url ? (
-            <Image
-              src={userProfile.avatar_url}
-              alt="Profile"
-              fill
-              className="object-cover w-full h-full"
-              sizes="36px"
-            />
-          ) : (
-            <span className="text-xs font-bold text-white">
-              {getInitials()}
+      <div className="flex items-center gap-2">
+        {/* Notifications Bell */}
+        <Link href="/notifications" className="relative">
+          <Bell className="h-5 w-5 text-white" />
+          {unreadCount > 0 && (
+            <span className="absolute -top-1 -right-1 flex items-center justify-center h-4 min-w-4 px-1 text-xs font-semibold bg-red-500 text-white rounded-full">
+              {unreadCount > 9 ? '9+' : unreadCount}
             </span>
           )}
+        </Link>
+        
+        {/* Profile Avatar */}
+        <Link href="/administrator/profile" className="flex items-center">
+          <div className="relative w-9 h-9 bg-gradient-to-br from-blue-600 to-blue-700 rounded-full flex items-center justify-center border-2 border-blue-400 overflow-hidden">
+            {avatarFullUrl && !imageError ? (
+              <Image
+                src={avatarFullUrl}
+                alt="Profile"
+                fill
+                className="object-cover w-full h-full"
+                sizes="36px"
+                onError={() => setImageError(true)}
+                unoptimized={true}
+              />
+            ) : (
+              <span className="text-xs font-bold text-white">
+                {getInitials()}
+              </span>
+            )}
+          </div>
+        </Link>
+      </div>
+    )
+  }
+
+  if (loading) {
+    return (
+      <div className="lg:hidden sticky top-0 z-40 flex items-center justify-between border-b border-blue-800 bg-[#0b1b3b] px-4 py-3">
+        <div className="flex items-center gap-3">
+          <button
+            onClick={onMenu}
+            className="p-2 hover:bg-blue-800/50 rounded"
+            aria-label="Open menu"
+          >
+            <Menu className="size-5 text-white" />
+          </button>
+          
+          <div className="flex items-center gap-2">
+            <div className="relative w-7 h-7 rounded-sm border border-blue-600 overflow-hidden">
+              <Image 
+                src="/images/norsu.png" 
+                alt="NORSU Logo" 
+                fill
+                className="object-cover"
+                sizes="28px"
+                priority
+              />
+            </div>
+            <div>
+              <h1 className="text-sm font-semibold text-white">Loading...</h1>
+              <p className="text-xs text-blue-200">Please wait</p>
+            </div>
+          </div>
         </div>
-      </Link>
+      </div>
     )
   }
 

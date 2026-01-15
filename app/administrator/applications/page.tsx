@@ -103,8 +103,14 @@ interface Application {
   job_id: string
   applicant_id: string
   pdf_path: string
-  comment?: string
-  status: 'for_review' | 'shortlisted' | 'hired' | 'rejected'
+  applicant_comment?: string
+  hr_comment?: string
+  hr_comment_by?: string
+  hr_comment_at?: string
+  interview_date?: string
+  interview_status?: 'scheduled' | 'completed' | 'cancelled'
+  interview_notes?: string
+  status: 'for_review' | 'shortlisted' | 'for_interview' | 'hired' | 'rejected'
   submitted_at: string
   updated_at?: string
   applicant: Applicant
@@ -122,16 +128,6 @@ interface ApplicantFile {
   url: string
   type: string
   size?: string
-}
-
-interface ApplicantFullData {
-  applicant: Applicant
-  application: Application
-  educations: Education[]
-  workExperiences: WorkExperience[]
-  skills: Skill[]
-  eligibilities: Eligibility[]
-  trainings: Training[]
 }
 
 export default function HRTagPage() {
@@ -157,7 +153,7 @@ export default function HRTagPage() {
     trainings: [],
     files: [] 
   })
-  const [comment, setComment] = useState('')
+  const [hrComment, setHrComment] = useState('')
   const [status, setStatus] = useState<Application['status']>('for_review')
   const [saving, setSaving] = useState(false)
   const [loadingDetails, setLoadingDetails] = useState(false)
@@ -169,15 +165,51 @@ export default function HRTagPage() {
     totalApplications: 0,
     forReview: 0,
     shortlisted: 0,
+    forInterview: 0,
     hired: 0,
     rejected: 0
   })
   const [exportingJobId, setExportingJobId] = useState<string | null>(null)
+  const [currentUser, setCurrentUser] = useState<any>(null)
+  const [interviewDate, setInterviewDate] = useState('')
+  const [interviewTime, setInterviewTime] = useState('')
+  const [interviewNotes, setInterviewNotes] = useState('')
+  const [interviewLocation, setInterviewLocation] = useState('')
+  const [interviewStatus, setInterviewStatus] = useState<'scheduled' | 'completed' | 'cancelled'>('scheduled')
   const router = useRouter()
 
   useEffect(() => {
+    fetchCurrentUser()
     fetchJobsWithApplications()
   }, [])
+
+  const fetchCurrentUser = async () => {
+    try {
+      const { data: { user }, error: authError } = await supabase.auth.getUser()
+      if (authError) {
+        console.error('Auth error:', authError)
+        return
+      }
+      
+      if (user) {
+        const { data: profile, error: profileError } = await supabase
+          .from('profiles')
+          .select('*')
+          .eq('id', user.id)
+          .single()
+        
+        if (profileError) {
+          console.error('Profile error:', profileError)
+          return
+        }
+        
+        setCurrentUser(profile)
+        console.log('Current user set:', { id: profile.id, email: profile.email, role: profile.role })
+      }
+    } catch (err) {
+      console.error('Error fetching current user:', err)
+    }
+  }
 
   const fetchJobsWithApplications = async () => {
     try {
@@ -186,7 +218,30 @@ export default function HRTagPage() {
       
       console.log('🔄 Fetching jobs with applications...')
 
-      // Fetch all applications with both applicant and job posting details in one query
+      // First, check if user is authenticated
+      const { data: { user }, error: authError } = await supabase.auth.getUser()
+      
+      if (authError || !user) {
+        console.error('User not authenticated:', authError)
+        throw new Error('Please log in to view applications')
+      }
+
+      // Get current user profile to check role
+      const { data: currentUserProfile, error: profileError } = await supabase
+        .from('profiles')
+        .select('role')
+        .eq('id', user.id)
+        .single()
+
+      if (profileError) {
+        console.error('Error fetching user profile:', profileError)
+        throw new Error('Unable to verify user permissions')
+      }
+
+      console.log('Current user role:', currentUserProfile?.role)
+
+      // Try to fetch applications with complex query first
+      console.log('Fetching applications with complex query...')
       const { data: applicationsData, error: appsError } = await supabase
         .from('applications')
         .select(`
@@ -220,14 +275,124 @@ export default function HRTagPage() {
         .order('submitted_at', { ascending: false })
 
       if (appsError) {
-        console.error('Error fetching applications:', appsError)
-        throw appsError
+        console.error('❌ Error fetching applications with complex query:', {
+          message: appsError.message,
+          details: appsError.details,
+          hint: appsError.hint,
+          code: appsError.code
+        })
+        
+        // Try a simpler query if the complex one fails
+        console.log('Trying simpler query...')
+        const { data: simpleData, error: simpleError } = await supabase
+          .from('applications')
+          .select('*')
+          .order('submitted_at', { ascending: false })
+
+        if (simpleError) {
+          throw new Error(`Failed to fetch applications: ${simpleError.message}`)
+        }
+        
+        console.log(`✅ Fetched ${simpleData?.length || 0} applications with simple query`)
+        
+        // For simple data, we need to fetch applicant and job details separately
+        const enrichedApplications = await Promise.all(
+          (simpleData || []).map(async (app) => {
+            const [applicantResult, jobResult] = await Promise.all([
+              supabase
+                .from('profiles')
+                .select('id, email, phone, role, created_at, first_name, middle_name, last_name, avatar_url, date_of_birth, age, address')
+                .eq('id', app.applicant_id)
+                .single(),
+              supabase
+                .from('job_postings')
+                .select('id, job_title, department, location, status, date_posted, created_by, job_description, image_path')
+                .eq('id', app.job_id)
+                .single()
+            ])
+            
+            return {
+              ...app,
+              applicant: applicantResult.data || {
+                id: app.applicant_id,
+                email: 'Unknown Email',
+                phone: '',
+                role: 'applicant',
+                created_at: new Date().toISOString()
+              },
+              job_posting: jobResult.data || {
+                id: app.job_id,
+                job_title: 'Unknown Position',
+                department: 'N/A',
+                location: 'N/A',
+                status: 'unknown',
+                date_posted: new Date().toISOString(),
+                created_by: ''
+              }
+            }
+          })
+        )
+
+        // Calculate statistics
+        const totalApps = enrichedApplications.length || 0
+        const forReview = enrichedApplications.filter(app => app.status === 'for_review').length || 0
+        const shortlisted = enrichedApplications.filter(app => app.status === 'shortlisted').length || 0
+        const forInterview = enrichedApplications.filter(app => app.status === 'for_interview').length || 0
+        const hired = enrichedApplications.filter(app => app.status === 'hired').length || 0
+        const rejected = enrichedApplications.filter(app => app.status === 'rejected').length || 0
+        
+        setStats({
+          totalApplications: totalApps,
+          forReview,
+          shortlisted,
+          forInterview,
+          hired,
+          rejected
+        })
+
+        // Group applications by job_id
+        const applicationsByJob: Record<string, any[]> = {}
+        
+        enrichedApplications.forEach(app => {
+          const jobId = app.job_id
+          if (!applicationsByJob[jobId]) {
+            applicationsByJob[jobId] = []
+          }
+          applicationsByJob[jobId].push(app)
+        })
+
+        // Fetch all jobs
+        const { data: jobsData, error: jobsError } = await supabase
+          .from('job_postings')
+          .select('*')
+          .order('date_posted', { ascending: false })
+
+        if (jobsError) throw jobsError
+
+        if (!jobsData || jobsData.length === 0) {
+          console.log('No jobs found in database')
+          setJobsWithApplications([])
+          return
+        }
+
+        // Combine jobs with their applications
+        const jobsWithApps = jobsData.map(job => ({
+          job,
+          applications: applicationsByJob[job.id] || [],
+          applicantCount: applicationsByJob[job.id]?.length || 0
+        }))
+
+        setJobsWithApplications(jobsWithApps)
+        return
       }
+
+      console.log(`✅ Fetched ${applicationsData?.length || 0} applications`)
 
       // Calculate statistics
       const totalApps = applicationsData?.length || 0
       const forReview = applicationsData?.filter(app => app.status === 'for_review').length || 0
       const shortlisted = applicationsData?.filter(app => app.status === 'shortlisted').length || 0
+      const forInterview = applicationsData?.filter(app => app.status === 'for_interview').length || 0
       const hired = applicationsData?.filter(app => app.status === 'hired').length || 0
       const rejected = applicationsData?.filter(app => app.status === 'rejected').length || 0
       
@@ -235,6 +400,7 @@ export default function HRTagPage() {
         totalApplications: totalApps,
         forReview,
         shortlisted,
+        forInterview,
         hired,
         rejected
       })
@@ -248,32 +414,34 @@ export default function HRTagPage() {
           applicationsByJob[jobId] = []
         }
         
-        // Use the aliased data from the query
-        const applicant = app.applicant
-        const jobPosting = app.job_posting
-        
         applicationsByJob[jobId].push({
           id: app.id,
           job_id: app.job_id,
           applicant_id: app.applicant_id,
           pdf_path: app.pdf_path,
-          comment: app.comment || undefined,
+          applicant_comment: app.applicant_comment || undefined,
+          hr_comment: app.hr_comment || undefined,
+          hr_comment_by: app.hr_comment_by || undefined,
+          hr_comment_at: app.hr_comment_at || undefined,
+          interview_date: app.interview_date || undefined,
+          interview_status: app.interview_status || undefined,
+          interview_notes: app.interview_notes || undefined,
           status: app.status || 'for_review',
           submitted_at: app.submitted_at,
           updated_at: app.updated_at,
-          applicant: applicant ? {
-            id: applicant.id || app.applicant_id,
-            email: applicant.email || 'Unknown Email',
-            phone: applicant.phone || '',
-            role: applicant.role || 'applicant',
-            created_at: applicant.created_at || new Date().toISOString(),
-            first_name: applicant.first_name,
-            middle_name: applicant.middle_name,
-            last_name: applicant.last_name,
-            avatar_url: applicant.avatar_url,
-            date_of_birth: applicant.date_of_birth,
-            age: applicant.age,
-            address: applicant.address
+          applicant: app.applicant ? {
+            id: app.applicant.id || app.applicant_id,
+            email: app.applicant.email || 'Unknown Email',
+            phone: app.applicant.phone || '',
+            role: app.applicant.role || 'applicant',
+            created_at: app.applicant.created_at || new Date().toISOString(),
+            first_name: app.applicant.first_name,
+            middle_name: app.applicant.middle_name,
+            last_name: app.applicant.last_name,
+            avatar_url: app.applicant.avatar_url,
+            date_of_birth: app.applicant.date_of_birth,
+            age: app.applicant.age,
+            address: app.applicant.address
           } : {
             id: app.applicant_id,
             email: 'Unknown Email',
@@ -288,7 +456,7 @@ export default function HRTagPage() {
             age: undefined,
             address: undefined
           },
-          job_posting: jobPosting || {
+          job_posting: app.job_posting || {
             id: app.job_id,
             job_title: 'Unknown Position',
             department: 'N/A',
@@ -353,40 +521,36 @@ export default function HRTagPage() {
     try {
       setLoadingDetails(true)
       
-      // Fetch all applicant details in parallel
-      const [
-        educationsResult,
-        workExperiencesResult,
-        skillsResult,
-        eligibilitiesResult,
-        trainingsResult
-      ] = await Promise.all([
-        supabase
-          .from('educations')
-          .select('*')
-          .eq('profile_id', applicantId)
-          .order('expected_finish', { ascending: false }),
-        supabase
-          .from('work_experiences')
-          .select('*')
-          .eq('profile_id', applicantId)
-          .order('start_date', { ascending: false }),
-        supabase
-          .from('skills')
-          .select('*')
-          .eq('profile_id', applicantId)
-          .order('created_at', { ascending: false }),
-        supabase
-          .from('eligibilities')
-          .select('*')
-          .eq('profile_id', applicantId)
-          .order('created_at', { ascending: false }),
-        supabase
-          .from('trainings')
-          .select('*')
-          .eq('profile_id', applicantId)
-          .order('created_at', { ascending: false })
-      ])
+      // Fetch details sequentially to avoid lock issues
+      const educationsResult = await supabase
+        .from('educations')
+        .select('*')
+        .eq('profile_id', applicantId)
+        .order('expected_finish', { ascending: false })
+      
+      const workExperiencesResult = await supabase
+        .from('work_experiences')
+        .select('*')
+        .eq('profile_id', applicantId)
+        .order('start_date', { ascending: false })
+      
+      const skillsResult = await supabase
+        .from('skills')
+        .select('*')
+        .eq('profile_id', applicantId)
+        .order('created_at', { ascending: false })
+      
+      const eligibilitiesResult = await supabase
+        .from('eligibilities')
+        .select('*')
+        .eq('profile_id', applicantId)
+        .order('created_at', { ascending: false })
+      
+      const trainingsResult = await supabase
+        .from('trainings')
+        .select('*')
+        .eq('profile_id', applicantId)
+        .order('created_at', { ascending: false })
 
       // Fetch additional files from storage
       let files: ApplicantFile[] = []
@@ -408,35 +572,6 @@ export default function HRTagPage() {
         } catch (fileErr) {
           console.error('Error fetching resume:', fileErr)
         }
-      }
-
-      // Check for additional documents in storage
-      try {
-        const { data: storageFiles, error: storageError } = await supabase.storage
-          .from('applications')
-          .list(applicantId)
-
-        if (!storageError && storageFiles && storageFiles.length > 0) {
-          const additionalFiles = await Promise.all(
-            storageFiles
-              .filter(file => file.name !== 'resume.pdf' && !file.name.endsWith('/'))
-              .map(async (file) => {
-                const { data } = await supabase.storage
-                  .from('applications')
-                  .createSignedUrl(`${applicantId}/${file.name}`, 3600)
-                
-                return {
-                  name: file.name,
-                  url: data?.signedUrl || '',
-                  type: file.name.split('.').pop() || 'file',
-                  size: formatFileSize(file.metadata?.size)
-                }
-              })
-          )
-          files = [...files, ...additionalFiles.filter(f => f.url)]
-        }
-      } catch (storageErr) {
-        console.error('Error fetching additional files:', storageErr)
       }
 
       setApplicantDetails({
@@ -463,39 +598,35 @@ export default function HRTagPage() {
     trainings: Training[]
   }> => {
     try {
-      const [
-        educationsResult,
-        workExperiencesResult,
-        skillsResult,
-        eligibilitiesResult,
-        trainingsResult
-      ] = await Promise.all([
-        supabase
-          .from('educations')
-          .select('*')
-          .eq('profile_id', applicantId)
-          .order('year_graduated', { ascending: false }),
-        supabase
-          .from('work_experiences')
-          .select('*')
-          .eq('profile_id', applicantId)
-          .order('start_date', { ascending: false }),
-        supabase
-          .from('skills')
-          .select('*')
-          .eq('profile_id', applicantId)
-          .order('created_at', { ascending: false }),
-        supabase
-          .from('eligibilities')
-          .select('*')
-          .eq('profile_id', applicantId)
-          .order('created_at', { ascending: false }),
-        supabase
-          .from('trainings')
-          .select('*')
-          .eq('profile_id', applicantId)
-          .order('created_at', { ascending: false })
-      ])
+      const educationsResult = await supabase
+        .from('educations')
+        .select('*')
+        .eq('profile_id', applicantId)
+        .order('year_graduated', { ascending: false })
+      
+      const workExperiencesResult = await supabase
+        .from('work_experiences')
+        .select('*')
+        .eq('profile_id', applicantId)
+        .order('start_date', { ascending: false })
+      
+      const skillsResult = await supabase
+        .from('skills')
+        .select('*')
+        .eq('profile_id', applicantId)
+        .order('created_at', { ascending: false })
+      
+      const eligibilitiesResult = await supabase
+        .from('eligibilities')
+        .select('*')
+        .eq('profile_id', applicantId)
+        .order('created_at', { ascending: false })
+      
+      const trainingsResult = await supabase
+        .from('trainings')
+        .select('*')
+        .eq('profile_id', applicantId)
+        .order('created_at', { ascending: false })
 
       return {
         educations: educationsResult.data || [],
@@ -535,11 +666,12 @@ export default function HRTagPage() {
     await fetchApplicantDetails(application.applicant_id, application.pdf_path)
   }
 
-  const sendEmailNotification = async (application: Application, newStatus: Application['status'], comment?: string) => {
+  const sendEmailNotification = async (application: Application, newStatus: Application['status'], hrComment?: string) => {
     try {
       const statusMessages = {
         for_review: 'Your application is under review',
         shortlisted: 'Congratulations! Your application has been shortlisted',
+        for_interview: 'Congratulations! You have been invited for an interview',
         hired: 'Congratulations! You have been hired for the position',
         rejected: 'Update regarding your job application'
       }
@@ -550,13 +682,13 @@ export default function HRTagPage() {
         html: `
           <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
             <h2 style="color: #2f67ff;">NORSU HR Portal - Application Update</h2>
-            <p>Dear Applicant,</p>
+            <p>Dear ${application.applicant.first_name || 'Applicant'},</p>
             <p>We would like to inform you about the status of your application for the position of <strong>${application.job_posting.job_title}</strong>.</p>
             
             <div style="background-color: #f8f9fa; padding: 15px; border-radius: 5px; margin: 20px 0;">
               <h3 style="color: #2f67ff; margin-top: 0;">Status: ${newStatus.replace('_', ' ').toUpperCase()}</h3>
               <p><strong>Message:</strong> ${statusMessages[newStatus]}</p>
-              ${comment ? `<p><strong>Comment from HR:</strong> ${comment}</p>` : ''}
+              ${hrComment ? `<p><strong>Comment from HR:</strong> ${hrComment}</p>` : ''}
             </div>
 
             <p>You can track your application status by logging into your applicant portal.</p>
@@ -575,6 +707,7 @@ export default function HRTagPage() {
 
       console.log('Sending email notification:', emailData)
       
+      // Send email via API route
       const response = await fetch('/api/send-email', {
         method: 'POST',
         headers: {
@@ -584,42 +717,248 @@ export default function HRTagPage() {
       })
 
       if (!response.ok) {
-        throw new Error('Failed to send email notification')
+        const errorText = await response.text()
+        throw new Error(`Email API failed: ${response.status} - ${errorText}`)
       }
 
       return true
     } catch (error) {
       console.error('Error sending email notification:', error)
-      return false
+      throw error
     }
   }
 
-  const updateApplicationStatus = async (applicationId: string, newStatus: Application['status'], comment?: string) => {
+  const sendInterviewEmail = async (
+    application: Application, 
+    date: string, 
+    time: string, 
+    location: string, 
+    notes?: string
+  ) => {
+    try {
+      const formattedDate = new Date(`${date}T${time}`).toLocaleDateString('en-US', {
+        weekday: 'long',
+        year: 'numeric',
+        month: 'long',
+        day: 'numeric'
+      })
+      const formattedTime = new Date(`${date}T${time}`).toLocaleTimeString('en-US', {
+        hour: '2-digit',
+        minute: '2-digit'
+      })
+
+      const emailData = {
+        to: application.applicant.email,
+        subject: `Interview Invitation: ${application.job_posting.job_title}`,
+        html: `
+          <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+            <h2 style="color: #2f67ff;">NORSU HR Portal - Interview Invitation</h2>
+            <p>Dear ${application.applicant.first_name || 'Applicant'},</p>
+            <p>Congratulations! Your application for the position of <strong>${application.job_posting.job_title}</strong> has been shortlisted for an interview.</p>
+            
+            <div style="background-color: #f8f9fa; padding: 15px; border-radius: 5px; margin: 20px 0; border-left: 4px solid #2f67ff;">
+              <h3 style="color: #2f67ff; margin-top: 0;">Interview Details</h3>
+              <p><strong>Date:</strong> ${formattedDate}</p>
+              <p><strong>Time:</strong> ${formattedTime}</p>
+              ${location ? `<p><strong>Location:</strong> ${location}</p>` : '<p><strong>Location:</strong> To be confirmed</p>'}
+              ${notes ? `<p><strong>Additional Notes:</strong> ${notes}</p>` : ''}
+              <p><em>Please arrive 15 minutes before your scheduled interview time.</em></p>
+            </div>
+
+            <p>Please confirm your availability for this interview by replying to this email.</p>
+            <p>If you need to reschedule, please contact us at least 24 hours before the scheduled time.</p>
+            
+            <div style="margin-top: 30px; padding-top: 20px; border-top: 1px solid #e0e0e0;">
+              <p style="color: #666; font-size: 14px;">
+                Best regards,<br>
+                NORSU Human Resource Management<br>
+                hr@norsu.edu.ph<br>
+                (035) 123-4567
+              </p>
+            </div>
+          </div>
+        `
+      }
+
+      const response = await fetch('/api/send-email', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(emailData),
+      })
+
+      if (!response.ok) {
+        const errorText = await response.text()
+        throw new Error(`Email API failed: ${response.status} - ${errorText}`)
+      }
+
+      return true
+    } catch (error) {
+      console.error('Error sending interview email:', error)
+      throw error
+    }
+  }
+
+  const createNotification = async (application: Application, newStatus: Application['status'], hrComment?: string) => {
+    try {
+      const notificationData = {
+        user_id: application.applicant_id,
+        type: 'status_change',
+        title: 'Application Status Updated',
+        message: `Your application for ${application.job_posting.job_title} has been updated to ${newStatus.replace('_', ' ')}. ${hrComment ? `HR Comment: ${hrComment}` : ''}`,
+        related_entity_type: 'application',
+        related_entity_id: application.id,
+        created_by: currentUser?.id
+      }
+
+      const { error: notificationError } = await supabase
+        .from('notifications')
+        .insert(notificationData)
+
+      if (notificationError) throw notificationError
+
+      return true
+    } catch (err) {
+      console.error('Error creating notification:', err)
+      throw err
+    }
+  }
+
+  const logTask = async (action: string, entityType: string, entityId: string, entityName: string, details: any) => {
+    try {
+      if (!currentUser) return
+
+      const taskLogData = {
+        user_id: currentUser.id,
+        user_email: currentUser.email,
+        action: action,
+        entity_type: entityType,
+        entity_id: entityId,
+        entity_name: entityName,
+        details: details
+      }
+
+      const { error: logError } = await supabase
+        .from('task_logs')
+        .insert(taskLogData)
+
+      if (logError) console.error('Error logging task:', logError)
+    } catch (err) {
+      console.error('Error creating task log:', err)
+    }
+  }
+
+  const updateApplicationStatus = async (applicationId: string, newStatus: Application['status'], hrComment?: string) => {
     try {
       setSaving(true)
       
-      // Send email notification first
-      const emailSent = await sendEmailNotification(
-        selectedApplication!,
-        newStatus,
-        comment
-      )
+      const application = selectedApplication!
       
-      if (!emailSent) {
-        console.warn('Email notification failed, but continuing with status update')
+      // First, check if current user is HR or Super Admin
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) {
+        throw new Error('User not authenticated')
+      }
+
+      const { data: currentUserProfile } = await supabase
+        .from('profiles')
+        .select('role')
+        .eq('id', user.id)
+        .single()
+
+      // Allow both HR and Super Admin to update status
+      if (!currentUserProfile || (currentUserProfile.role !== 'hr' && currentUserProfile.role !== 'super_admin')) {
+        throw new Error('Only HR and Super Admin can update application status')
+      }
+      
+      // Prepare update data
+      const updateData: any = {
+        status: newStatus,
+        updated_at: new Date().toISOString()
+      }
+      
+      // If status is 'for_interview', add interview details
+      if (newStatus === 'for_interview' && interviewDate && interviewTime) {
+        const interviewDateTime = new Date(`${interviewDate}T${interviewTime}`).toISOString()
+        updateData.interview_date = interviewDateTime
+        updateData.interview_status = interviewStatus
+        updateData.interview_notes = interviewNotes || hrComment
+      }
+      
+      if (hrComment) {
+        updateData.hr_comment = hrComment
+        updateData.hr_comment_by = user.id
+        updateData.hr_comment_at = new Date().toISOString()
       }
       
       // Update application in database
+      console.log('Updating application with data:', updateData)
       const { error: updateError } = await supabase
         .from('applications')
-        .update({
-          status: newStatus,
-          comment: comment || null,
-          updated_at: new Date().toISOString()
-        })
+        .update(updateData)
         .eq('id', applicationId)
 
-      if (updateError) throw updateError
+      if (updateError) {
+        console.error('Update error details:', updateError)
+        throw new Error(`Failed to update application: ${updateError.message}`)
+      }
+
+      console.log('✅ Application updated successfully')
+
+      // Try to send email notification
+      let emailSuccess = false
+      try {
+        if (newStatus === 'for_interview') {
+          emailSuccess = await sendInterviewEmail(application, interviewDate, interviewTime, interviewLocation, interviewNotes || hrComment)
+        } else {
+          emailSuccess = await sendEmailNotification(application, newStatus, hrComment)
+        }
+        
+        if (emailSuccess) {
+          console.log('✅ Email notification sent successfully')
+        }
+      } catch (emailErr) {
+        console.warn('⚠️ Email notification failed:', emailErr)
+        // Continue even if email fails
+      }
+      
+      // Try to create notification in database
+      let notificationSuccess = false
+      try {
+        notificationSuccess = await createNotification(application, newStatus, hrComment)
+        if (notificationSuccess) {
+          console.log('✅ Notification created successfully')
+        }
+      } catch (notificationErr) {
+        console.warn('⚠️ Notification creation failed:', notificationErr)
+        // Continue even if notification fails
+      }
+      
+      // Try to log the task
+      try {
+        await logTask(
+          'update_application_status',
+          'application',
+          applicationId,
+          `Application for ${application.job_posting.job_title}`,
+          {
+            old_status: application.status,
+            new_status: newStatus,
+            hr_comment: hrComment || null,
+            applicant_email: application.applicant.email,
+            job_title: application.job_posting.job_title,
+            email_sent: emailSuccess,
+            notification_created: notificationSuccess,
+            interview_scheduled: newStatus === 'for_interview',
+            interview_date: newStatus === 'for_interview' ? `${interviewDate}T${interviewTime}` : null
+          }
+        )
+        console.log('✅ Task logged successfully')
+      } catch (logErr) {
+        console.warn('⚠️ Task logging failed:', logErr)
+        // Continue even if logging fails
+      }
 
       // Refresh data
       await fetchJobsWithApplications()
@@ -631,32 +970,48 @@ export default function HRTagPage() {
         }
       }
       
+      // Reset form
       setSelectedApplication(null)
-      setComment('')
+      setHrComment('')
       setStatus('for_review')
+      setInterviewDate('')
+      setInterviewTime('')
+      setInterviewNotes('')
+      setInterviewLocation('')
+      setInterviewStatus('scheduled')
 
+      // Show success message
       alert('Application status updated successfully!')
+      
     } catch (err) {
-      console.error('Error updating application:', err)
-      setError('Failed to update application status')
+      console.error('❌ Error updating application:', err)
+      setError(`Failed to update application status: ${err instanceof Error ? err.message : 'Please try again.'}`)
     } finally {
       setSaving(false)
     }
   }
 
-  const downloadResume = async (pdfPath: string, applicantName: string, jobTitle: string) => {
+  const downloadResume = async (pdfPath: string) => {
     try {
       console.log('📥 Downloading resume:', pdfPath)
       const { data, error } = await supabase.storage
         .from('applications')
-        .createSignedUrl(pdfPath, 60)
+        .download(pdfPath)
 
       if (error) {
         console.error('Storage error:', error)
         throw error
       }
 
-      window.open(data.signedUrl, '_blank')
+      // Create a blob URL for the file
+      const url = window.URL.createObjectURL(data)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = pdfPath.split('/').pop() || 'resume.pdf'
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+      window.URL.revokeObjectURL(url)
       
     } catch (err) {
       console.error('Error downloading resume:', err)
@@ -676,6 +1031,20 @@ export default function HRTagPage() {
     }
   }
 
+  const formatDateTime = (dateString: string) => {
+    try {
+      return new Date(dateString).toLocaleString('en-US', {
+        year: 'numeric',
+        month: 'short',
+        day: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit'
+      })
+    } catch (e) {
+      return dateString
+    }
+  }
+
   const getStatusColor = (status: string) => {
     switch (status) {
       case 'active': return 'bg-emerald-500/20 text-emerald-700 border-emerald-500/30'
@@ -688,6 +1057,7 @@ export default function HRTagPage() {
     switch (status) {
       case 'for_review': return 'bg-blue-500/20 text-blue-700 border-blue-500/30'
       case 'shortlisted': return 'bg-amber-500/20 text-amber-700 border-amber-500/30'
+      case 'for_interview': return 'bg-purple-500/20 text-purple-700 border-purple-500/30'
       case 'hired': return 'bg-emerald-500/20 text-emerald-700 border-emerald-500/30'
       case 'rejected': return 'bg-red-500/20 text-red-700 border-red-500/30'
       default: return 'bg-gray-500/20 text-gray-700 border-gray-500/30'
@@ -771,7 +1141,6 @@ export default function HRTagPage() {
     }
   }
 
-  // Function to export specific job applicants to CSV
   const exportJobApplicantsToCSV = async (jobWithApps: JobWithApplications) => {
     try {
       setExportingJobId(jobWithApps.job.id)
@@ -781,7 +1150,7 @@ export default function HRTagPage() {
       const csvData = [[
         'Applicant ID', 'Full Name', 'Email', 'Phone', 'Date of Birth', 'Age', 'Address',
         'Job Applied', 'Department', 'Location', 'Application Status', 'Date Applied', 
-        'HR Comment', 'Resume Path',
+        'HR Comment', 'Interview Date', 'Interview Status', 'Interview Notes', 'Resume Path',
         // Education
         'Highest Education Level', 'Education Institution', 'Course/Qualification', 
         'Degree Name', 'Year Graduated', 'GPA', 'Honors/Awards', 'Expected Finish',
@@ -862,7 +1231,10 @@ export default function HRTagPage() {
           application.job_posting.location,
           application.status,
           formatDate(application.submitted_at),
-          application.comment || 'No comment',
+          application.hr_comment || 'No comment',
+          application.interview_date ? formatDateTime(application.interview_date) : 'Not scheduled',
+          application.interview_status || 'Not scheduled',
+          application.interview_notes || 'No notes',
           application.pdf_path,
           // Education
           educationLevel,
@@ -933,7 +1305,6 @@ export default function HRTagPage() {
     }
   }
 
-  // Function to export all applications to CSV
   const exportAllToCSV = async () => {
     try {
       console.log('📊 Exporting all applications...')
@@ -942,7 +1313,7 @@ export default function HRTagPage() {
       const csvData = [[
         'Applicant ID', 'Full Name', 'Email', 'Phone', 'Date of Birth', 'Age', 'Address',
         'Job Applied', 'Department', 'Location', 'Application Status', 'Date Applied', 
-        'HR Comment', 'Resume Path'
+        'HR Comment', 'Interview Date', 'Interview Status', 'Interview Notes', 'Resume Path'
       ]]
       
       for (const jobWithApps of jobsWithApplications) {
@@ -960,7 +1331,10 @@ export default function HRTagPage() {
             application.job_posting.location,
             application.status,
             formatDate(application.submitted_at),
-            application.comment || 'No comment',
+            application.hr_comment || 'No comment',
+            application.interview_date ? formatDateTime(application.interview_date) : 'Not scheduled',
+            application.interview_status || 'Not scheduled',
+            application.interview_notes || 'No notes',
             application.pdf_path
           ]
           csvData.push(row)
@@ -1104,7 +1478,7 @@ export default function HRTagPage() {
 
             {/* Statistics */}
             {viewMode === 'jobs' && (
-              <div className="grid grid-cols-2 md:grid-cols-5 gap-3 mt-6">
+              <div className="grid grid-cols-2 md:grid-cols-6 gap-3 mt-6">
                 <div className="bg-white rounded-lg border border-gray-200 p-4">
                   <div className="text-2xl font-bold text-blue-600">{stats.totalApplications}</div>
                   <div className="text-sm text-gray-600">Total Applications</div>
@@ -1116,6 +1490,10 @@ export default function HRTagPage() {
                 <div className="bg-white rounded-lg border border-gray-200 p-4">
                   <div className="text-2xl font-bold text-amber-600">{stats.shortlisted}</div>
                   <div className="text-sm text-gray-600">Shortlisted</div>
+                </div>
+                <div className="bg-white rounded-lg border border-gray-200 p-4">
+                  <div className="text-2xl font-bold text-purple-600">{stats.forInterview}</div>
+                  <div className="text-sm text-gray-600">For Interview</div>
                 </div>
                 <div className="bg-white rounded-lg border border-gray-200 p-4">
                   <div className="text-2xl font-bold text-emerald-600">{stats.hired}</div>
@@ -1258,7 +1636,7 @@ export default function HRTagPage() {
                           <div className="pt-2">
                             <div className="text-sm text-gray-500 mb-1">Application Status Breakdown:</div>
                             <div className="flex flex-wrap gap-1">
-                              {['for_review', 'shortlisted', 'hired', 'rejected'].map((status) => {
+                              {['for_review', 'shortlisted', 'for_interview', 'hired', 'rejected'].map((status) => {
                                 const count = jobWithApps.applications.filter(app => app.status === status).length
                                 if (count === 0) return null
                                 return (
@@ -1396,6 +1774,14 @@ export default function HRTagPage() {
                                 </svg>
                                 Applied: {formatDate(application.submitted_at)}
                               </span>
+                              {application.interview_date && (
+                                <span className="inline-flex items-center text-sm text-purple-600">
+                                  <svg className="h-4 w-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                                  </svg>
+                                  Interview: {formatDateTime(application.interview_date)}
+                                </span>
+                              )}
                             </div>
                           </div>
 
@@ -1403,6 +1789,9 @@ export default function HRTagPage() {
                           <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4">
                             <span className={`inline-flex px-3 py-1 text-sm font-semibold rounded-full border ${getApplicationStatusColor(application.status)}`}>
                               {application.status.replace('_', ' ').toUpperCase()}
+                              {application.interview_status && application.status === 'for_interview' && (
+                                <span className="ml-2 text-xs">({application.interview_status})</span>
+                              )}
                             </span>
                             
                             <div className="flex gap-2">
@@ -1418,25 +1807,28 @@ export default function HRTagPage() {
                               </Button>
                               
                               <Button
-                                onClick={() => downloadResume(
-                                  application.pdf_path,
-                                  application.applicant.email,
-                                  application.job_posting.job_title
-                                )}
+                                onClick={() => downloadResume(application.pdf_path)}
                                 className="bg-blue-600 hover:bg-blue-700 text-white"
                                 size="sm"
-                                title="View Resume"
+                                title="Download Resume"
                               >
                                 <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
                                 </svg>
                               </Button>
                               
                               <Button
                                 onClick={() => {
                                   setSelectedApplication(application)
-                                  setComment(application.comment || '')
+                                  setHrComment(application.hr_comment || '')
                                   setStatus(application.status)
+                                  if (application.interview_date) {
+                                    const date = new Date(application.interview_date)
+                                    setInterviewDate(date.toISOString().split('T')[0])
+                                    setInterviewTime(date.toTimeString().split(' ')[0].substring(0, 5))
+                                  }
+                                  setInterviewNotes(application.interview_notes || '')
+                                  setInterviewStatus(application.interview_status || 'scheduled')
                                 }}
                                 variant="outline"
                                 size="sm"
@@ -1450,11 +1842,54 @@ export default function HRTagPage() {
                           </div>
                         </div>
 
-                        {/* Comment */}
-                        {application.comment && (
+                        {/* Interview Details */}
+                        {application.interview_date && (
+                          <div className="mt-4 p-3 bg-purple-50 rounded-lg border border-purple-200">
+                            <div className="flex items-center justify-between">
+                              <div>
+                                <p className="text-sm font-medium text-purple-800">
+                                  <svg className="h-4 w-4 inline mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                                  </svg>
+                                  Interview Scheduled: {formatDateTime(application.interview_date)}
+                                </p>
+                                {application.interview_status && (
+                                  <p className="text-xs text-purple-600 mt-1">
+                                    Status: <span className="font-medium">{application.interview_status}</span>
+                                  </p>
+                                )}
+                              </div>
+                              {application.interview_notes && (
+                                <button
+                                  onClick={() => alert(`Interview Notes:\n\n${application.interview_notes}`)}
+                                  className="text-xs text-purple-600 hover:text-purple-800"
+                                >
+                                  View Notes
+                                </button>
+                              )}
+                            </div>
+                          </div>
+                        )}
+
+                        {/* HR Comment */}
+                        {application.hr_comment && (
                           <div className="mt-4 p-3 bg-blue-50 rounded-lg border border-blue-200">
                             <p className="text-sm text-gray-700">
-                              <span className="font-medium">HR Comment:</span> {application.comment}
+                              <span className="font-medium">HR Comment:</span> {application.hr_comment}
+                            </p>
+                            {application.hr_comment_at && (
+                              <p className="text-xs text-gray-500 mt-1">
+                                Commented on: {formatDate(application.hr_comment_at)}
+                              </p>
+                            )}
+                          </div>
+                        )}
+
+                        {/* Applicant Comment */}
+                        {application.applicant_comment && (
+                          <div className="mt-4 p-3 bg-gray-50 rounded-lg border border-gray-200">
+                            <p className="text-sm text-gray-700">
+                              <span className="font-medium">Applicant Note:</span> {application.applicant_comment}
                             </p>
                           </div>
                         )}
@@ -1471,7 +1906,7 @@ export default function HRTagPage() {
       {/* Status Update Modal */}
       {selectedApplication && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-lg max-w-md w-full p-6">
+          <div className="bg-white rounded-lg max-w-md w-full p-6 max-h-[90vh] overflow-y-auto">
             <h3 className="text-lg font-semibold mb-4">Update Application Status</h3>
             
             <div className="space-y-4">
@@ -1481,42 +1916,152 @@ export default function HRTagPage() {
                 </label>
                 <select
                   value={status}
-                  onChange={(e) => setStatus(e.target.value as Application['status'])}
+                  onChange={(e) => {
+                    setStatus(e.target.value as Application['status'])
+                    if (e.target.value !== 'for_interview') {
+                      setInterviewDate('')
+                      setInterviewTime('')
+                      setInterviewNotes('')
+                      setInterviewLocation('')
+                    }
+                  }}
                   className="w-full p-2 border border-gray-300 rounded-md"
                 >
                   <option value="for_review">For Review</option>
                   <option value="shortlisted">Shortlisted</option>
+                  <option value="for_interview">For Interview</option>
                   <option value="hired">Hired</option>
                   <option value="rejected">Rejected</option>
                 </select>
               </div>
 
+              {/* Interview scheduling section */}
+              {status === 'for_interview' && (
+                <div className="space-y-4 p-4 bg-purple-50 rounded-lg border border-purple-200">
+                  <h4 className="font-medium text-purple-800">Interview Details</h4>
+                  
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        Interview Date *
+                      </label>
+                      <input
+                        type="date"
+                        value={interviewDate}
+                        onChange={(e) => setInterviewDate(e.target.value)}
+                        min={new Date().toISOString().split('T')[0]}
+                        className="w-full p-2 border border-gray-300 rounded-md"
+                        required
+                      />
+                    </div>
+                    
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        Interview Time *
+                      </label>
+                      <input
+                        type="time"
+                        value={interviewTime}
+                        onChange={(e) => setInterviewTime(e.target.value)}
+                        className="w-full p-2 border border-gray-300 rounded-md"
+                        required
+                      />
+                    </div>
+                  </div>
+                  
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Interview Location (Optional)
+                    </label>
+                    <input
+                      type="text"
+                      value={interviewLocation}
+                      onChange={(e) => setInterviewLocation(e.target.value)}
+                      placeholder="e.g., HR Office, Building A"
+                      className="w-full p-2 border border-gray-300 rounded-md"
+                    />
+                  </div>
+                  
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Interview Status
+                    </label>
+                    <select
+                      value={interviewStatus}
+                      onChange={(e) => setInterviewStatus(e.target.value as any)}
+                      className="w-full p-2 border border-gray-300 rounded-md"
+                    >
+                      <option value="scheduled">Scheduled</option>
+                      <option value="completed">Completed</option>
+                      <option value="cancelled">Cancelled</option>
+                    </select>
+                  </div>
+                </div>
+              )}
+
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Comment (Optional)
+                  HR Comment {status === 'for_interview' ? '(Will be included in interview invitation)' : ''}
                 </label>
                 <textarea
-                  value={comment}
-                  onChange={(e) => setComment(e.target.value)}
+                  value={hrComment}
+                  onChange={(e) => setHrComment(e.target.value)}
                   rows={4}
                   className="w-full p-2 border border-gray-300 rounded-md"
-                  placeholder="Add a comment for the applicant..."
+                  placeholder={status === 'for_interview' 
+                    ? "Add notes for the interview invitation..." 
+                    : "Add a comment for the applicant..."
+                  }
                 />
+                {status === 'for_interview' && (
+                  <div className="mt-2">
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Additional Interview Notes (Optional)
+                    </label>
+                    <textarea
+                      value={interviewNotes}
+                      onChange={(e) => setInterviewNotes(e.target.value)}
+                      rows={3}
+                      className="w-full p-2 border border-gray-300 rounded-md"
+                      placeholder="Specific instructions, materials to bring, etc."
+                    />
+                  </div>
+                )}
+                <p className="text-xs text-gray-500 mt-1">
+                  This comment will be sent via email and stored as a notification for the applicant.
+                  {status === 'for_interview' && ' Interview details will be included in the invitation email.'}
+                </p>
               </div>
 
               <div className="flex justify-end gap-3">
                 <Button
-                  onClick={() => setSelectedApplication(null)}
+                  onClick={() => {
+                    setSelectedApplication(null)
+                    setInterviewDate('')
+                    setInterviewTime('')
+                    setInterviewNotes('')
+                    setInterviewLocation('')
+                  }}
                   variant="outline"
                   disabled={saving}
                 >
                   Cancel
                 </Button>
                 <Button
-                  onClick={() => updateApplicationStatus(selectedApplication.id, status, comment)}
-                  disabled={saving}
+                  onClick={() => updateApplicationStatus(selectedApplication.id, status, hrComment)}
+                  disabled={saving || (status === 'for_interview' && (!interviewDate || !interviewTime))}
+                  className="bg-blue-600 hover:bg-blue-700"
                 >
-                  {saving ? 'Updating...' : 'Update Status'}
+                  {saving ? (
+                    <>
+                      <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
+                      Updating...
+                    </>
+                  ) : status === 'for_interview' ? (
+                    'Schedule Interview & Notify'
+                  ) : (
+                    'Update Status & Notify'
+                  )}
                 </Button>
               </div>
             </div>
@@ -1853,10 +2398,15 @@ export default function HRTagPage() {
                                       <p className="font-medium text-gray-700">Document</p>
                                       <a 
                                         href="#" 
-                                        onClick={() => window.open(elig.document_path, '_blank')}
+                                        onClick={(e) => {
+                                          e.preventDefault();
+                                          if (elig.document_path) {
+                                            downloadResume(elig.document_path);
+                                          }
+                                        }}
                                         className="text-blue-600 hover:underline"
                                       >
-                                        View Certificate
+                                        Download Certificate
                                       </a>
                                     </div>
                                   )}
@@ -1905,10 +2455,15 @@ export default function HRTagPage() {
                                       <p className="font-medium text-gray-700">Certificate</p>
                                       <a 
                                         href="#" 
-                                        onClick={() => window.open(training.certificate_path, '_blank')}
+                                        onClick={(e) => {
+                                          e.preventDefault();
+                                          if (training.certificate_path) {
+                                            downloadResume(training.certificate_path);
+                                          }
+                                        }}
                                         className="text-blue-600 hover:underline"
                                       >
-                                        View Certificate
+                                        Download Certificate
                                       </a>
                                     </div>
                                   )}
@@ -1950,13 +2505,31 @@ export default function HRTagPage() {
                                   onClick={() => window.open(file.url, '_blank')}
                                   variant="outline"
                                   size="sm"
-                                  className="w-full"
+                                  className="w-full mr-2"
                                 >
                                   <svg className="h-4 w-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
                                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
                                   </svg>
                                   View File
+                                </Button>
+                                <Button
+                                  onClick={() => {
+                                    const link = document.createElement('a')
+                                    link.href = file.url
+                                    link.download = file.name
+                                    document.body.appendChild(link)
+                                    link.click()
+                                    document.body.removeChild(link)
+                                  }}
+                                  variant="outline"
+                                  size="sm"
+                                  className="w-full mt-2"
+                                >
+                                  <svg className="h-4 w-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                                  </svg>
+                                  Download
                                 </Button>
                               </div>
                             </div>
@@ -1984,6 +2557,9 @@ export default function HRTagPage() {
                           <div>
                             <span className={`inline-flex px-3 py-1 text-sm font-semibold rounded-full border ${getApplicationStatusColor(selectedApplication.status)}`}>
                               {selectedApplication.status.replace('_', ' ').toUpperCase()}
+                              {selectedApplication.interview_status && selectedApplication.status === 'for_interview' && (
+                                <span className="ml-2 text-xs">({selectedApplication.interview_status})</span>
+                              )}
                             </span>
                             <p className="text-sm text-gray-600 mt-1">
                               Applied on {formatDate(selectedApplication.submitted_at)}
@@ -1997,8 +2573,15 @@ export default function HRTagPage() {
                           <Button
                             onClick={() => {
                               setSelectedApplication(selectedApplication)
-                              setComment(selectedApplication.comment || '')
+                              setHrComment(selectedApplication.hr_comment || '')
                               setStatus(selectedApplication.status)
+                              if (selectedApplication.interview_date) {
+                                const date = new Date(selectedApplication.interview_date)
+                                setInterviewDate(date.toISOString().split('T')[0])
+                                setInterviewTime(date.toTimeString().split(' ')[0].substring(0, 5))
+                              }
+                              setInterviewNotes(selectedApplication.interview_notes || '')
+                              setInterviewStatus(selectedApplication.interview_status || 'scheduled')
                             }}
                             variant="outline"
                           >
@@ -2006,6 +2589,35 @@ export default function HRTagPage() {
                           </Button>
                         </div>
                       </div>
+
+                      {/* Interview Details */}
+                      {selectedApplication.interview_date && (
+                        <div className="bg-purple-50 rounded-lg border border-purple-200 p-6">
+                          <h4 className="text-lg font-semibold text-gray-900 mb-4">Interview Details</h4>
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                            <div>
+                              <p className="text-sm font-medium text-gray-500 mb-1">Interview Date & Time</p>
+                              <p className="text-gray-900 font-medium">{formatDateTime(selectedApplication.interview_date)}</p>
+                            </div>
+                            <div>
+                              <p className="text-sm font-medium text-gray-500 mb-1">Interview Status</p>
+                              <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${
+                                selectedApplication.interview_status === 'scheduled' ? 'bg-blue-100 text-blue-800 border border-blue-200' :
+                                selectedApplication.interview_status === 'completed' ? 'bg-green-100 text-green-800 border border-green-200' :
+                                'bg-red-100 text-red-800 border border-red-200'
+                              }`}>
+                                {selectedApplication.interview_status?.toUpperCase() || 'SCHEDULED'}
+                              </span>
+                            </div>
+                          </div>
+                          {selectedApplication.interview_notes && (
+                            <div className="mt-4">
+                              <p className="text-sm font-medium text-gray-500 mb-1">Interview Notes</p>
+                              <p className="text-gray-700">{selectedApplication.interview_notes}</p>
+                            </div>
+                          )}
+                        </div>
+                      )}
 
                       {/* Job Details */}
                       <div className="bg-white rounded-lg border border-gray-200 p-6">
@@ -2039,10 +2651,23 @@ export default function HRTagPage() {
                       </div>
 
                       {/* HR Comments */}
-                      {selectedApplication.comment && (
+                      {selectedApplication.hr_comment && (
                         <div className="bg-blue-50 rounded-lg border border-blue-200 p-6">
                           <h4 className="text-lg font-semibold text-gray-900 mb-2">HR Comments</h4>
-                          <p className="text-gray-700">{selectedApplication.comment}</p>
+                          <p className="text-gray-700">{selectedApplication.hr_comment}</p>
+                          {selectedApplication.hr_comment_at && (
+                            <p className="text-sm text-gray-500 mt-2">
+                              Commented on: {formatDate(selectedApplication.hr_comment_at)}
+                            </p>
+                          )}
+                        </div>
+                      )}
+
+                      {/* Applicant Comments */}
+                      {selectedApplication.applicant_comment && (
+                        <div className="bg-gray-50 rounded-lg border border-gray-200 p-6">
+                          <h4 className="text-lg font-semibold text-gray-900 mb-2">Applicant Note</h4>
+                          <p className="text-gray-700">{selectedApplication.applicant_comment}</p>
                         </div>
                       )}
 
@@ -2062,11 +2687,7 @@ export default function HRTagPage() {
                             </div>
                           </div>
                           <Button
-                            onClick={() => downloadResume(
-                              selectedApplication.pdf_path,
-                              selectedApplicant.email,
-                              selectedApplication.job_posting.job_title
-                            )}
+                            onClick={() => downloadResume(selectedApplication.pdf_path)}
                             className="bg-blue-600 hover:bg-blue-700 text-white"
                           >
                             <svg className="h-4 w-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -2092,25 +2713,28 @@ export default function HRTagPage() {
                   <Button
                     onClick={() => {
                       setSelectedApplication(selectedApplication)
-                      setComment(selectedApplication.comment || '')
+                      setHrComment(selectedApplication.hr_comment || '')
                       setStatus(selectedApplication.status)
+                      if (selectedApplication.interview_date) {
+                        const date = new Date(selectedApplication.interview_date)
+                        setInterviewDate(date.toISOString().split('T')[0])
+                        setInterviewTime(date.toTimeString().split(' ')[0].substring(0, 5))
+                      }
+                      setInterviewNotes(selectedApplication.interview_notes || '')
+                      setInterviewStatus(selectedApplication.interview_status || 'scheduled')
                     }}
                     variant="outline"
                   >
                     Update Status
                   </Button>
                   <Button
-                    onClick={() => {
-                      const emailSubject = `Regarding your application for ${selectedApplication.job_posting.job_title}`
-                      const emailBody = `Dear ${getApplicantFullName(selectedApplicant)},\n\n`
-                      window.location.href = `mailto:${selectedApplicant.email}?subject=${encodeURIComponent(emailSubject)}&body=${encodeURIComponent(emailBody)}`
-                    }}
-                    className="bg-green-600 hover:bg-green-700 text-white"
+                    onClick={() => downloadResume(selectedApplication.pdf_path)}
+                    className="bg-blue-600 hover:bg-blue-700 text-white"
                   >
                     <svg className="h-4 w-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 4.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
                     </svg>
-                    Contact Applicant
+                    Download Resume
                   </Button>
                 </div>
               </div>

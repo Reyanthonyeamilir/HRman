@@ -7,13 +7,13 @@ import { usePathname, useRouter } from 'next/navigation'
 import { 
   Menu, LayoutDashboard, Briefcase, ClipboardList, 
   Compass, X, Mail, User as UserIcon, LogOut, User,
-  FileText
+  FileText, Bell // Added Bell import
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import { getCurrentUser, signOut, supabase } from '@/lib/supabaseClient'
 
-// Links - Updated with Instructions
+// Links - Added Notifications
 const links = [
   { label: 'Instructions', href: '/applicant/instructions', icon: FileText },
   { label: 'Profile', href: '/applicant/profile', icon: User },
@@ -21,6 +21,7 @@ const links = [
   { label: 'Apply Job', href: '/applicant/job-postings', icon: Briefcase },
   { label: 'Requirements', href: '/applicant/requirements', icon: ClipboardList },
   { label: 'Track Application', href: '/applicant/track', icon: Compass },
+  { label: 'Notifications', href: '/notifications', icon: Bell }, // This will open the panel
 ]
 
 type UserProfile = {
@@ -35,19 +36,23 @@ function useApplicantProfile() {
     email: 'Loading...',
     avatarUrl: null
   })
+  const [unreadCount, setUnreadCount] = React.useState(0) // Added unreadCount
   const [loading, setLoading] = React.useState(true)
   
   React.useEffect(() => {
+    let mounted = true
+    let channel: any = null
+
     const loadUserProfile = async () => {
       try {
         setLoading(true)
         
-        // Try to get from localStorage first for quick display
+        // Try to get from localStorage first
         const storedName = localStorage.getItem('applicant_name')
         const storedEmail = localStorage.getItem('applicant_email')
         const storedAvatar = localStorage.getItem('applicant_avatar')
         
-        if (storedName && storedEmail) {
+        if (storedName && storedEmail && mounted) {
           setProfile({
             name: storedName,
             email: storedEmail,
@@ -55,95 +60,203 @@ function useApplicantProfile() {
           })
         }
 
-        // Get fresh data from Supabase
+        // Fetch fresh data from database
         const user = await getCurrentUser()
+        if (!mounted) return
+        
         if (user?.email) {
-          // Fetch profile data including avatar_url from profiles table
           const { data: profileData, error } = await supabase
             .from('profiles')
             .select('first_name, last_name, avatar_url, email')
             .eq('id', user.id)
             .single()
 
-          if (error) {
+          if (error && mounted) {
             console.error('Error fetching profile:', error)
-            // Fallback to auth user data
             const userName = user.email.split('@')[0] || 'Applicant'
-            const userEmail = user.email
-            
             setProfile({
               name: userName,
-              email: userEmail,
+              email: user.email,
               avatarUrl: null
             })
-            
             localStorage.setItem('applicant_name', userName)
-            localStorage.setItem('applicant_email', userEmail)
-          } else if (profileData) {
-            // Use data from profiles table
+            localStorage.setItem('applicant_email', user.email)
+            localStorage.removeItem('applicant_avatar')
+          } else if (profileData && mounted) {
             const displayName = profileData.first_name && profileData.last_name 
               ? `${profileData.first_name} ${profileData.last_name}`
               : profileData.first_name || profileData.last_name || user.email.split('@')[0] || 'Applicant'
             
-            setProfile({
-              name: displayName,
-              email: profileData.email || user.email || 'user@norsu.edu.ph',
-              avatarUrl: profileData.avatar_url
-            })
-            
-            // Update localStorage
-            localStorage.setItem('applicant_name', displayName)
-            localStorage.setItem('applicant_email', profileData.email || user.email || '')
+            // Construct full avatar URL if it exists
+            let avatarUrl = null
             if (profileData.avatar_url) {
-              localStorage.setItem('applicant_avatar', profileData.avatar_url)
-            } else {
-              localStorage.removeItem('applicant_avatar')
+              console.log('Avatar URL from database:', profileData.avatar_url)
+              
+              // If it's already a full URL, use it as is
+              if (profileData.avatar_url.startsWith('http')) {
+                avatarUrl = profileData.avatar_url
+              } else {
+                // For Supabase storage paths
+                // Remove leading slash if present
+                const filePath = profileData.avatar_url.startsWith('/') 
+                  ? profileData.avatar_url.slice(1) 
+                  : profileData.avatar_url
+                
+                // Try to construct the correct Supabase storage URL
+                // From the error, it looks like the bucket is 'profile'
+                const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
+                
+                if (supabaseUrl) {
+                  // Check if it's already a full storage URL
+                  if (filePath.includes('storage/v1/object/public/')) {
+                    avatarUrl = filePath
+                  } else {
+                    // Construct the URL based on the path structure
+                    // If the path has UUID folder structure
+                    if (filePath.includes('/')) {
+                      // Path like: "c3cff6e5-90a4-4540-9cf1-e17332ad0b79/1768457894195.jpg"
+                      avatarUrl = `${supabaseUrl}/storage/v1/object/public/profile/${filePath}`
+                    } else {
+                      // Just a filename
+                      avatarUrl = `${supabaseUrl}/storage/v1/object/public/profile/${filePath}`
+                    }
+                  }
+                }
+                
+                console.log('Constructed avatar URL:', avatarUrl)
+              }
+            }
+            
+            if (mounted) {
+              setProfile({
+                name: displayName,
+                email: profileData.email || user.email || 'user@norsu.edu.ph',
+                avatarUrl: avatarUrl
+              })
+              
+              localStorage.setItem('applicant_name', displayName)
+              localStorage.setItem('applicant_email', profileData.email || user.email || '')
+              if (avatarUrl) {
+                localStorage.setItem('applicant_avatar', avatarUrl)
+              } else {
+                localStorage.removeItem('applicant_avatar')
+              }
+            }
+
+            // Fetch unread notifications count
+            if (mounted) {
+              const { count } = await supabase
+                .from('notifications')
+                .select('*', { count: 'exact', head: true })
+                .eq('user_id', user.id)
+                .eq('is_read', false)
+
+              setUnreadCount(count || 0)
+
+              // Set up real-time subscription for notifications
+              channel = supabase
+                .channel(`notifications-sidebar-${user.id}`)
+                .on(
+                  'postgres_changes',
+                  {
+                    event: 'INSERT',
+                    schema: 'public',
+                    table: 'notifications',
+                    filter: `user_id=eq.${user.id}`
+                  },
+                  () => {
+                    if (mounted) {
+                      setUnreadCount(prev => prev + 1)
+                    }
+                  }
+                )
+                .on(
+                  'postgres_changes',
+                  {
+                    event: 'UPDATE',
+                    schema: 'public',
+                    table: 'notifications',
+                    filter: `user_id=eq.${user.id}`
+                  },
+                  (payload) => {
+                    if (mounted && payload.new.is_read === true && payload.old.is_read === false) {
+                      setUnreadCount(prev => Math.max(0, prev - 1))
+                    }
+                  }
+                )
+                .subscribe()
             }
           }
         }
       } catch (error) {
-        console.error('Error loading applicant profile:', error)
-        // Fallback to localStorage if Supabase fails
-        const storedName = localStorage.getItem('applicant_name')
-        const storedEmail = localStorage.getItem('applicant_email')
-        const storedAvatar = localStorage.getItem('applicant_avatar')
-        
-        setProfile({
-          name: storedName || 'Applicant',
-          email: storedEmail || 'user@norsu.edu.ph',
-          avatarUrl: storedAvatar
-        })
+        console.error('Error in loadUserProfile:', error)
+        if (mounted) {
+          const storedName = localStorage.getItem('applicant_name')
+          const storedEmail = localStorage.getItem('applicant_email')
+          const storedAvatar = localStorage.getItem('applicant_avatar')
+          
+          setProfile({
+            name: storedName || 'Applicant',
+            email: storedEmail || 'user@norsu.edu.ph',
+            avatarUrl: storedAvatar
+          })
+        }
       } finally {
-        setLoading(false)
+        if (mounted) {
+          setLoading(false)
+        }
       }
     }
 
     loadUserProfile()
+
+    // Cleanup function
+    return () => {
+      mounted = false
+      if (channel) {
+        supabase.removeChannel(channel)
+      }
+    }
   }, [])
   
-  return { profile, loading }
+  return { profile, loading, unreadCount }
 }
 
 function NavList({ onNavigate }: { onNavigate?: () => void }) {
   const pathname = usePathname()
+  const { unreadCount } = useApplicantProfile()
+  
   return (
     <nav className="p-3">
       <ul className="space-y-1">
         {links.map(({ label, href, icon: Icon }) => {
           const active = pathname === href || pathname.startsWith(href + '/')
+          const isNotifications = href === '/notifications' // Check if this is notifications link
+          
           return (
             <li key={href}>
               <Link
                 href={href}
                 onClick={onNavigate}
                 className={cn(
-                  'flex items-center gap-3 rounded-xl px-3 py-2 text-sm transition-all duration-200',
-                  'hover:bg-blue-700 hover:text-white',
+                  'flex items-center justify-between rounded-xl px-3 py-2 text-sm transition-all duration-200',
+                  'hover:bg-blue-700 hover:text-white group',
                   active ? 'bg-blue-600 text-white' : 'text-gray-200'
                 )}
               >
-                <Icon className="size-4" />
-                <span>{label}</span>
+                <div className="flex items-center gap-3">
+                  <Icon className="size-4" />
+                  <span>{label}</span>
+                </div>
+                {/* Show badge for notifications if there are unread */}
+                {isNotifications && unreadCount > 0 && (
+                  <span className={cn(
+                    "flex items-center justify-center h-5 min-w-5 px-1 text-xs font-semibold rounded-full",
+                    active ? "bg-white text-blue-600" : "bg-red-500 text-white"
+                  )}>
+                    {unreadCount > 99 ? '99+' : unreadCount}
+                  </span>
+                )}
               </Link>
             </li>
           )
@@ -162,17 +275,12 @@ function LogoutButton({ onNavigate }: { onNavigate?: () => void }) {
       setIsLoading(true)
       await signOut()
       
-      // Clear localStorage
       localStorage.removeItem('applicant_name')
       localStorage.removeItem('applicant_email')
       localStorage.removeItem('applicant_avatar')
       
-      // Close mobile menu if open
-      if (onNavigate) {
-        onNavigate()
-      }
+      if (onNavigate) onNavigate()
       
-      // Redirect to login page
       router.push('/login')
     } catch (error) {
       console.error('Error during logout:', error)
@@ -203,6 +311,11 @@ function LogoutButton({ onNavigate }: { onNavigate?: () => void }) {
 function ProfileSection({ profile, loading }: { profile: UserProfile; loading: boolean }) {
   const [imageError, setImageError] = React.useState(false)
   
+  // Reset image error when avatarUrl changes
+  React.useEffect(() => {
+    setImageError(false)
+  }, [profile.avatarUrl])
+  
   if (loading) {
     return (
       <div className="px-4 py-3 bg-blue-900/20 border-b border-blue-800">
@@ -226,14 +339,19 @@ function ProfileSection({ profile, loading }: { profile: UserProfile; loading: b
       <div className="flex items-center gap-3 p-3 bg-blue-900/30 rounded-lg border border-blue-700/50">
         <div className="flex-shrink-0">
           {profile.avatarUrl && !imageError ? (
-            <div className="w-10 h-10 rounded-full border-2 border-blue-400 overflow-hidden relative">
+            <div className="w-10 h-10 rounded-full border-2 border-blue-400 overflow-hidden">
               <Image
                 src={profile.avatarUrl}
                 alt={profile.name}
-                fill
-                className="object-cover"
-                onError={() => setImageError(true)}
-                sizes="40px"
+                width={40}
+                height={40}
+                className="object-cover w-full h-full"
+                onError={() => {
+                  console.error('Image failed to load:', profile.avatarUrl)
+                  setImageError(true)
+                }}
+                priority={false}
+                unoptimized={true}
               />
             </div>
           ) : (
@@ -264,7 +382,7 @@ function ProfileSection({ profile, loading }: { profile: UserProfile; loading: b
 }
 
 export function ApplicantMobileTopbar() {
-  const { profile, loading } = useApplicantProfile()
+  const { profile, loading, unreadCount } = useApplicantProfile()
   const [mobileMenuOpen, setMobileMenuOpen] = React.useState(false)
 
   return (
@@ -294,9 +412,19 @@ export function ApplicantMobileTopbar() {
             </p>
           </div>
         </div>
+        {/* Mobile notifications bell with badge */}
+        {unreadCount > 0 && (
+          <div className="ml-auto">
+            <Link href="/notifications" className="relative">
+              <Bell className="size-5 text-white" />
+              <span className="absolute -top-1 -right-1 flex items-center justify-center h-4 min-w-4 px-1 text-xs font-semibold bg-red-500 text-white rounded-full">
+                {unreadCount > 99 ? '99+' : unreadCount}
+              </span>
+            </Link>
+          </div>
+        )}
       </div>
 
-      {/* Mobile Sidebar */}
       <div className={cn(
         'fixed inset-0 z-40 bg-black/50 transition-opacity md:hidden',
         mobileMenuOpen ? 'opacity-100' : 'pointer-events-none opacity-0'
@@ -305,7 +433,6 @@ export function ApplicantMobileTopbar() {
           'fixed inset-y-0 left-0 z-50 w-80 transform bg-[#0b1b3b] border-r border-blue-800 transition-transform',
           mobileMenuOpen ? 'translate-x-0' : '-translate-x-full'
         )}>
-          {/* Mobile header */}
           <div className="flex flex-col items-center justify-center border-b border-blue-800 bg-[#11214a] py-5 px-4">
             <Image
               src="/images/norsu.png"
@@ -318,16 +445,12 @@ export function ApplicantMobileTopbar() {
             <p className="text-xs text-gray-300 text-center">Welcome, {profile.name}!</p>
           </div>
 
-          {/* Profile Section */}
           <ProfileSection profile={profile} loading={loading} />
 
-          {/* Navigation */}
           <NavList onNavigate={() => setMobileMenuOpen(false)} />
 
-          {/* Logout Button */}
           <LogoutButton onNavigate={() => setMobileMenuOpen(false)} />
 
-          {/* Close button */}
           <div className="absolute top-4 right-4">
             <Button
               variant="ghost"
@@ -344,12 +467,11 @@ export function ApplicantMobileTopbar() {
   )
 }
 
-export default function ApplicantSidebar() {
+export function ApplicantSidebar() {
   const { profile, loading } = useApplicantProfile()
 
   return (
     <aside className="hidden h-full min-h-screen w-72 border-r border-blue-800 bg-[#0b1b3b] text-white md:block">
-      {/* Desktop sidebar header with logo */}
       <div className="flex flex-col items-center justify-center border-b border-blue-800 bg-[#11214a] py-5 px-4">
         <Image
           src="/images/norsu.png"
@@ -362,13 +484,10 @@ export default function ApplicantSidebar() {
         <p className="text-xs text-gray-300 text-center">Welcome, {profile.name}!</p>
       </div>
 
-      {/* Profile Section */}
       <ProfileSection profile={profile} loading={loading} />
 
-      {/* Navigation */}
       <NavList />
 
-      {/* Logout Button */}
       <LogoutButton />
     </aside>
   )

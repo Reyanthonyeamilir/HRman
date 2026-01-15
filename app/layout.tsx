@@ -5,6 +5,8 @@ import Link from "next/link"
 import Image from "next/image"
 import { usePathname, useRouter } from "next/navigation"
 import "./globals.css"
+import { NotificationBell } from "@/components/NotificationBell"
+import { supabase } from "@/lib/applicant"
 
 export default function RootLayout({
   children,
@@ -16,57 +18,232 @@ export default function RootLayout({
   const [mounted, setMounted] = React.useState(false)
   const [isLoggedIn, setIsLoggedIn] = React.useState(false)
   const [userRole, setUserRole] = React.useState("")
+  const [userEmail, setUserEmail] = React.useState("")
+  const [loadingAuth, setLoadingAuth] = React.useState(true)
   const pathname = usePathname()
   const router = useRouter()
+  
+  // Use ref to track auth check
+  const authCheckRef = React.useRef(false)
+  const initRef = React.useRef(false)
+
+  // Helper function to get correct dashboard link based on role
+  const getDashboardLink = (role: string) => {
+    switch (role) {
+      case 'applicant':
+        return '/applicant'
+      case 'hr':
+      case 'super_admin':
+        return '/administrator/dashboard'
+      default:
+        return '/dashboard'
+    }
+  }
+
+  // Helper function to check if link is active
+  const isActive = (href: string) => {
+    if (href === '/applicant' && pathname === '/applicant') return true
+    if (href === '/administrator/dashboard' && pathname === '/administrator/dashboard') return true
+    return pathname === href
+  }
+
+  // Function to create profile if it doesn't exist
+  const createProfileIfNotExists = async (userId: string, email: string) => {
+    try {
+      // Check if profile exists
+      const { data: existingProfile, error: fetchError } = await supabase
+        .from('profiles')
+        .select('id')
+        .eq('id', userId)
+        .maybeSingle()
+
+      if (fetchError) {
+        console.error('Error checking profile:', fetchError)
+      }
+
+      // If profile doesn't exist, create it
+      if (!existingProfile && !fetchError) {
+        console.log('Creating new profile for user:', email)
+        
+        const { data: newProfile, error: createError } = await supabase
+          .from('profiles')
+          .insert({
+            id: userId,
+            email: email,
+            role: 'applicant',
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString()
+          })
+          .select()
+          .single()
+
+        if (createError) {
+          console.error('Error creating profile:', createError)
+          return null
+        }
+        
+        return newProfile
+      }
+      
+      return existingProfile
+    } catch (error) {
+      console.error('Error in createProfileIfNotExists:', error)
+      return null
+    }
+  }
+
+  // Check auth status
+  const checkAuthStatus = React.useCallback(async () => {
+    if (authCheckRef.current) return
+    authCheckRef.current = true
+
+    try {
+      setLoadingAuth(true)
+      
+      // Get Supabase session
+      const { data: { session }, error: sessionError } = await supabase.auth.getSession()
+      
+      if (sessionError) {
+        console.error('Session error:', sessionError)
+        setIsLoggedIn(false)
+        setUserRole("")
+        setUserEmail("")
+        localStorage.removeItem("authToken")
+        localStorage.removeItem("userEmail")
+        return
+      }
+      
+      if (session?.user) {
+        console.log('User authenticated:', session.user.email)
+        setIsLoggedIn(true)
+        setUserEmail(session.user.email || "")
+        
+        // Get user profile
+        const { data: userProfile, error: profileError } = await supabase
+          .from('profiles')
+          .select('role')
+          .eq('id', session.user.id)
+          .maybeSingle()
+        
+        if (profileError) {
+          console.error('Profile error:', profileError)
+          
+          // Create profile if it doesn't exist
+          if (profileError.code === 'PGRST116' || profileError.message?.includes('No rows found')) {
+            const newProfile = await createProfileIfNotExists(
+              session.user.id,
+              session.user.email || ""
+            )
+            
+            if (newProfile) {
+              setUserRole(newProfile.role || 'applicant')
+              localStorage.setItem("userRole", newProfile.role || 'applicant')
+            } else {
+              setUserRole('applicant')
+              localStorage.setItem("userRole", "applicant")
+            }
+          } else {
+            setUserRole('applicant')
+            localStorage.setItem("userRole", "applicant")
+          }
+        } else if (userProfile) {
+          console.log('User role found:', userProfile.role)
+          setUserRole(userProfile.role)
+          localStorage.setItem("userRole", userProfile.role)
+        }
+        
+        localStorage.setItem("userEmail", session.user.email || "")
+        localStorage.setItem("authToken", "supabase-active")
+      } else {
+        console.log('No session found')
+        setIsLoggedIn(false)
+        setUserRole("")
+        setUserEmail("")
+        
+        // Clear sensitive data but keep role preference if any
+        localStorage.removeItem("authToken")
+        localStorage.removeItem("userEmail")
+      }
+    } catch (error) {
+      console.error('Auth check error:', error)
+      setIsLoggedIn(false)
+      setUserRole("")
+      setUserEmail("")
+      localStorage.removeItem("authToken")
+      localStorage.removeItem("userEmail")
+    } finally {
+      setLoadingAuth(false)
+      setTimeout(() => {
+        authCheckRef.current = false
+      }, 100)
+    }
+  }, [])
 
   React.useEffect(() => {
-    setMounted(true)
+    // Only run once on mount
+    if (initRef.current) return
+    initRef.current = true
     
-    // Check authentication status from localStorage or cookies
-    const checkAuthStatus = () => {
-      // Replace with your actual authentication check
-      const token = localStorage.getItem("authToken") || sessionStorage.getItem("authToken")
-      const role = localStorage.getItem("userRole") || "user" // Default role
-      
-      setIsLoggedIn(!!token)
-      setUserRole(role)
-    }
-
-    checkAuthStatus()
+    setMounted(true)
     
     const handleScroll = () => {
       setIsScrolled(window.scrollY > 10)
     }
 
-    // Set initial scroll state
     handleScroll()
     
     window.addEventListener('scroll', handleScroll)
-    return () => window.removeEventListener('scroll', handleScroll)
-  }, [])
+    
+    // Initial auth check
+    checkAuthStatus()
+    
+    // Set up auth state change listener
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(
+      async (event, session) => {
+        console.log('Auth state changed:', event)
+        
+        // Debounce auth check
+        if (event === 'SIGNED_IN' || event === 'SIGNED_OUT' || event === 'USER_UPDATED') {
+          setTimeout(() => {
+            checkAuthStatus()
+          }, 300)
+        }
+      }
+    )
+    
+    return () => {
+      subscription.unsubscribe()
+      window.removeEventListener('scroll', handleScroll)
+    }
+  }, [checkAuthStatus])
 
-  // Mock login/logout functions - replace with your actual auth logic
-  const handleLogout = () => {
-    // Clear authentication tokens
-    localStorage.removeItem("authToken")
-    sessionStorage.removeItem("authToken")
-    localStorage.removeItem("userRole")
-    
-    // Update state
-    setIsLoggedIn(false)
-    setUserRole("")
-    
-    // Close mobile menu if open
-    setOpen(false)
-    
-    // Redirect to home page
-    router.push("/")
+  const handleLogout = async () => {
+    try {
+      // Sign out from Supabase first
+      await supabase.auth.signOut()
+      
+      // Clear state
+      setIsLoggedIn(false)
+      setUserRole("")
+      setUserEmail("")
+      
+      // Clear storage
+      localStorage.removeItem("authToken")
+      localStorage.removeItem("userRole")
+      localStorage.removeItem("userEmail")
+      
+      // Close mobile menu if open
+      setOpen(false)
+      
+      // Redirect to home
+      router.push("/")
+      router.refresh() // Refresh the page to clear any cached data
+    } catch (error) {
+      console.error('Logout error:', error)
+    }
   }
 
-  const linkBase =
-    "block rounded-full px-3.5 py-2 font-semibold text-slate-600 hover:bg-slate-100 hover:text-slate-900 md:inline-block"
-  const isActive = (href: string) =>
-    pathname === href ? "bg-slate-100 text-slate-900" : ""
+  const linkBase = "block rounded-full px-3.5 py-2 font-semibold text-slate-600 hover:bg-slate-100 hover:text-slate-900 md:inline-block"
 
   // Icon components for mobile navigation
   const HomeIcon = () => (
@@ -142,9 +319,13 @@ export default function RootLayout({
           <div className="mx-auto flex w-full max-w-6xl items-center justify-between px-4 py-3">
             {/* Left side - Logo + Navigation */}
             <div className="flex items-center gap-6">
-              <Link className="inline-flex items-center gap-2 font-extrabold" href="/" aria-label="NORSU Home">
+              <Link 
+                className="inline-flex items-center gap-2 font-extrabold hover:opacity-90 transition-opacity" 
+                href="/" 
+                aria-label="NORSU Home"
+              >
                 <Image src="/images/norsu.png" alt="NORSU Seal" width={34} height={34} />
-                <span>NORSU • HRM</span>
+                <span className="text-slate-800">NORSU • HRM</span>
               </Link>
 
               {/* DESKTOP NAVIGATION - Hidden on mobile */}
@@ -160,14 +341,13 @@ export default function RootLayout({
                     <Link href="/vacancies" className={`${linkBase} ${isActive("/vacancies")}`}>Vacancies</Link>
                   </li>
                   {/* Show Dashboard link when logged in */}
-                  {isLoggedIn && (
+                  {isLoggedIn && userRole && (
                     <li>
                       <Link 
-                        href={`/dashboard/${userRole}`} 
-                        className={`${linkBase} ${isActive(`/dashboard/${userRole}`)} flex items-center gap-1`}
+                        href={getDashboardLink(userRole)} 
+                        className={`${linkBase} ${isActive(getDashboardLink(userRole))}`}
                       >
-                        <DashboardIcon />
-                        <span>Dashboard</span>
+                        Dashboard
                       </Link>
                     </li>
                   )}
@@ -177,21 +357,32 @@ export default function RootLayout({
 
             {/* DESKTOP AUTH LINKS - Hidden on mobile */}
             <div className="hidden md:flex md:items-center md:gap-4">
-              {isLoggedIn ? (
-                // Logged in state - show user info and logout
+              {loadingAuth ? (
+                // Loading state
                 <div className="flex items-center gap-4">
+                  <div className="h-10 w-20 bg-gray-200 animate-pulse rounded-full"></div>
+                </div>
+              ) : isLoggedIn ? (
+                // Logged in state - show user info, notifications, and logout
+                <div className="flex items-center gap-4">
+                  {/* Notification Bell - Only show when logged in */}
+                  {isLoggedIn && <NotificationBell />}
+                  
                   <div className="flex items-center gap-2 rounded-full bg-slate-100 px-3.5 py-2">
-                    <ProfileIcon />
+                    <div className="w-6 h-6 rounded-full bg-blue-100 flex items-center justify-center">
+                      <span className="text-xs font-bold text-blue-600">
+                        {userEmail?.charAt(0).toUpperCase() || 'U'}
+                      </span>
+                    </div>
                     <span className="font-semibold text-slate-700">
-                      {userRole.charAt(0).toUpperCase() + userRole.slice(1)}
+                      {userRole ? userRole.charAt(0).toUpperCase() + userRole.slice(1) : 'User'}
                     </span>
                   </div>
                   <button
                     onClick={handleLogout}
-                    className="inline-flex h-10 items-center justify-center rounded-full bg-red-100 px-4 font-bold text-red-600 transition hover:bg-red-200 hover:text-red-700"
+                    className="inline-flex h-10 items-center justify-center gap-2 rounded-full bg-red-50 px-4 font-bold text-red-600 transition hover:bg-red-100 hover:text-red-700"
                   >
-                    <LogoutIcon />
-                    <span className="ml-1">Logout</span>
+                    Logout
                   </button>
                 </div>
               ) : (
@@ -200,7 +391,7 @@ export default function RootLayout({
                   <Link href="/login" className={`${linkBase} ${isActive("/login")}`}>Login</Link>
                   <Link
                     href="/signup"
-                    className="inline-flex h-10 items-center justify-center rounded-full bg-[#2f67ff] px-4 font-bold text-white transition hover:-translate-y-[1px] hover:bg-[#2553cc]"
+                    className="inline-flex h-10 items-center justify-center rounded-full bg-[#2f67ff] px-4 font-bold text-white transition hover:-translate-y-[1px] hover:bg-[#2553cc] hover:shadow-md"
                   >
                     Signup
                   </Link>
@@ -210,7 +401,7 @@ export default function RootLayout({
 
             {/* MOBILE MENU BUTTON - Only visible on mobile */}
             <button
-              className="inline-grid place-items-center rounded-[10px] p-1.5 md:hidden focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgba(47,103,255,0.25)]"
+              className="inline-grid place-items-center rounded-[10px] p-1.5 md:hidden focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgba(47,103,255,0.25)] hover:bg-slate-100 transition-colors"
               aria-label="Toggle navigation"
               aria-controls="siteNav"
               aria-expanded={open}
@@ -235,8 +426,8 @@ export default function RootLayout({
             id="siteNav"
             aria-label="Primary Navigation"
             className={`${open ? "translate-y-0 shadow-[0_10px_20px_rgba(2,8,23,0.08)]" : "-translate-y-[120%]"}
-              fixed left-0 right-0 top-[60px] border-t border-slate-200 bg-white transition
-              md:hidden`}
+              fixed left-0 right-0 top-[60px] border-t border-slate-200 bg-white transition-all duration-300
+              md:hidden z-40 max-h-[calc(100vh-60px)] overflow-y-auto`}
           >
             <ul className="mx-auto flex w-full max-w-6xl flex-col gap-0 px-4 py-2">
               <li className="w-full">
@@ -259,12 +450,12 @@ export default function RootLayout({
               </li>
               
               {/* Show Dashboard link when logged in (Mobile) */}
-              {isLoggedIn && (
+              {isLoggedIn && userRole && (
                 <>
                   <li className="w-full">
                     <Link 
-                      href={`/dashboard/${userRole}`} 
-                      className={`${linkBase} flex items-center gap-3 ${isActive(`/dashboard/${userRole}`)}`} 
+                      href={getDashboardLink(userRole)} 
+                      className={`${linkBase} flex items-center gap-3 ${isActive(getDashboardLink(userRole))}`} 
                       onClick={() => setOpen(false)}
                     >
                       <DashboardIcon />
@@ -275,9 +466,16 @@ export default function RootLayout({
                     <div className="flex items-center justify-between px-3.5 py-2">
                       <div className="flex items-center gap-3">
                         <ProfileIcon />
-                        <span className="font-semibold text-slate-700">
-                          {userRole.charAt(0).toUpperCase() + userRole.slice(1)}
-                        </span>
+                        <div>
+                          <span className="font-semibold text-slate-700 block">
+                            {userRole.charAt(0).toUpperCase() + userRole.slice(1)}
+                          </span>
+                          {userEmail && (
+                            <span className="text-xs text-slate-500 block truncate max-w-[150px]">
+                              {userEmail}
+                            </span>
+                          )}
+                        </div>
                       </div>
                     </div>
                   </li>
@@ -297,7 +495,7 @@ export default function RootLayout({
               )}
               
               {/* Show Login/Signup when logged out (Mobile) */}
-              {!isLoggedIn && (
+              {!isLoggedIn && !loadingAuth && (
                 <>
                   <li className="w-full">
                     <Link href="/login" className={`${linkBase} flex items-center gap-3 ${isActive("/login")}`} onClick={() => setOpen(false)}>
@@ -325,34 +523,37 @@ export default function RootLayout({
           </nav>
         </header>
 
-        {/* HOME PAGE CONTENT */}
-        {children}
+        {/* MAIN CONTENT */}
+        <main className="min-h-screen">
+          {children}
+        </main>
 
         {/* FOOTER - Visible on both desktop and mobile */}
-        <footer className="bg-slate-900 text-slate-400">
-          <div className="mx-auto w-full max-w-6xl px-4 py-6">
-            <div className="grid grid-cols-1 gap-6 text-xs md:grid-cols-4">
+        <footer className="bg-slate-900 text-slate-400 mt-auto">
+          <div className="mx-auto w-full max-w-6xl px-4 py-8">
+            <div className="grid grid-cols-1 gap-8 text-sm md:grid-cols-4">
               {/* Brand Section */}
-              <div className="space-y-2">
-                <div className="inline-flex items-center gap-1.5 font-bold text-white">
-                  <Image src="/images/norsu.png" alt="NORSU Seal" width={20} height={20} />
-                  <span className="text-xs">NORSU • HRM</span>
+              <div className="space-y-3">
+                <div className="inline-flex items-center gap-2 font-bold text-white">
+                  <Image src="/images/norsu.png" alt="NORSU Seal" width={24} height={24} />
+                  <span>NORSU • HRM</span>
                 </div>
-                <p className="leading-tight text-slate-500">
+                <p className="leading-relaxed text-slate-500">
                   Capitol Area, Kagawasan Ave, Dumaguete City, Negros Oriental
                 </p>
                 <p className="text-slate-600">Mon–Fri, 8:00 AM – 5:00 PM</p>
               </div>
 
               {/* Quick Links */}
-              <div className="space-y-1.5">
-                <h4 className="font-semibold uppercase tracking-wider text-white text-[11px]">Quick Links</h4>
-                <ul className="space-y-1">
+              <div className="space-y-3">
+                <h4 className="font-semibold uppercase tracking-wider text-white">Quick Links</h4>
+                <ul className="space-y-2">
                   <li><Link href="/vacancies" className="text-slate-500 hover:text-white transition-colors">Vacancies</Link></li>
                   <li><Link href="/about" className="text-slate-500 hover:text-white transition-colors">About HR</Link></li>
-                  {/* Conditionally show login/signup or dashboard in footer */}
                   {isLoggedIn ? (
-                    <li><Link href={`/dashboard/${userRole}`} className="text-slate-500 hover:text-white transition-colors">Dashboard</Link></li>
+                    <>
+                      <li><Link href={getDashboardLink(userRole)} className="text-slate-500 hover:text-white transition-colors">Dashboard</Link></li>
+                    </>
                   ) : (
                     <>
                       <li><Link href="/login" className="text-slate-500 hover:text-white transition-colors">Login</Link></li>
@@ -363,39 +564,33 @@ export default function RootLayout({
               </div>
 
               {/* Contact */}
-              <div className="space-y-1.5">
-                <h4 className="font-semibold uppercase tracking-wider text-white text-[11px]">Contact</h4>
-                <ul className="space-y-1">
+              <div className="space-y-3">
+                <h4 className="font-semibold uppercase tracking-wider text-white">Contact</h4>
+                <ul className="space-y-2">
                   <li>
                     <a href="mailto:hr@norsu.edu.ph" className="text-slate-500 hover:text-white transition-colors">hr@norsu.edu.ph</a>
                   </li>
                   <li className="text-slate-500">(035) 123-4567</li>
-                  <li>
-                    <a href="#" className="text-slate-500 hover:text-white transition-colors">Help Desk</a>
-                  </li>
                 </ul>
               </div>
 
               {/* Social */}
-              <div className="space-y-1.5">
-                <h4 className="font-semibold uppercase tracking-wider text-white text-[11px]">Follow</h4>
-                <p className="leading-tight text-slate-500">
-                  University updates and announcements.
-                </p>
-                <div className="flex gap-3 pt-0.5">
+              <div className="space-y-3">
+                <h4 className="font-semibold uppercase tracking-wider text-white">Follow</h4>
+                <div className="flex gap-4 pt-1">
                   <a href="#" className="text-slate-500 hover:text-white transition-colors" aria-label="Facebook">
-                    FB
+                    Facebook
                   </a>
                   <a href="#" className="text-slate-500 hover:text-white transition-colors" aria-label="Twitter">
-                    X
+                    Twitter
                   </a>
                 </div>
               </div>
             </div>
 
             {/* Copyright */}
-            <div className="mt-4 border-t border-slate-800 pt-3 text-center">
-              <p className="text-[11px] text-slate-600">
+            <div className="mt-8 border-t border-slate-800 pt-6 text-center">
+              <p className="text-sm text-slate-600">
                 © {new Date().getFullYear()} Negros Oriental State University • Human Resource Management.
               </p>
             </div>
