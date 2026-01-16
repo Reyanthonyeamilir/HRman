@@ -1,4 +1,6 @@
+// app/signup/page.tsx
 'use client'
+
 import Link from "next/link"
 import { useRouter } from "next/navigation"
 import { useState } from "react"
@@ -142,7 +144,7 @@ export default function SignupPage() {
     setErrors(prev => ({ ...prev, [field]: error }))
   }
 
-  // Handle form submission - TRIGGER VERSION
+  // Handle form submission - FIXED VERSION (NO AUTO-LOGIN)
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     
@@ -169,7 +171,7 @@ export default function SignupPage() {
     try {
       console.log("Starting signup process...")
 
-      // 1. Create auth user with ALL metadata
+      // 1. Create auth user with ALL metadata - NO AUTO-CONFIRM
       console.log("Creating auth user with metadata...")
       const { data: authData, error: authError } = await supabase.auth.signUp({
         email: basicInfo.email.trim(),
@@ -182,7 +184,8 @@ export default function SignupPage() {
             phone: basicInfo.phone.trim() || null,
             dateOfBirth: basicInfo.dateOfBirth || null,
             address: basicInfo.address.trim() || null,
-          }
+          },
+          emailRedirectTo: `${typeof window !== 'undefined' ? window.location.origin : ''}/auth/callback`
         }
       })
 
@@ -212,6 +215,10 @@ export default function SignupPage() {
 
       console.log("✅ Auth User created successfully:", authData.user.id)
       console.log("📝 User metadata:", authData.user.user_metadata)
+      
+      // ✅ IMPORTANT: Clear any potential session immediately
+      await supabase.auth.signOut()
+      console.log("✅ Session cleared after signup")
       
       // IMPORTANT: Wait for database trigger to create profile
       console.log("⏳ Waiting for trigger to create profile...")
@@ -351,7 +358,9 @@ export default function SignupPage() {
 
                 {/* Info Box */}
                 <div className="mt-8 p-4 bg-blue-50 rounded-lg border border-blue-100">
-                
+                  <p className="text-sm text-slate-700">
+                    After signup, you'll need to log in manually with your email and password.
+                  </p>
                 </div>
               </div>
 
@@ -359,7 +368,7 @@ export default function SignupPage() {
               <div className="lg:col-span-2 p-6 md:p-8">
                 <div className="mb-8">
                   <h3 className="text-xl font-semibold text-slate-900 mb-2">Create Your Account</h3>
-                  
+                  <p className="text-sm text-slate-600">All fields marked with * are required</p>
                 </div>
 
                 <form onSubmit={handleSubmit}>

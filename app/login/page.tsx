@@ -1,6 +1,12 @@
+// app/login/page.tsx
 'use client'
 
 import { Suspense } from 'react'
+import Link from 'next/link'
+import { useRouter, useSearchParams } from 'next/navigation'
+import { useState } from 'react'
+import { signIn, getCurrentUser, supabase } from '@/lib/supabaseClient'
+import Image from 'next/image'
 
 // Wrapper component with Suspense
 export default function LoginPage() {
@@ -18,13 +24,6 @@ export default function LoginPage() {
   )
 }
 
-// Your original login component (put everything below this line)
-import Link from 'next/link'
-import { useRouter, useSearchParams } from 'next/navigation'
-import { useState, useEffect } from 'react'
-import { signIn, getCurrentUser, supabase } from '@/lib/supabaseClient'
-import Image from 'next/image'
-
 function LoginContent() {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
@@ -32,36 +31,8 @@ function LoginContent() {
   const [msg, setMsg] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
   const [errors, setErrors] = useState<{ email?: string; password?: string }>({})
-  const [isCheckingSession, setIsCheckingSession] = useState(true)
-  const [hasRedirected, setHasRedirected] = useState(false)
   const router = useRouter()
   const search = useSearchParams()
-
-  // Check for existing session
-  useEffect(() => {
-    checkExistingSession()
-  }, [])
-
-  const checkExistingSession = async () => {
-    if (hasRedirected) return
-    
-    try {
-      const { data: { session } } = await supabase.auth.getSession()
-      if (session) {
-        console.log('🔄 Existing session found, checking user...')
-        const user = await getCurrentUser()
-        if (user) {
-          const role = user.profile?.role || 'applicant'
-          setHasRedirected(true)
-          redirectUser(role)
-        }
-      }
-    } catch (error) {
-      console.log('No existing session')
-    } finally {
-      setIsCheckingSession(false)
-    }
-  }
 
   const validate = () => {
     const e: typeof errors = {}
@@ -81,7 +52,6 @@ function LoginContent() {
     if (!validate()) return
     
     setLoading(true)
-    setHasRedirected(false)
     
     try {
       console.log('🔐 Attempting login for:', email)
@@ -106,7 +76,6 @@ function LoginContent() {
       }
 
       console.log('👤 User retrieved:', user.email)
-      console.log('🎭 User profile:', user.profile)
       console.log('🔑 User role:', user.profile?.role)
 
       // Get the final role
@@ -140,8 +109,20 @@ function LoginContent() {
       
       console.log('📍 Redirecting to appropriate dashboard...')
       
-      setHasRedirected(true)
-      redirectUser(finalRole)
+      // Redirect based on role
+      const next = search.get('next')
+      
+      const roleRedirects: { [key: string]: string } = {
+        'super_admin': '/administrator/dashboard',
+        'hr': '/administrator/dashboard',
+        'applicant': '/applicant'
+      }
+
+      let redirectPath = roleRedirects[finalRole] || '/applicant'
+      const finalPath = next || redirectPath
+
+      console.log('🚀 Final destination:', finalPath)
+      router.replace(finalPath)
       
     } catch (err: any) {
       console.error('❌ Login error:', err)
@@ -153,99 +134,7 @@ function LoginContent() {
     }
   }
 
-  function redirectUser(role: string) {
-    const next = search.get('next')
-    
-    console.log('🎯 Current user role for redirect:', role)
-    
-    const roleRedirects: { [key: string]: string } = {
-      'super_admin': '/administrator/dashboard',
-      'hr': '/administrator/dashboard',
-      'applicant': '/applicant'
-    }
-
-    let redirectPath = roleRedirects[role] || '/applicant'
-
-    console.log('🔄 Redirecting to:', redirectPath, 'for role:', role)
-    console.log('📝 Next parameter:', next)
-    
-    const finalPath = next || redirectPath
-    console.log('🚀 Final destination:', finalPath)
-
-    router.replace(finalPath)
-  }
-
-  const debugUserRole = async () => {
-    try {
-      console.log('🔍 === DEBUG USER ROLE ===')
-      
-      // Check localStorage first
-      if (typeof window !== 'undefined') {
-        console.log('📦 LocalStorage Data:')
-        console.log('   user_role:', localStorage.getItem('user_role'))
-        console.log('   user_id:', localStorage.getItem('user_id'))
-        console.log('   applicant_email:', localStorage.getItem('applicant_email'))
-        console.log('   applicant_name:', localStorage.getItem('applicant_name'))
-      }
-
-      // Check session
-      const { data: { session } } = await supabase.auth.getSession()
-      console.log('🔐 Session Info:')
-      console.log('   Session exists:', !!session)
-      console.log('   User ID:', session?.user?.id)
-      console.log('   User Email:', session?.user?.email)
-      console.log('   Expires at:', session?.expires_at ? new Date(session.expires_at * 1000).toISOString() : 'N/A')
-
-      // Get current user from database
-      const user = await getCurrentUser()
-      console.log('👤 Database User Info:')
-      console.log('   User object:', user)
-      console.log('   Profile:', user?.profile)
-      console.log('   Role from profile:', user?.profile?.role)
-      console.log('   Email from profile:', user?.profile?.email)
-
-      // Also check profiles table directly
-      if (session?.user?.id) {
-        const { data: profileData, error } = await supabase
-          .from('profiles')
-          .select('*')
-          .eq('id', session.user.id)
-          .single()
-        
-        console.log('🗄️ Direct Profiles Table Query:')
-        console.log('   Profile data:', profileData)
-        console.log('   Error:', error)
-      }
-
-      console.log('🎯 Available Redirect Paths:')
-      console.log('   super_admin → /administrator/dashboard')
-      console.log('   hr → /administrator/dashboard')
-      console.log('   applicant → /applicant')
-
-      console.log('🔍 === END DEBUG ===')
-      
-      // Show alert with key info
-      const userRole = localStorage.getItem('user_role') || user?.profile?.role || 'unknown'
-      alert(`Debug Info:\n\nLocalStorage Role: ${localStorage.getItem('user_role')}\nDatabase Role: ${user?.profile?.role}\nSession: ${session ? 'Active' : 'No session'}\n\nUser ID: ${session?.user?.id}\nFinal Role: ${userRole}`)
-      
-    } catch (error) {
-      console.error('🔍 DEBUG - Error:', error)
-      alert(`Debug Error: ${error}`)
-    }
-  }
-
   const canSubmit = email.trim() && password.trim() && !loading
-
-  if (isCheckingSession) {
-    return (
-      <main className="min-h-screen bg-gradient-to-br from-[#0a1630] via-[#0f2a5c] to-[#1a3f8a] flex items-center justify-center">
-        <div className="text-center text-white">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-white mx-auto mb-4"></div>
-          <p>Checking authentication...</p>
-        </div>
-      </main>
-    )
-  }
 
   return (
     <main className="min-h-screen bg-gradient-to-br from-[#0a1630] via-[#0f2a5c] to-[#1a3f8a]">
@@ -368,7 +257,6 @@ function LoginContent() {
                       </p>
                     )}
                     
-                    {/* Forgot Password Link - ADDED HERE */}
                     <div className="flex justify-end mt-2">
                       <Link 
                         href="/forgot-password" 
@@ -421,7 +309,6 @@ function LoginContent() {
                   </div>
                 )}
 
-        
                 <div className="mt-6 pt-4 border-t border-slate-200">
                   <p className="text-center text-xs text-slate-600 mt-2">
                     Don't have an account?{' '}

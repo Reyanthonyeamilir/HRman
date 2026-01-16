@@ -988,7 +988,7 @@ export default function ApplicantDashboardPage() {
           <MobileNavItem 
             icon={Briefcase}
             label="Jobs"
-            href="/applicant/jobposting"
+            href="/applicant/job-posting"
             isActive={false}
           />
           <MobileNavItem 
