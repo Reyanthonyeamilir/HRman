@@ -2,18 +2,17 @@
 
 import { Suspense } from 'react'
 
-// This is the wrapper component with Suspense boundary
 export default function RequirementsPage() {
   return (
     <Suspense fallback={
-      <div className="flex justify-center items-center min-h-screen">
+      <div className="flex justify-center items-center min-h-screen bg-gradient-to-b from-gray-50 to-white">
         <div className="text-center">
-          <div className="relative">
+          <div className="relative inline-block">
             <div className="h-16 w-16 rounded-full border-4 border-blue-100"></div>
             <div className="absolute top-0 left-0 h-16 w-16 rounded-full border-4 border-blue-600 border-t-transparent animate-spin"></div>
           </div>
           <p className="mt-4 text-gray-600 font-medium">Loading Application Portal...</p>
-          <p className="text-sm text-gray-400 mt-1">Please wait while we prepare your dashboard</p>
+          <p className="text-sm text-gray-400 mt-1 max-w-xs mx-auto">Please wait while we prepare your dashboard</p>
         </div>
       </div>
     }>
@@ -22,8 +21,8 @@ export default function RequirementsPage() {
   )
 }
 
-// Your existing component (put ALL your original code here)
 import * as React from 'react'
+import Link from 'next/link'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -34,15 +33,23 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { 
-  Loader2, FileText, AlertCircle, CheckCircle2, Download, 
-  LogOut, Clock, Edit, X, MessageSquare, User, Calendar,
-  Building, MapPin, Eye, RefreshCw
+  Loader2, FileText, AlertCircle, CheckCircle2, 
+  Clock, Edit, X, MessageSquare, Calendar,
+  Building, MapPin, Eye, RefreshCw, Upload,
+  AlertTriangle, Info, ChevronLeft, FileUp, Briefcase,
+  ArrowLeft, ChevronDown, Users, Search, Filter
 } from 'lucide-react'
 
-// Client-only function to load applicant functions
+type AppError = {
+  type: 'AUTH' | 'NETWORK' | 'VALIDATION' | 'SUBMISSION' | 'LOADING' | 'FILE';
+  message: string;
+  details?: string;
+  retryable?: boolean;
+  timestamp?: Date;
+}
+
 const loadApplicantFunctions = async () => {
   if (typeof window === 'undefined') {
-    // Return dummy functions during SSR
     return {
       listActiveJobs: async () => [],
       submitApplication: async () => { throw new Error('Not available during SSR') },
@@ -54,9 +61,13 @@ const loadApplicantFunctions = async () => {
     }
   }
   
-  // Dynamically import only on client side
-  const module = await import('@/lib/applicant')
-  return module
+  try {
+    const module = await import('@/lib/applicant')
+    return module
+  } catch (error) {
+    console.error('Failed to load applicant functions:', error)
+    throw new Error('Failed to load application functions. Please refresh the page.')
+  }
 }
 
 type Job = { 
@@ -85,9 +96,114 @@ type Row = {
   }
 }
 
-// Constants for anti-spam protection
-const COOLDOWN_PERIOD = 24 * 60 * 60 * 1000 // 24 hours in milliseconds
+const COOLDOWN_PERIOD = 24 * 60 * 60 * 1000
 const MAX_APPLICATIONS_PER_DAY = 3
+
+const ErrorDisplay = ({ 
+  error, 
+  onRetry, 
+  onDismiss 
+}: { 
+  error: AppError; 
+  onRetry?: () => void; 
+  onDismiss?: () => void;
+}) => {
+  const getErrorConfig = (type: AppError['type']) => {
+    const configs = {
+      AUTH: {
+        icon: AlertCircle,
+        bgColor: 'bg-red-50',
+        borderColor: 'border-red-200',
+        textColor: 'text-red-800',
+        title: 'Authentication Error'
+      },
+      NETWORK: {
+        icon: AlertCircle,
+        bgColor: 'bg-amber-50',
+        borderColor: 'border-amber-200',
+        textColor: 'text-amber-800',
+        title: 'Connection Error'
+      },
+      VALIDATION: {
+        icon: AlertTriangle,
+        bgColor: 'bg-amber-50',
+        borderColor: 'border-amber-200',
+        textColor: 'text-amber-800',
+        title: 'Validation Error'
+      },
+      SUBMISSION: {
+        icon: X,
+        bgColor: 'bg-red-50',
+        borderColor: 'border-red-200',
+        textColor: 'text-red-800',
+        title: 'Submission Failed'
+      },
+      LOADING: {
+        icon: RefreshCw,
+        bgColor: 'bg-blue-50',
+        borderColor: 'border-blue-200',
+        textColor: 'text-blue-800',
+        title: 'Loading Error'
+      },
+      FILE: {
+        icon: FileText,
+        bgColor: 'bg-amber-50',
+        borderColor: 'border-amber-200',
+        textColor: 'text-amber-800',
+        title: 'File Error'
+      }
+    }
+    return configs[type] || configs.NETWORK
+  }
+
+  const config = getErrorConfig(error.type)
+  const Icon = config.icon
+
+  return (
+    <div className={`${config.bgColor} border ${config.borderColor} rounded-lg p-4 mb-4 animate-in fade-in duration-300`}>
+      <div className="flex items-start gap-3">
+        <Icon className={`h-5 w-5 mt-0.5 ${config.textColor}`} />
+        <div className="flex-1">
+          <h4 className="font-semibold text-gray-900 mb-1">{config.title}</h4>
+          <p className={`text-sm ${config.textColor}`}>{error.message}</p>
+          {error.details && (
+            <details className="mt-2">
+              <summary className="text-xs text-gray-500 cursor-pointer hover:text-gray-700">
+                Technical details
+              </summary>
+              <code className="text-xs text-gray-600 mt-1 block bg-white/50 p-2 rounded">
+                {error.details}
+              </code>
+            </details>
+          )}
+          <div className="flex flex-wrap gap-2 mt-3">
+            {error.retryable && onRetry && (
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={onRetry}
+                className="text-xs"
+              >
+                <RefreshCw className="h-3 w-3 mr-1" />
+                Try Again
+              </Button>
+            )}
+            {onDismiss && (
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={onDismiss}
+                className="text-xs"
+              >
+                Dismiss
+              </Button>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
 
 function SubmissionRow({ 
   row, 
@@ -157,28 +273,27 @@ function SubmissionRow({
                          status.charAt(0).toUpperCase() + status.slice(1)
     
     return (
-      <Badge variant="outline" className={`${config.color} font-medium`}>
+      <Badge variant="outline" className={`${config.color} font-medium px-2 py-1 text-xs`}>
         <span className="mr-1">{config.icon}</span>
         {displayStatus}
       </Badge>
     )
   }
 
-  // Only 'for_review' applications can be edited
   const canEdit = row.status === 'for_review'
 
   return (
     <TableRow className={`${isEditing ? 'bg-blue-50' : 'hover:bg-gray-50'} transition-colors`}>
-      <TableCell className="py-4">
+      <TableCell className="py-3 px-4">
         <div className="flex items-center gap-3">
-          <div className={`h-10 w-10 rounded-lg flex items-center justify-center ${
+          <div className={`h-8 w-8 rounded-lg flex items-center justify-center flex-shrink-0 ${
             isEditing ? 'bg-blue-100' : 'bg-gray-100'
           }`}>
-            <Building className={`h-5 w-5 ${isEditing ? 'text-blue-600' : 'text-gray-500'}`} />
+            <Briefcase className={`h-4 w-4 ${isEditing ? 'text-blue-600' : 'text-gray-500'}`} />
           </div>
-          <div>
-            <div className="font-semibold text-gray-900 truncate max-w-[180px]">{row.job_title}</div>
-            <div className="text-xs text-gray-500 mt-1">{row.job_status}</div>
+          <div className="min-w-0 flex-1">
+            <div className="font-medium text-gray-900 truncate text-sm">{row.job_title}</div>
+            <div className="text-xs text-gray-500 mt-0.5">{row.job_status}</div>
             {isEditing && (
               <Badge className="mt-1 bg-blue-100 text-blue-700 border-blue-300 text-xs">
                 Currently Editing
@@ -187,54 +302,35 @@ function SubmissionRow({
           </div>
         </div>
       </TableCell>
-      <TableCell className="hidden sm:table-cell py-4">
+      <TableCell className="py-3 px-4">
         {getStatusBadge(row.status || row.job_status)}
       </TableCell>
-      <TableCell className="hidden lg:table-cell py-4">
+      <TableCell className="py-3 px-4">
         <div className="flex items-center gap-2">
-          <FileText className="h-4 w-4 text-gray-400" />
-          <span className="text-sm text-gray-600 truncate max-w-[120px]" title={row.pdf_path}>
-            {row.pdf_path.split('/').pop()}
-          </span>
-        </div>
-      </TableCell>
-      <TableCell className="hidden xl:table-cell py-4 max-w-[200px]">
-        {row.applicant_comment ? (
-          <div className="group relative">
-            <div className="truncate text-sm text-gray-600 cursor-help" title={row.applicant_comment}>
-              {row.applicant_comment}
-            </div>
-            <div className="absolute left-0 top-full mt-2 p-2 bg-white border border-gray-200 rounded-lg shadow-lg z-10 opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 w-64">
-              <div className="text-xs font-medium text-gray-700 mb-1">Your Comment:</div>
-              <div className="text-sm text-gray-600">{row.applicant_comment}</div>
-            </div>
-          </div>
-        ) : (
-          <span className="text-gray-400 text-sm">—</span>
-        )}
-      </TableCell>
-      <TableCell className="py-4">
-        <div className="flex items-center gap-2">
-          <Calendar className="h-4 w-4 text-gray-400" />
+          <Calendar className="h-4 w-4 text-gray-400 flex-shrink-0" />
           <div className="text-sm text-gray-600">
-            {new Date(row.submitted_at).toLocaleDateString()}
+            {new Date(row.submitted_at).toLocaleDateString('en-US', {
+              month: 'short',
+              day: 'numeric',
+              year: 'numeric'
+            })}
           </div>
         </div>
       </TableCell>
-      <TableCell className="py-4 text-right">
+      <TableCell className="py-3 px-4 text-right">
         <div className="flex items-center justify-end gap-2">
           {loadingUrl ? (
-            <div className="h-8 w-8 rounded-full border-2 border-blue-100 border-t-blue-600 animate-spin"></div>
+            <div className="h-7 w-7 rounded-full border-2 border-blue-100 border-t-blue-600 animate-spin"></div>
           ) : url ? (
             <Button 
               variant="outline" 
               size="sm"
               asChild
-              className="border-gray-300 hover:bg-gray-50"
+              className="border-gray-300 hover:bg-gray-50 h-7 px-2"
             >
-              <a href={url} target="_blank" rel="noreferrer" className="flex items-center gap-2">
-                <Eye className="h-4 w-4" />
-                <span className="hidden sm:inline">View PDF</span>
+              <a href={url} target="_blank" rel="noreferrer" className="flex items-center gap-1">
+                <Eye className="h-3.5 w-3.5" />
+                <span className="hidden sm:inline text-xs">View</span>
               </a>
             </Button>
           ) : (
@@ -247,14 +343,14 @@ function SubmissionRow({
               size="sm"
               onClick={onEdit}
               disabled={isEditing}
-              className={`flex items-center gap-2 ${
+              className={`h-7 px-2 ${
                 isEditing 
                   ? 'bg-blue-100 text-blue-700 border-blue-300' 
                   : 'border-gray-300 hover:bg-gray-100'
               }`}
             >
-              <Edit className="h-4 w-4" />
-              <span className="hidden sm:inline">{isEditing ? 'Editing...' : 'Edit File'}</span>
+              <Edit className="h-3.5 w-3.5" />
+              <span className="hidden sm:inline text-xs ml-1">Edit</span>
             </Button>
           )}
         </div>
@@ -287,7 +383,7 @@ function RequirementsContent() {
   const [loadingJobs, setLoadingJobs] = React.useState<boolean>(true)
 
   // error states
-  const [error, setError] = React.useState<string | null>(null)
+  const [errors, setErrors] = React.useState<AppError[]>([])
   const [success, setSuccess] = React.useState<string | null>(null)
 
   // auth state
@@ -298,42 +394,92 @@ function RequirementsContent() {
     canApply: boolean;
     nextAvailableTime: Date | null;
     message: string;
-  }>({ canApply: true, nextAvailableTime: null, message: '' })
+    todaysCount: number;
+  }>({ 
+    canApply: true, 
+    nextAvailableTime: null, 
+    message: '',
+    todaysCount: 0
+  })
 
   // File input reference
   const fileInputRef = React.useRef<HTMLInputElement>(null)
 
   // Load applicant functions only on client side
   const [applicantFunctions, setApplicantFunctions] = React.useState<any>(null)
+  const [loadingFunctions, setLoadingFunctions] = React.useState(true)
 
-  React.useEffect(() => {
-    loadApplicantFunctions().then(functions => {
-      setApplicantFunctions(functions)
+  const addError = React.useCallback((error: AppError) => {
+    setErrors(prev => {
+      const isDuplicate = prev.some(e => 
+        e.type === error.type && 
+        e.message === error.message &&
+        Date.now() - (e.timestamp?.getTime() || 0) < 5000
+      )
+      return isDuplicate ? prev : [...prev, error]
     })
   }, [])
 
-  // Check authentication on component mount
+  const removeError = React.useCallback((index: number) => {
+    setErrors(prev => prev.filter((_, i) => i !== index))
+  }, [])
+
   React.useEffect(() => {
-    if (!applicantFunctions) return
+    const loadFunctions = async () => {
+      try {
+        setLoadingFunctions(true)
+        const functions = await loadApplicantFunctions()
+        setApplicantFunctions(functions)
+      } catch (error: any) {
+        addError({
+          type: 'LOADING',
+          message: 'Failed to load application functions',
+          details: error?.message,
+          retryable: true,
+          timestamp: new Date()
+        })
+      } finally {
+        setLoadingFunctions(false)
+      }
+    }
+
+    loadFunctions()
+  }, [addError])
+
+  React.useEffect(() => {
+    if (!applicantFunctions || loadingFunctions) return
 
     const checkAuth = async () => {
       try {
         const user = await applicantFunctions.getCurrentUser()
         if (!user) {
-          router.push('/login?next=/applicant/requirements')
+          addError({
+            type: 'AUTH',
+            message: 'Please sign in to access the application portal',
+            retryable: false,
+            timestamp: new Date()
+          })
+          setTimeout(() => {
+            router.push('/login?next=/applicant/requirements')
+          }, 2000)
           return
         }
         setAuthChecked(true)
-      } catch (error) {
+      } catch (error: any) {
         console.error('Auth check failed:', error)
-        router.push('/login?next=/applicant/requirements')
+        addError({
+          type: 'AUTH',
+          message: 'Authentication check failed',
+          details: error?.message,
+          retryable: true,
+          timestamp: new Date()
+        })
       }
     }
 
     checkAuth()
-  }, [applicantFunctions, router])
+  }, [applicantFunctions, loadingFunctions, router, addError])
 
-  // load jobs + my applications after auth is confirmed
   React.useEffect(() => {
     if (!authChecked || !applicantFunctions) return
 
@@ -342,7 +488,7 @@ function RequirementsContent() {
     const loadData = async () => {
       try {
         setLoadingJobs(true)
-        setError(null)
+        setLoadingTable(true)
         
         const [activeJobs, myApplications] = await Promise.all([
           applicantFunctions.listActiveJobs(),
@@ -369,13 +515,18 @@ function RequirementsContent() {
 
         setRows(myApplications as Row[])
         
-        // Check spam protection for new applications
         await checkSpamProtection(myApplications as Row[])
 
       } catch (e: any) {
         console.error('Failed to load data:', e)
         if (alive) {
-          setError(e?.message || 'Failed to load data. Please try again later.')
+          addError({
+            type: 'LOADING',
+            message: 'Failed to load job data and applications',
+            details: e?.message,
+            retryable: true,
+            timestamp: new Date()
+          })
         }
       } finally {
         if (alive) {
@@ -390,20 +541,19 @@ function RequirementsContent() {
     return () => {
       alive = false
     }
-  }, [initPos, authChecked, applicantFunctions])
+  }, [initPos, authChecked, applicantFunctions, addError])
 
-  // Check spam protection rules for NEW applications only
   const checkSpamProtection = async (applications: Row[]) => {
     if (!applications || applications.length === 0) {
       setCooldownData({
         canApply: true,
         nextAvailableTime: null,
-        message: ''
+        message: '',
+        todaysCount: 0
       })
       return
     }
 
-    // Check daily limit for NEW applications
     const today = new Date()
     today.setHours(0, 0, 0, 0)
     
@@ -419,12 +569,12 @@ function RequirementsContent() {
       setCooldownData({
         canApply: false,
         nextAvailableTime: tomorrow,
-        message: `You have reached the daily limit of ${MAX_APPLICATIONS_PER_DAY} new applications. You can apply again tomorrow.`
+        message: `Daily limit reached (${MAX_APPLICATIONS_PER_DAY}/${MAX_APPLICATIONS_PER_DAY} applications)`,
+        todaysCount: todaysApplications.length
       })
       return
     }
 
-    // Check for recent application to same job for NEW applications
     if (jobId) {
       const recentSameJob = applications.find(app => 
         app.job_id === jobId && 
@@ -436,7 +586,8 @@ function RequirementsContent() {
         setCooldownData({
           canApply: false,
           nextAvailableTime: nextAvailable,
-          message: `You've already applied to this position recently. You can apply again after ${formatTimeRemaining(nextAvailable)}.`
+          message: `Recent application to this position detected`,
+          todaysCount: todaysApplications.length
         })
         return
       }
@@ -445,7 +596,8 @@ function RequirementsContent() {
     setCooldownData({
       canApply: true,
       nextAvailableTime: null,
-      message: ''
+      message: '',
+      todaysCount: todaysApplications.length
     })
   }
 
@@ -459,59 +611,124 @@ function RequirementsContent() {
     const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60))
     
     if (hours > 0) {
-      return `${hours} hour${hours > 1 ? 's' : ''} ${minutes} minute${minutes > 1 ? 's' : ''}`
+      return `${hours}h ${minutes}m`
     }
-    return `${minutes} minute${minutes > 1 ? 's' : ''}`
+    return `${minutes}m`
   }
 
   function onPick(e: React.ChangeEvent<HTMLInputElement>) {
     const f = e.target.files?.[0] ?? null
+    
+    setErrors(prev => prev.filter(e => e.type !== 'FILE' && e.type !== 'VALIDATION'))
+    setSuccess(null)
+    
+    if (f) {
+      if (f.type !== 'application/pdf') {
+        addError({
+          type: 'FILE',
+          message: 'Only PDF files are allowed',
+          retryable: false,
+          timestamp: new Date()
+        })
+        setFile(null)
+        if (fileInputRef.current) {
+          fileInputRef.current.value = ''
+        }
+        return
+      }
+      
+      if (f.size > 10 * 1024 * 1024) {
+        addError({
+          type: 'FILE',
+          message: 'File size must be less than 10MB',
+          retryable: false,
+          timestamp: new Date()
+        })
+        setFile(null)
+        if (fileInputRef.current) {
+          fileInputRef.current.value = ''
+        }
+        return
+      }
+    }
+    
     setFile(f)
     setSubmittedFlag(false)
-    setError(null)
   }
 
   async function onSubmit() {
     if (!applicantFunctions) {
-      setError('Application functions not loaded yet. Please try again.')
+      addError({
+        type: 'LOADING',
+        message: 'Application functions not loaded',
+        retryable: true,
+        timestamp: new Date()
+      })
       return
     }
 
-    // Clear previous messages
-    setError(null)
+    setErrors([])
     setSuccess(null)
 
-    // Validate for new applications
     if (!editingApplicationId) {
       if (!jobId) {
-        setError('Please choose a job position first.')
+        addError({
+          type: 'VALIDATION',
+          message: 'Please select a job position',
+          retryable: false,
+          timestamp: new Date()
+        })
         return
       }
       
       if (!cooldownData.canApply && cooldownData.message) {
-        setError(cooldownData.message)
+        addError({
+          type: 'VALIDATION',
+          message: cooldownData.message,
+          details: cooldownData.nextAvailableTime ? `Available in ${formatTimeRemaining(cooldownData.nextAvailableTime)}` : undefined,
+          retryable: false,
+          timestamp: new Date()
+        })
         return
       }
       
       if (!file) {
-        setError('Please attach a PDF file of your requirements.')
+        addError({
+          type: 'VALIDATION',
+          message: 'Please select a PDF file',
+          retryable: false,
+          timestamp: new Date()
+        })
         return
       }
     }
 
-    // Validate file if provided
     if (file) {
       if (file.type !== 'application/pdf') {
-        setError('Only PDF files are allowed. Please upload a PDF file.')
+        addError({
+          type: 'FILE',
+          message: 'Only PDF files are allowed',
+          retryable: false,
+          timestamp: new Date()
+        })
         return
       }
-      if (file.size > 10 * 1024 * 1024) { // 10MB limit
-        setError('File size must be less than 10MB. Please choose a smaller file.')
+      if (file.size > 10 * 1024 * 1024) {
+        addError({
+          type: 'FILE',
+          message: 'File size must be less than 10MB',
+          retryable: false,
+          timestamp: new Date()
+        })
         return
       }
     } else if (!editingApplicationId) {
-      // New applications require a file
-      setError('Please attach a PDF file of your requirements.')
+      addError({
+        type: 'VALIDATION',
+        message: 'Please attach a PDF file',
+        retryable: false,
+        timestamp: new Date()
+      })
       return
     }
 
@@ -519,9 +736,13 @@ function RequirementsContent() {
       setSubmitting(true)
 
       if (editingApplicationId && editingApplication) {
-        // UPDATE EXISTING APPLICATION - File is required for updates
         if (!file) {
-          setError('Please select a new PDF file to replace the existing one.')
+          addError({
+            type: 'VALIDATION',
+            message: 'Please select a new PDF file',
+            retryable: false,
+            timestamp: new Date()
+          })
           return
         }
 
@@ -530,22 +751,20 @@ function RequirementsContent() {
           applicant_comment: editingApplication.applicant_comment
         })
         
-        setSuccess('Your application file has been successfully updated!')
+        setSuccess('Application file updated successfully!')
         setEditingApplicationId(null)
         setEditingApplication(null)
         
       } else {
-        // SUBMIT NEW APPLICATION
         const id = await applicantFunctions.submitApplication({ 
           job_id: jobId!, 
           file: file!, 
           applicant_comment: applicantComment
         })
         
-        setSuccess(`Application submitted successfully! Your reference number is #${id}`)
+        setSuccess(`Application submitted! Reference: #${id}`)
       }
       
-      // Reset form
       setSubmittedFlag(true)
       setFile(null)
       setApplicantComment('')
@@ -553,29 +772,42 @@ function RequirementsContent() {
         fileInputRef.current.value = ''
       }
       
-      // Refresh applications list
       const data = await applicantFunctions.listMyApplications()
       setRows(data as Row[])
       
-      // Re-check spam protection
       await checkSpamProtection(data as Row[])
       
     } catch (e: any) {
       console.error('Submission error:', e)
       
-      // User-friendly error messages
+      let errorType: AppError['type'] = 'SUBMISSION'
+      let userMessage = 'An error occurred. Please try again.'
+      
       if (e.message.includes('cooldown') || e.message.includes('limit')) {
-        setError(e.message)
+        errorType = 'VALIDATION'
+        userMessage = e.message
       } else if (e.message.includes('authenticated')) {
-        setError('Your session has expired. Please sign in again.')
-        router.push('/login?next=/applicant/requirements')
+        errorType = 'AUTH'
+        userMessage = 'Session expired. Please sign in again.'
+        setTimeout(() => router.push('/login?next=/applicant/requirements'), 2000)
       } else if (e.message.includes('PDF') || e.message.includes('file')) {
-        setError(e.message)
+        errorType = 'FILE'
+        userMessage = e.message
       } else if (e.message.includes('for_review')) {
-        setError('Cannot update application. It has already been processed by HR.')
-      } else {
-        setError('An error occurred. Please try again or contact support if the problem persists.')
+        errorType = 'VALIDATION'
+        userMessage = 'Cannot update. Application has been processed by HR.'
+      } else if (e.message.includes('network') || e.message.includes('fetch')) {
+        errorType = 'NETWORK'
+        userMessage = 'Network error. Please check your connection.'
       }
+      
+      addError({
+        type: errorType,
+        message: userMessage,
+        details: e.message,
+        retryable: true,
+        timestamp: new Date()
+      })
     } finally {
       setSubmitting(false)
     }
@@ -585,21 +817,24 @@ function RequirementsContent() {
     setFile(null)
     setApplicantComment('')
     setSubmittedFlag(false)
-    setError(null)
+    setErrors([])
     setSuccess(null)
     setEditingApplicationId(null)
     setEditingApplication(null)
-    // Reset file input
     if (fileInputRef.current) {
       fileInputRef.current.value = ''
     }
   }
 
-  // Function to handle editing an existing application - FILE REPLACEMENT ONLY
   const handleEditApplication = async (application: Row) => {
-    // Only 'for_review' applications can be edited
     if (application.status && application.status !== 'for_review') {
-      setError(`Cannot edit application that has been ${application.status}. Please contact HR for updates.`)
+      addError({
+        type: 'VALIDATION',
+        message: `Cannot edit ${application.status} application`,
+        details: 'Please contact HR for updates',
+        retryable: false,
+        timestamp: new Date()
+      })
       return
     }
 
@@ -610,15 +845,13 @@ function RequirementsContent() {
       setPosition(application.job_title)
       setApplicantComment(application.applicant_comment)
       setFile(null)
-      setError(null)
+      setErrors([])
       setSuccess(null)
       
-      // Reset file input
       if (fileInputRef.current) {
         fileInputRef.current.value = ''
       }
       
-      // Scroll to form
       setTimeout(() => {
         document.getElementById('application-form')?.scrollIntoView({ 
           behavior: 'smooth',
@@ -628,75 +861,116 @@ function RequirementsContent() {
       
     } catch (e: any) {
       console.error('Failed to load application for editing:', e)
-      setError('Failed to load application for editing. Please try again.')
+      addError({
+        type: 'LOADING',
+        message: 'Failed to load application for editing',
+        details: e.message,
+        retryable: true,
+        timestamp: new Date()
+      })
     }
   }
 
-  // Update cooldown check when jobId changes (for new applications only)
   React.useEffect(() => {
     if (jobId && !editingApplicationId && applicantFunctions) {
       checkSpamProtection(rows)
     }
   }, [jobId, editingApplicationId, applicantFunctions, rows])
 
-  // Show loading while checking authentication or loading functions
-  if (!authChecked || !applicantFunctions) {
+  React.useEffect(() => {
+    if (errors.length > 0) {
+      const timer = setTimeout(() => {
+        setErrors(prev => prev.slice(1))
+      }, 10000)
+      return () => clearTimeout(timer)
+    }
+  }, [errors])
+
+  if (!authChecked || !applicantFunctions || loadingFunctions) {
     return (
-      <div className="flex justify-center items-center min-h-[60vh]">
+      <div className="flex justify-center items-center min-h-[60vh] bg-gradient-to-b from-gray-50 to-white">
         <div className="text-center">
-          <div className="relative">
+          <div className="relative inline-block">
             <div className="h-16 w-16 rounded-full border-4 border-blue-100"></div>
             <div className="absolute top-0 left-0 h-16 w-16 rounded-full border-4 border-blue-600 border-t-transparent animate-spin"></div>
           </div>
           <p className="mt-4 text-gray-600 font-medium">Loading Application Portal...</p>
-          <p className="text-sm text-gray-400 mt-1">Please wait while we prepare your dashboard</p>
+          <p className="text-sm text-gray-400 mt-1 max-w-xs mx-auto">Please wait while we prepare your dashboard</p>
         </div>
       </div>
     )
   }
 
+  // Get selected job details for better display
+  const selectedJob = jobs.find(j => j.id === jobId)
+
   return (
     <div className="min-h-screen bg-gradient-to-b from-gray-50 to-white">
-      {/* Header */}
-      <div className="bg-gradient-to-r from-blue-600 to-blue-800 text-white">
-        <div className="max-w-7xl mx-auto px-4 py-6">
-          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-            <div>
-              <h1 className="text-2xl font-bold tracking-tight">Job Applications Portal</h1>
-              <p className="text-blue-100 mt-1">Submit applications and track your progress</p>
-            </div>
+      {/* Header with Back Button */}
+      <div className="bg-white border-b border-gray-200 shadow-sm">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between py-4 gap-4">
             <div className="flex items-center gap-3">
-              <Badge variant="secondary" className="bg-white/20 text-white border-0 backdrop-blur-sm">
-                <User className="h-3 w-3 mr-1" />
-                Applicant
-              </Badge>
-              <Button 
-                variant="outline" 
-                size="sm"
-                onClick={async () => {
-                  if (applicantFunctions?.supabase) {
-                    await applicantFunctions.supabase.auth.signOut()
-                  }
-                  router.push('/login')
-                }}
-                className="bg-white/10 hover:bg-white/20 text-white border-white/30 backdrop-blur-sm"
-              >
-                <LogOut className="h-4 w-4 mr-2" />
-                Sign Out
-              </Button>
+              <Link href="/applicant">
+                <Button variant="ghost" size="sm" className="hidden sm:flex items-center gap-2">
+                  <ArrowLeft className="h-4 w-4" />
+                  Back to Dashboard
+                </Button>
+                <Button variant="ghost" size="icon" className="sm:hidden">
+                  <ArrowLeft className="h-4 w-4" />
+                </Button>
+              </Link>
+              <div>
+                <h1 className="text-xl sm:text-2xl font-bold text-gray-900">Requirements & Applications</h1>
+                <p className="text-sm text-gray-600 mt-1">Submit and manage your job applications</p>
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              <Link href="/applicant/job-postings">
+                <Button variant="outline" size="sm" className="flex items-center gap-2">
+                  <Briefcase className="h-4 w-4" />
+                  <span className="hidden sm:inline">View Jobs</span>
+                </Button>
+              </Link>
             </div>
           </div>
         </div>
       </div>
 
-      <div className="max-w-7xl mx-auto px-4 py-8">
-        {/* Cooldown Warning - Only show for new applications */}
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-8">
+        {/* Error Display Area */}
+        {errors.length > 0 && (
+          <div className="mb-6 space-y-3">
+            {errors.map((error, index) => (
+              <ErrorDisplay
+                key={`${error.type}-${error.timestamp?.getTime()}-${index}`}
+                error={error}
+                onRetry={() => {
+                  removeError(index)
+                  if (error.type === 'NETWORK' || error.type === 'LOADING') {
+                    window.location.reload()
+                  }
+                }}
+                onDismiss={() => removeError(index)}
+              />
+            ))}
+          </div>
+        )}
+
+        {/* Cooldown Warning */}
         {!editingApplicationId && !cooldownData.canApply && cooldownData.message && (
-          <Alert className="mb-6 bg-gradient-to-r from-amber-50 to-amber-100 border-amber-200 shadow-sm">
+          <Alert className="mb-6 bg-gradient-to-r from-amber-50 to-amber-100 border-amber-200">
             <Clock className="h-5 w-5 text-amber-600" />
-            <AlertDescription className="text-amber-800 ml-3">
+            <AlertDescription className="ml-3">
               <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
-                <span className="font-medium">{cooldownData.message}</span>
+                <div>
+                  <span className="font-medium text-amber-900">{cooldownData.message}</span>
+                  {cooldownData.todaysCount > 0 && (
+                    <p className="text-sm text-amber-700 mt-1">
+                      Today's applications: {cooldownData.todaysCount}/{MAX_APPLICATIONS_PER_DAY}
+                    </p>
+                  )}
+                </div>
                 {cooldownData.nextAvailableTime && (
                   <Badge variant="outline" className="bg-amber-200 text-amber-800 border-amber-300">
                     <Clock className="h-3 w-3 mr-1" />
@@ -708,45 +982,62 @@ function RequirementsContent() {
           </Alert>
         )}
 
-        {/* Stats Summary */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
-          <Card className="border-blue-100 bg-gradient-to-br from-blue-50 to-white shadow-sm">
-            <CardContent className="p-6">
+        {/* Success Alert */}
+        {success && (
+          <Alert className="mb-6 bg-gradient-to-r from-green-50 to-emerald-50 border-green-200">
+            <CheckCircle2 className="h-5 w-5 text-green-600" />
+            <AlertDescription className="ml-3">
+              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+                <span className="font-medium text-green-800">{success}</span>
+                <Badge variant="outline" className="bg-green-100 text-green-800 border-green-300">
+                  {editingApplicationId ? 'File Updated' : 'Application Submitted'}
+                </Badge>
+              </div>
+            </AlertDescription>
+          </Alert>
+        )}
+
+        {/* Stats Cards */}
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-8">
+          <Card className="border-blue-100 bg-white shadow-sm">
+            <CardContent className="p-4 sm:p-6">
               <div className="flex items-center justify-between">
                 <div>
                   <p className="text-sm font-medium text-gray-600">Total Applications</p>
-                  <p className="text-3xl font-bold text-gray-900 mt-2">{rows.length}</p>
+                  <p className="text-2xl sm:text-3xl font-bold text-gray-900 mt-1">{rows.length}</p>
                 </div>
-                <div className="h-12 w-12 rounded-full bg-blue-100 flex items-center justify-center">
-                  <FileText className="h-6 w-6 text-blue-600" />
+                <div className="h-10 w-10 sm:h-12 sm:w-12 rounded-full bg-blue-100 flex items-center justify-center">
+                  <FileText className="h-5 w-5 sm:h-6 sm:w-6 text-blue-600" />
                 </div>
               </div>
             </CardContent>
           </Card>
 
-          <Card className="border-green-100 bg-gradient-to-br from-green-50 to-white shadow-sm">
-            <CardContent className="p-6">
+          <Card className="border-green-100 bg-white shadow-sm">
+            <CardContent className="p-4 sm:p-6">
               <div className="flex items-center justify-between">
                 <div>
-                  <p className="text-sm font-medium text-gray-600">Active Jobs</p>
-                  <p className="text-3xl font-bold text-gray-900 mt-2">{jobs.length}</p>
+                  <p className="text-sm font-medium text-gray-600">Available Positions</p>
+                  <p className="text-2xl sm:text-3xl font-bold text-gray-900 mt-1">{jobs.length}</p>
                 </div>
-                <div className="h-12 w-12 rounded-full bg-green-100 flex items-center justify-center">
-                  <Building className="h-6 w-6 text-green-600" />
+                <div className="h-10 w-10 sm:h-12 sm:w-12 rounded-full bg-green-100 flex items-center justify-center">
+                  <Users className="h-5 w-5 sm:h-6 sm:w-6 text-green-600" />
                 </div>
               </div>
             </CardContent>
           </Card>
 
-          <Card className="border-purple-100 bg-gradient-to-br from-purple-50 to-white shadow-sm">
-            <CardContent className="p-6">
+          <Card className="border-purple-100 bg-white shadow-sm">
+            <CardContent className="p-4 sm:p-6">
               <div className="flex items-center justify-between">
                 <div>
                   <p className="text-sm font-medium text-gray-600">Daily Limit</p>
-                  <p className="text-3xl font-bold text-gray-900 mt-2">{MAX_APPLICATIONS_PER_DAY}</p>
+                  <p className="text-2xl sm:text-3xl font-bold text-gray-900 mt-1">
+                    {cooldownData.todaysCount}/{MAX_APPLICATIONS_PER_DAY}
+                  </p>
                 </div>
-                <div className="h-12 w-12 rounded-full bg-purple-100 flex items-center justify-center">
-                  <Clock className="h-6 w-6 text-purple-600" />
+                <div className="h-10 w-10 sm:h-12 sm:w-12 rounded-full bg-purple-100 flex items-center justify-center">
+                  <Clock className="h-5 w-5 sm:h-6 sm:w-6 text-purple-600" />
                 </div>
               </div>
             </CardContent>
@@ -755,28 +1046,33 @@ function RequirementsContent() {
 
         {/* Application Form Section */}
         <div className="mb-8">
-          <div className="flex items-center justify-between mb-6">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
             <div>
-              <h2 className="text-xl font-bold text-gray-900">Submit New Application</h2>
-              <p className="text-gray-600 mt-1">Apply for available positions in our organization</p>
+              <h2 className="text-lg sm:text-xl font-bold text-gray-900">
+                {editingApplicationId ? 'Update Application' : 'Submit New Application'}
+              </h2>
+              <p className="text-gray-600 text-sm sm:text-base mt-1">
+                {editingApplicationId ? 'Replace your application file' : 'Apply for available positions'}
+              </p>
             </div>
             {editingApplicationId && (
               <Button
                 variant="outline"
                 onClick={clearForm}
-                className="flex items-center gap-2"
+                className="w-full sm:w-auto"
+                size="sm"
               >
-                <X className="h-4 w-4" />
+                <X className="h-4 w-4 mr-2" />
                 Cancel Edit
               </Button>
             )}
           </div>
 
           {/* Status Card */}
-          <Card className="mb-6 border-blue-100 bg-gradient-to-r from-blue-50 to-white shadow-sm">
-            <CardContent className="p-6">
+          <Card className="mb-6 border-blue-100 bg-white shadow-sm">
+            <CardContent className="p-4 sm:p-6">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                <div className="flex items-center gap-4">
+                <div className="flex items-center gap-3">
                   <div className="h-10 w-10 rounded-full bg-blue-100 flex items-center justify-center">
                     {editingApplicationId ? (
                       <Edit className="h-5 w-5 text-blue-600" />
@@ -788,41 +1084,53 @@ function RequirementsContent() {
                   </div>
                   <div>
                     <p className="text-sm font-medium text-gray-600">Current Position</p>
-                    <p className="text-lg font-semibold text-gray-900 truncate max-w-xs">{position}</p>
+                    <p className="text-base sm:text-lg font-semibold text-gray-900">
+                      {selectedJob?.job_title || position}
+                    </p>
+                    {selectedJob && (
+                      <div className="flex flex-wrap gap-2 mt-1">
+                        {selectedJob.department && (
+                          <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-200 text-xs">
+                            <Building className="h-3 w-3 mr-1" />
+                            {selectedJob.department}
+                          </Badge>
+                        )}
+                        {selectedJob.location && (
+                          <Badge variant="outline" className="bg-green-50 text-green-700 border-green-200 text-xs">
+                            <MapPin className="h-3 w-3 mr-1" />
+                            {selectedJob.location}
+                          </Badge>
+                        )}
+                      </div>
+                    )}
                   </div>
                 </div>
-                <div className="flex items-center gap-2">
-                  <Badge 
-                    variant="outline" 
-                    className={`${
-                      editingApplicationId 
-                        ? 'bg-blue-100 text-blue-800 border-blue-300' 
-                        : submittedFlag
-                        ? 'bg-green-100 text-green-800 border-green-300'
-                        : 'bg-blue-100 text-blue-800 border-blue-300'
-                    }`}
-                  >
-                    {editingApplicationId ? 'Editing Mode' : submittedFlag ? 'Submitted' : 'Ready to Submit'}
-                  </Badge>
-                </div>
+                <Badge 
+                  variant="outline" 
+                  className={`${
+                    editingApplicationId 
+                      ? 'bg-blue-100 text-blue-800 border-blue-300' 
+                      : submittedFlag
+                      ? 'bg-green-100 text-green-800 border-green-300'
+                      : 'bg-blue-100 text-blue-800 border-blue-300'
+                  }`}
+                >
+                  {editingApplicationId ? 'Editing Mode' : submittedFlag ? 'Submitted' : 'Ready to Submit'}
+                </Badge>
               </div>
               
               {editingApplication && (
                 <div className="mt-4 p-4 bg-blue-50 border border-blue-200 rounded-lg">
                   <div className="flex items-start gap-3">
-                    <div className="h-8 w-8 rounded-full bg-blue-100 flex items-center justify-center flex-shrink-0">
+                    <div className="h-8 w-8 rounded-full bg-blue-100 flex items-center justify-center">
                       <Edit className="h-4 w-4 text-blue-600" />
                     </div>
-                    <div className="flex-1">
+                    <div>
                       <p className="font-medium text-blue-900">
                         Editing: <span className="font-bold">{editingApplication.job_title}</span>
                       </p>
                       <p className="text-sm text-blue-700 mt-1">
-                        Submitted on {new Date(editingApplication.submitted_at).toLocaleDateString('en-US', {
-                          year: 'numeric',
-                          month: 'long',
-                          day: 'numeric'
-                        })}
+                        Submitted on {new Date(editingApplication.submitted_at).toLocaleDateString()}
                       </p>
                       <p className="text-xs text-amber-600 mt-2 font-medium">
                         Note: You can only replace the PDF file. Comments and job position cannot be changed.
@@ -834,139 +1142,150 @@ function RequirementsContent() {
             </CardContent>
           </Card>
 
-          {/* Error & Success Alerts */}
-          {error && (
-            <Alert variant="destructive" className="mb-6 animate-in fade-in duration-300">
-              <AlertCircle className="h-5 w-5" />
-              <AlertDescription className="ml-3">{error}</AlertDescription>
-            </Alert>
-          )}
-
-          {success && (
-            <Alert className="mb-6 bg-gradient-to-r from-green-50 to-emerald-50 border-green-200 animate-in fade-in duration-300">
-              <CheckCircle2 className="h-5 w-5 text-green-600" />
-              <AlertDescription className="ml-3 text-green-800">
-                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
-                  <span className="font-medium">{success}</span>
-                  <Badge variant="outline" className="bg-green-100 text-green-800 border-green-300">
-                    {editingApplicationId ? 'File Updated' : 'Application Submitted'}
-                  </Badge>
-                </div>
-              </AlertDescription>
-            </Alert>
-          )}
-
           {/* Form Card */}
-          <Card id="application-form" className="border-gray-200 shadow-lg">
-            <CardHeader className="bg-gradient-to-r from-gray-50 to-white border-b">
+          <Card id="application-form" className="border-gray-200 shadow-sm">
+            <CardHeader className="bg-white border-b p-4 sm:p-6">
               <CardTitle className="text-lg flex items-center gap-2">
-                <FileText className="h-5 w-5 text-blue-600" />
-                {editingApplicationId ? 'Replace Application File' : 'Submit New Application'}
+                <FileUp className="h-5 w-5 text-blue-600" />
+                {editingApplicationId ? 'Replace Application File' : 'Application Form'}
               </CardTitle>
             </CardHeader>
-            <CardContent className="p-6 space-y-6">
+            <CardContent className="p-4 sm:p-6 space-y-6">
               {/* Form Grid */}
-              <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
-                {/* Job Select */}
-                <div className="space-y-2">
-                  <label className="text-sm font-medium text-gray-700 flex items-center gap-1">
-                    Job Position <span className="text-red-500">*</span>
+              <div className="grid gap-6 md:grid-cols-2">
+                {/* Job Select - Professional Design */}
+                <div className="space-y-3">
+                  <label className="text-sm font-medium text-gray-700 flex items-center gap-2">
+                    <Briefcase className="h-4 w-4 text-blue-600" />
+                    Select Position <span className="text-red-500">*</span>
                   </label>
-                  <Select
-                    value={jobId || ''}
-                    onValueChange={(v: string) => {
-                      setJobId(v || null)
-                      const selectedJob = jobs.find(j => j.id === v)
-                      setPosition(selectedJob?.job_title ?? '—')
-                      setError(null)
-                    }}
-                    disabled={loadingJobs || editingApplicationId !== null}
-                  >
-                    <SelectTrigger className="w-full h-12">
-                      {loadingJobs ? (
-                        <div className="flex items-center gap-2">
-                          <Loader2 className="h-4 w-4 animate-spin" />
-                          <span className="text-gray-500">Loading positions...</span>
-                        </div>
-                      ) : editingApplicationId ? (
-                        <div className="flex items-center gap-2">
-                          <Building className="h-4 w-4 text-gray-500" />
-                          <span className="text-gray-700">{position}</span>
-                        </div>
-                      ) : (
-                        <SelectValue placeholder="Select a position..." />
-                      )}
-                    </SelectTrigger>
-                    <SelectContent>
-                      {jobs.map(j => (
-                        <SelectItem key={j.id} value={j.id} className="py-3">
-                          <div className="flex flex-col">
-                            <span className="font-medium">{j.job_title}</span>
-                            <div className="flex items-center gap-2 text-xs text-gray-500 mt-1">
-                              {j.department && (
-                                <span className="flex items-center gap-1">
-                                  <Building className="h-3 w-3" />
-                                  {j.department}
-                                </span>
-                              )}
-                              {j.location && (
-                                <span className="flex items-center gap-1">
-                                  <MapPin className="h-3 w-3" />
-                                  {j.location}
-                                </span>
-                              )}
+                  <div className="relative">
+                    <Select
+                      value={jobId || ''}
+                      onValueChange={(v: string) => {
+                        setJobId(v || null)
+                        const selectedJob = jobs.find(j => j.id === v)
+                        setPosition(selectedJob?.job_title ?? '—')
+                        setErrors(prev => prev.filter(e => e.type !== 'VALIDATION'))
+                      }}
+                      disabled={loadingJobs || editingApplicationId !== null}
+                    >
+                      <SelectTrigger className="w-full h-12 border-gray-300 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-white hover:bg-gray-50 transition-colors">
+                        <div className="flex items-center justify-between w-full">
+                          {loadingJobs ? (
+                            <div className="flex items-center gap-3">
+                              <Loader2 className="h-4 w-4 animate-spin text-gray-400" />
+                              <span className="text-gray-500">Loading positions...</span>
                             </div>
+                          ) : editingApplicationId ? (
+                            <div className="flex items-center gap-3">
+                              <Building className="h-4 w-4 text-gray-500" />
+                              <span className="font-medium text-gray-700">{position}</span>
+                            </div>
+                          ) : (
+                            <>
+                              <div className="flex items-center gap-3">
+                                <Briefcase className="h-4 w-4 text-gray-400" />
+                                <SelectValue 
+                                  placeholder="Choose a job position..." 
+                                  className="placeholder:text-gray-400"
+                                />
+                              </div>
+                              <ChevronDown className="h-4 w-4 text-gray-400" />
+                            </>
+                          )}
+                        </div>
+                      </SelectTrigger>
+                      <SelectContent 
+                        className="bg-white border border-gray-200 shadow-lg rounded-lg mt-1 p-0 max-h-[350px] overflow-y-auto"
+                        position="popper"
+                        sideOffset={5}
+                      >
+                        <div className="sticky top-0 bg-white border-b border-gray-100 px-3 py-2">
+                          <div className="flex items-center gap-2 text-sm text-gray-500">
+                            <Search className="h-4 w-4" />
+                            <span>{jobs.length} positions available</span>
                           </div>
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                  {editingApplicationId && (
-                    <p className="text-xs text-blue-600 flex items-center gap-1">
-                      <Clock className="h-3 w-3" />
-                      Job position is locked when updating
-                    </p>
-                  )}
+                        </div>
+                        
+                        {jobs.length === 0 ? (
+                          <div className="py-8 text-center">
+                            <Briefcase className="h-8 w-8 text-gray-300 mx-auto mb-2" />
+                            <p className="text-gray-500 text-sm">No positions available</p>
+                          </div>
+                        ) : (
+                          jobs.map(j => (
+                            <SelectItem 
+                              key={j.id} 
+                              value={j.id} 
+                              className="py-3 px-4 hover:bg-blue-50 focus:bg-blue-50 cursor-pointer border-b border-gray-50 last:border-b-0 transition-colors"
+                            >
+                              <div className="flex flex-col">
+                                <div className="flex items-start justify-between">
+                                  <span className="font-medium text-gray-900">{j.job_title}</span>
+                                  {jobId === j.id && (
+                                    <CheckCircle2 className="h-4 w-4 text-green-500 ml-2 flex-shrink-0" />
+                                  )}
+                                </div>
+                                <div className="flex flex-col gap-1 mt-2">
+                                  {j.department && (
+                                    <div className="flex items-center gap-2 text-xs text-gray-600">
+                                      <Building className="h-3 w-3" />
+                                      <span>{j.department}</span>
+                                    </div>
+                                  )}
+                                  {j.location && (
+                                    <div className="flex items-center gap-2 text-xs text-gray-600">
+                                      <MapPin className="h-3 w-3" />
+                                      <span>{j.location}</span>
+                                    </div>
+                                  )}
+                                </div>
+                              </div>
+                            </SelectItem>
+                          ))
+                        )}
+                      </SelectContent>
+                    </Select>
+                    
+                    {!loadingJobs && jobs.length > 0 && !editingApplicationId && (
+                      <p className="text-xs text-gray-500 mt-2 flex items-center gap-1">
+                        <Info className="h-3 w-3" />
+                        Select a position from {jobs.length} available jobs
+                      </p>
+                    )}
+                  </div>
                 </div>
 
                 {/* File Input */}
-                <div className="space-y-2">
-                  <label className="text-sm font-medium text-gray-700 flex items-center gap-1">
-                    PDF Attachment <span className="text-red-500">*</span>
+                <div className="space-y-3">
+                  <label className="text-sm font-medium text-gray-700 flex items-center gap-2">
+                    <FileText className="h-4 w-4 text-blue-600" />
+                    PDF Requirements <span className="text-red-500">*</span>
                   </label>
-                  <div className="relative">
+                  <div className="relative group">
                     <Input 
                       ref={fileInputRef}
                       type="file" 
                       accept="application/pdf" 
                       onChange={onPick}
-                      className="h-12 cursor-pointer border-2 border-dashed border-gray-300 hover:border-blue-400 transition-colors"
+                      className="h-12 cursor-pointer border-2 border-dashed border-gray-300 hover:border-blue-400 transition-colors file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100 bg-white"
                       required
                     />
                     <div className="absolute right-3 top-1/2 transform -translate-y-1/2">
-                      <FileText className="h-5 w-5 text-gray-400" />
+                      <Upload className="h-5 w-5 text-gray-400 group-hover:text-blue-500 transition-colors" />
                     </div>
                   </div>
-                  <p className="text-xs text-gray-500">
-                    Maximum file size: 10MB • Only PDF files accepted
-                  </p>
-                  {editingApplication && (
-                    <div className="mt-2 p-3 bg-gray-50 border border-gray-200 rounded-lg">
-                      <p className="text-sm font-medium text-gray-700 mb-1">Current File:</p>
-                      <p className="text-xs text-gray-600 truncate">
-                        {editingApplication.pdf_path.split('/').pop()}
-                      </p>
-                      <p className="text-xs text-amber-600 mt-2 font-medium">
-                        Select a new PDF file to replace the current one
-                      </p>
-                    </div>
-                  )}
+                  <div className="flex items-center gap-2 text-xs text-gray-500">
+                    <AlertCircle className="h-3 w-3" />
+                    <span>Maximum file size: 10MB • PDF format only</span>
+                  </div>
                 </div>
 
-                {/* Action Buttons */}
-                <div className="flex flex-col gap-3 lg:items-end lg:justify-end">
+                {/* Buttons */}
+                <div className="flex flex-col gap-3 md:col-span-2">
                   <Button
-                    className="h-12 min-w-full lg:min-w-[200px] bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800 shadow-md"
+                    className="w-full h-12 bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800 shadow-md hover:shadow-lg transition-all"
                     onClick={onSubmit}
                     disabled={
                       submitting || 
@@ -981,7 +1300,7 @@ function RequirementsContent() {
                         {editingApplicationId ? 'Uploading...' : 'Submitting...'}
                       </>
                     ) : editingApplicationId ? (
-                      'Replace File'
+                      'Replace File & Update Application'
                     ) : (
                       'Submit Application'
                     )}
@@ -990,47 +1309,50 @@ function RequirementsContent() {
                     variant="outline"
                     onClick={clearForm}
                     disabled={submitting || (!file && !applicantComment && !editingApplicationId)}
-                    className="h-12 min-w-full lg:min-w-[200px]"
+                    className="w-full h-12 border-gray-300 hover:bg-gray-50"
                   >
+                    <X className="h-4 w-4 mr-2" />
                     {editingApplicationId ? 'Cancel Edit' : 'Clear Form'}
                   </Button>
                 </div>
               </div>
 
-              {/* Comment Section - Only for new applications */}
+              {/* Comment Section */}
               {!editingApplicationId && (
-                <div className="space-y-2 pt-4 border-t border-gray-200">
+                <div className="space-y-3 pt-6 border-t border-gray-200">
                   <label className="text-sm font-medium text-gray-700 flex items-center gap-2">
-                    <MessageSquare className="h-4 w-4" />
+                    <MessageSquare className="h-4 w-4 text-blue-600" />
                     Additional Comments (Optional)
                   </label>
                   <Textarea
                     value={applicantComment}
                     onChange={(e) => setApplicantComment(e.target.value)}
                     placeholder="Add any additional notes or comments for the HR team..."
-                    rows={4}
-                    className="resize-none border-gray-300 focus:border-blue-400"
+                    rows={3}
+                    className="resize-none border-gray-300 focus:border-blue-500 focus:ring-blue-500"
                   />
-                  <p className="text-xs text-gray-500 flex items-center gap-1">
-                    <AlertCircle className="h-3 w-3" />
+                  <p className="text-xs text-gray-500">
                     Comments are only for new applications and cannot be edited later
                   </p>
                 </div>
               )}
 
-              {/* Selected File Preview */}
+              {/* File Preview */}
               {file && (
-                <div className="rounded-xl border-2 border-blue-200 bg-gradient-to-r from-blue-50 to-white p-4 animate-in fade-in">
+                <div className="rounded-xl border-2 border-blue-200 bg-gradient-to-r from-blue-50 to-white p-4">
                   <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-3">
-                      <div className="h-10 w-10 rounded-lg bg-blue-100 flex items-center justify-center">
-                        <FileText className="h-5 w-5 text-blue-600" />
+                    <div className="flex items-center gap-4">
+                      <div className="h-12 w-12 rounded-xl bg-gradient-to-br from-blue-100 to-blue-200 flex items-center justify-center">
+                        <FileText className="h-6 w-6 text-blue-600" />
                       </div>
                       <div>
-                        <p className="font-medium text-gray-900 truncate max-w-xs">{file.name}</p>
-                        <p className="text-sm text-gray-600">
-                          Size: {(file.size / 1024 / 1024).toFixed(2)} MB • Type: PDF
-                        </p>
+                        <p className="font-semibold text-gray-900">{file.name}</p>
+                        <div className="flex items-center gap-3 mt-1">
+                          <span className="text-sm text-gray-600">
+                            Size: {(file.size / 1024 / 1024).toFixed(2)} MB
+                          </span>
+                          <span className="text-sm text-blue-600 font-medium">PDF Document</span>
+                        </div>
                       </div>
                     </div>
                     <Button
@@ -1048,9 +1370,11 @@ function RequirementsContent() {
                     </Button>
                   </div>
                   {editingApplicationId && (
-                    <p className="text-sm text-amber-600 mt-3 p-2 bg-amber-50 rounded-lg border border-amber-200">
-                      This will replace your current uploaded file
-                    </p>
+                    <div className="mt-3 p-3 bg-amber-50 border border-amber-200 rounded-lg">
+                      <p className="text-sm text-amber-800 font-medium">
+                        ⚠️ This will replace your current uploaded file
+                      </p>
+                    </div>
                   )}
                 </div>
               )}
@@ -1062,19 +1386,25 @@ function RequirementsContent() {
         <div className="space-y-6">
           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
             <div>
-              <h2 className="text-xl font-bold text-gray-900">Your Applications</h2>
+              <h2 className="text-lg sm:text-xl font-bold text-gray-900">Application History</h2>
               <p className="text-gray-600 mt-1">Track and manage all your submitted applications</p>
             </div>
             <Button
               variant="outline"
-              size="sm"
               onClick={async () => {
                 setLoadingTable(true)
                 try {
                   const data = await applicantFunctions.listMyApplications()
                   setRows(data as Row[])
-                } catch (error) {
-                  console.error('Failed to refresh:', error)
+                  await checkSpamProtection(data as Row[])
+                } catch (error: any) {
+                  addError({
+                    type: 'LOADING',
+                    message: 'Failed to refresh applications',
+                    details: error.message,
+                    retryable: true,
+                    timestamp: new Date()
+                  })
                 } finally {
                   setLoadingTable(false)
                 }
@@ -1083,51 +1413,40 @@ function RequirementsContent() {
               className="flex items-center gap-2"
             >
               <RefreshCw className={`h-4 w-4 ${loadingTable ? 'animate-spin' : ''}`} />
-              Refresh
+              Refresh List
             </Button>
           </div>
 
-          <Card className="border-gray-200 shadow-lg overflow-hidden">
+          <Card className="border-gray-200 shadow-sm">
             <CardContent className="p-0">
-              <div className="overflow-x-auto">
-                <Table>
-                  <TableHeader className="bg-gradient-to-r from-gray-50 to-white">
-                    <TableRow className="hover:bg-transparent">
-                      <TableHead className="font-semibold text-gray-700 py-4">Job Title</TableHead>
-                      <TableHead className="font-semibold text-gray-700 py-4 hidden sm:table-cell">Status</TableHead>
-                      <TableHead className="font-semibold text-gray-700 py-4 hidden lg:table-cell">File</TableHead>
-                      <TableHead className="font-semibold text-gray-700 py-4 hidden xl:table-cell">Your Comment</TableHead>
-                      <TableHead className="font-semibold text-gray-700 py-4">Submitted</TableHead>
-                      <TableHead className="font-semibold text-gray-700 py-4 text-right">Actions</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {rows.length === 0 ? (
+              {loadingTable ? (
+                <div className="p-8 text-center">
+                  <div className="h-12 w-12 rounded-full border-4 border-blue-100 border-t-blue-600 animate-spin mx-auto"></div>
+                  <p className="text-gray-600 font-medium mt-4">Loading applications...</p>
+                </div>
+              ) : rows.length === 0 ? (
+                <div className="p-8 text-center">
+                  <div className="h-16 w-16 mx-auto rounded-full bg-gradient-to-br from-gray-100 to-gray-200 flex items-center justify-center">
+                    <FileText className="h-8 w-8 text-gray-400" />
+                  </div>
+                  <p className="text-gray-500 text-lg font-medium mt-4">No applications yet</p>
+                  <p className="text-gray-400 text-sm mt-1">
+                    Submit your first application using the form above
+                  </p>
+                </div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <Table>
+                    <TableHeader className="bg-gray-50">
                       <TableRow>
-                        <TableCell colSpan={6} className="text-center py-12">
-                          {loadingTable ? (
-                            <div className="flex flex-col items-center justify-center gap-3">
-                              <div className="h-12 w-12 rounded-full border-4 border-blue-100 border-t-blue-600 animate-spin"></div>
-                              <p className="text-gray-600 font-medium">Loading your applications...</p>
-                              <p className="text-sm text-gray-400">Please wait a moment</p>
-                            </div>
-                          ) : (
-                            <div className="space-y-4">
-                              <div className="h-16 w-16 mx-auto rounded-full bg-gray-100 flex items-center justify-center">
-                                <FileText className="h-8 w-8 text-gray-300" />
-                              </div>
-                              <div>
-                                <p className="text-gray-500 text-lg font-medium">No applications yet</p>
-                                <p className="text-gray-400 text-sm mt-1">
-                                  Submit your first application using the form above
-                                </p>
-                              </div>
-                            </div>
-                          )}
-                        </TableCell>
+                        <TableHead className="font-semibold text-gray-700 py-4">Job Title</TableHead>
+                        <TableHead className="font-semibold text-gray-700 py-4">Status</TableHead>
+                        <TableHead className="font-semibold text-gray-700 py-4">Submitted</TableHead>
+                        <TableHead className="font-semibold text-gray-700 py-4 text-right">Actions</TableHead>
                       </TableRow>
-                    ) : (
-                      rows.map((r) => (
+                    </TableHeader>
+                    <TableBody>
+                      {rows.map((r) => (
                         <SubmissionRow 
                           key={r.id} 
                           row={r} 
@@ -1135,78 +1454,13 @@ function RequirementsContent() {
                           isEditing={editingApplicationId === r.id}
                           applicantFunctions={applicantFunctions}
                         />
-                      ))
-                    )}
-                  </TableBody>
-                </Table>
-              </div>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+              )}
             </CardContent>
           </Card>
-
-          {/* Information Card */}
-          <Card className="border-blue-100 bg-gradient-to-r from-blue-50 to-white shadow-sm">
-            <CardContent className="p-6">
-              <div className="flex items-start gap-4">
-                <div className="h-12 w-12 rounded-full bg-blue-100 flex items-center justify-center flex-shrink-0">
-                  <AlertCircle className="h-6 w-6 text-blue-600" />
-                </div>
-                <div className="space-y-3">
-                  <h3 className="text-lg font-semibold text-gray-900">Important Information</h3>
-                  <ul className="space-y-2">
-                    <li className="flex items-start gap-2">
-                      <div className="h-2 w-2 rounded-full bg-blue-500 mt-2 flex-shrink-0"></div>
-                      <span className="text-sm text-gray-600">
-                        <span className="font-medium">Editing:</span> Only applications with "For Review" status can be edited
-                      </span>
-                    </li>
-                    <li className="flex items-start gap-2">
-                      <div className="h-2 w-2 rounded-full bg-blue-500 mt-2 flex-shrink-0"></div>
-                      <span className="text-sm text-gray-600">
-                        <span className="font-medium">File Replacement:</span> When editing, you can only replace the PDF file
-                      </span>
-                    </li>
-                    <li className="flex items-start gap-2">
-                      <div className="h-2 w-2 rounded-full bg-blue-500 mt-2 flex-shrink-0"></div>
-                      <span className="text-sm text-gray-600">
-                        <span className="font-medium">Daily Limit:</span> Maximum {MAX_APPLICATIONS_PER_DAY} new applications per day
-                      </span>
-                    </li>
-                    <li className="flex items-start gap-2">
-                      <div className="h-2 w-2 rounded-full bg-blue-500 mt-2 flex-shrink-0"></div>
-                      <span className="text-sm text-gray-600">
-                        <span className="font-medium">Cooldown Period:</span> 24-hour wait between applications to the same position
-                      </span>
-                    </li>
-                    <li className="flex items-start gap-2">
-                      <div className="h-2 w-2 rounded-full bg-blue-500 mt-2 flex-shrink-0"></div>
-                      <span className="text-sm text-gray-600">
-                        <span className="font-medium">HR Review:</span> Once reviewed by HR, applications cannot be modified
-                      </span>
-                    </li>
-                  </ul>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-        </div>
-      </div>
-
-      {/* Footer */}
-      <div className="mt-12 border-t border-gray-200">
-        <div className="max-w-7xl mx-auto px-4 py-6">
-          <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
-            <div className="text-sm text-gray-500">
-              © {new Date().getFullYear()} Applicant Portal • NORSU Human Resource Management
-            </div>
-            <div className="flex items-center gap-4 text-sm text-gray-500">
-              <span className="flex items-center gap-1">
-                <CheckCircle2 className="h-4 w-4 text-green-500" />
-                Secure Connection
-              </span>
-              <span>•</span>
-              <span>Need help? Contact HR Department</span>
-            </div>
-          </div>
         </div>
       </div>
     </div>

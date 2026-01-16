@@ -1,15 +1,17 @@
-// app/forgot-password/page.tsx
+// app/reset-password/page.tsx
 'use client';
 
 import React, { useState, FormEvent } from 'react';
-import { supabase } from '../../lib/supabaseClient'; // Adjust path as needed
-import Link from 'next/link';
+import { supabase } from '../../lib/supabaseClient';
+import { useRouter } from 'next/navigation';
 
-const ForgotPassword = () => {
-  const [email, setEmail] = useState<string>('');
+const ResetPassword = () => {
+  const [password, setPassword] = useState<string>('');
+  const [confirmPassword, setConfirmPassword] = useState<string>('');
   const [loading, setLoading] = useState<boolean>(false);
   const [message, setMessage] = useState<string>('');
   const [error, setError] = useState<string>('');
+  const router = useRouter();
 
   const handleSubmit = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -17,19 +19,34 @@ const ForgotPassword = () => {
     setMessage('');
     setError('');
 
+    if (password !== confirmPassword) {
+      setError('Passwords do not match');
+      setLoading(false);
+      return;
+    }
+
+    if (password.length < 6) {
+      setError('Password must be at least 6 characters');
+      setLoading(false);
+      return;
+    }
+
     try {
-      const { error } = await supabase.auth.resetPasswordForEmail(email, {
-        redirectTo: `${window.location.origin}/reset-password`,
+      const { error } = await supabase.auth.updateUser({
+        password: password
       });
 
       if (error) throw error;
       
-      setMessage('✅ Password reset email sent! Check your inbox.');
-      setEmail(''); // Clear the input
+      setMessage('✅ Password updated successfully! Redirecting...');
+      
+      // Redirect after 2 seconds
+      setTimeout(() => {
+        router.push('/login');
+      }, 2000);
       
     } catch (err: any) {
-      setError(err.message || 'Failed to send reset email');
-      console.error('Error:', err);
+      setError(err.message || 'Failed to update password');
     } finally {
       setLoading(false);
     }
@@ -38,16 +55,28 @@ const ForgotPassword = () => {
   return (
     <div style={styles.container}>
       <div style={styles.card}>
-        <h2 style={styles.title}>Forgot Password?</h2>
-        <p style={styles.subtitle}>Enter your email to reset your password</p>
+        <h2 style={styles.title}>Set New Password</h2>
+        <p style={styles.subtitle}>Enter your new password below</p>
         
         <form onSubmit={handleSubmit} style={styles.form}>
           <div style={styles.inputGroup}>
             <input
-              type="email"
-              value={email}
-              onChange={(e: React.ChangeEvent<HTMLInputElement>) => setEmail(e.target.value)}
-              placeholder="Enter your email"
+              type="password"
+              value={password}
+              onChange={(e: React.ChangeEvent<HTMLInputElement>) => setPassword(e.target.value)}
+              placeholder="New password"
+              required
+              style={styles.input}
+              disabled={loading}
+            />
+          </div>
+          
+          <div style={styles.inputGroup}>
+            <input
+              type="password"
+              value={confirmPassword}
+              onChange={(e: React.ChangeEvent<HTMLInputElement>) => setConfirmPassword(e.target.value)}
+              placeholder="Confirm new password"
               required
               style={styles.input}
               disabled={loading}
@@ -68,20 +97,15 @@ const ForgotPassword = () => {
           
           <button
             type="submit"
-            disabled={loading || !email}
+            disabled={loading || !password || !confirmPassword}
             style={{
               ...styles.button,
-              opacity: (loading || !email) ? 0.6 : 1,
-              cursor: (loading || !email) ? 'not-allowed' : 'pointer'
+              opacity: (loading || !password || !confirmPassword) ? 0.6 : 1,
+              cursor: (loading || !password || !confirmPassword) ? 'not-allowed' : 'pointer'
             }}
           >
-            {loading ? 'Sending...' : 'Send Reset Link'}
+            {loading ? 'Updating...' : 'Update Password'}
           </button>
-          
-          <p style={styles.footer}>
-            Remember your password?{' '}
-            <Link href="/login" style={styles.link}>Back to Login</Link>
-          </p>
         </form>
       </div>
     </div>
@@ -110,18 +134,18 @@ const styles: { [key: string]: React.CSSProperties } = {
     fontSize: '24px',
     fontWeight: 'bold',
     marginBottom: '8px',
-    textAlign: 'center' as const, // Fix for TypeScript
+    textAlign: 'center' as const,
     color: '#333'
   },
   subtitle: {
     fontSize: '14px',
     color: '#666',
-    textAlign: 'center' as const, // Fix for TypeScript
+    textAlign: 'center' as const,
     marginBottom: '30px'
   },
   form: {
     display: 'flex',
-    flexDirection: 'column' as const, // Fix for TypeScript
+    flexDirection: 'column' as const,
     gap: '20px'
   },
   inputGroup: {
@@ -133,7 +157,7 @@ const styles: { [key: string]: React.CSSProperties } = {
     border: '1px solid #ddd',
     borderRadius: '4px',
     fontSize: '16px',
-    boxSizing: 'border-box' as const // Fix for TypeScript
+    boxSizing: 'border-box' as const
   },
   button: {
     backgroundColor: '#4f46e5',
@@ -167,18 +191,7 @@ const styles: { [key: string]: React.CSSProperties } = {
     color: '#721c24',
     margin: 0,
     fontSize: '14px'
-  },
-  footer: {
-    textAlign: 'center' as const, // Fix for TypeScript
-    fontSize: '14px',
-    color: '#666',
-    marginTop: '10px'
-  },
-  link: {
-    color: '#4f46e5',
-    textDecoration: 'none',
-    fontWeight: 'bold'
   }
 };
 
-export default ForgotPassword;
+export default ResetPassword;
