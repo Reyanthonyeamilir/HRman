@@ -19,14 +19,15 @@ import {
   Mail,
   ClipboardList,
   Compass,
-  Bell // Added Bell import
+  Bell,
+  BarChart3, // For dashboard
+  UserCog // For users management
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { supabase } from '@/lib/supabaseClient'
 import { useState, useEffect } from "react"
 import Image from "next/image"
 import { cn } from "@/lib/utils"
-import { Badge } from "@/components/ui/badge" // Added Badge import
 
 interface UserProfile {
   id: string
@@ -42,6 +43,15 @@ interface HRSidebarProps {
   onMobileClose?: () => void
 }
 
+// Mobile links - optimized for bottom navigation
+const mobileLinks = [
+  { label: 'Home', href: '/administrator/dashboard', icon: BarChart3 },
+  { label: 'Jobs', href: '/administrator/jobposting', icon: Briefcase },
+  { label: 'Apps', href: '/administrator/applications', icon: FileText },
+  { label: 'Users', href: '/administrator/addusers', icon: UserCog },
+  { label: 'Profile', href: '/administrator/profile', icon: User },
+]
+
 export default function AdminHRSidebar({ mobileOpen, onMobileClose }: HRSidebarProps) {
   const pathname = usePathname()
   const router = useRouter()
@@ -49,7 +59,7 @@ export default function AdminHRSidebar({ mobileOpen, onMobileClose }: HRSidebarP
   const [loading, setLoading] = useState(true)
   const [avatarFullUrl, setAvatarFullUrl] = useState<string | null>(null)
   const [imageError, setImageError] = useState(false)
-  const [unreadCount, setUnreadCount] = useState(0) // Added unreadCount state
+  const [unreadCount, setUnreadCount] = useState(0)
 
   useEffect(() => {
     fetchUserProfile()
@@ -93,39 +103,26 @@ export default function AdminHRSidebar({ mobileOpen, onMobileClose }: HRSidebarP
         // Construct full avatar URL if it exists
         let avatarUrl = null
         if (profile.avatar_url) {
-          console.log('Avatar URL from database:', profile.avatar_url)
-          
-          // If it's already a full URL, use it as is
           if (profile.avatar_url.startsWith('http')) {
             avatarUrl = profile.avatar_url
           } else {
-            // For Supabase storage paths
-            // Remove leading slash if present
             const filePath = profile.avatar_url.startsWith('/') 
               ? profile.avatar_url.slice(1) 
               : profile.avatar_url
             
-            // Try to construct the correct Supabase storage URL
             const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
             
             if (supabaseUrl) {
-              // Check if it's already a full storage URL
               if (filePath.includes('storage/v1/object/public/')) {
                 avatarUrl = filePath
               } else {
-                // Construct the URL based on the path structure
-                // If the path has UUID folder structure
                 if (filePath.includes('/')) {
-                  // Path like: "c3cff6e5-90a4-4540-9cf1-e17332ad0b79/1768457894195.jpg"
                   avatarUrl = `${supabaseUrl}/storage/v1/object/public/profile/${filePath}`
                 } else {
-                  // Just a filename
                   avatarUrl = `${supabaseUrl}/storage/v1/object/public/profile/${filePath}`
                 }
               }
             }
-            
-            console.log('Constructed avatar URL:', avatarUrl)
           }
         }
         
@@ -188,7 +185,7 @@ export default function AdminHRSidebar({ mobileOpen, onMobileClose }: HRSidebarP
     { name: 'Job Postings', href: '/administrator/jobposting', icon: Briefcase },
     { name: 'Applications', href: '/administrator/applications', icon: FileText },
     { name: 'Profile', href: '/administrator/profile', icon: User },
-    { name: 'Notifications', href: '/notifications', icon: Bell }, // Added Notifications
+    { name: 'Notifications', href: '/notifications', icon: Bell },
   ]
 
   const adminOnlyNavigation = [
@@ -279,34 +276,79 @@ export default function AdminHRSidebar({ mobileOpen, onMobileClose }: HRSidebarP
     )
   }
 
-  // Mobile Avatar Component
-  const MobileAvatar = () => {
-    const sizeClasses = "w-9 h-9"
-    const textSizeClasses = "text-xs"
-
+  // Mobile Navigation Footer Component
+  const MobileNavBar = () => {
+    const pathname = usePathname()
+    
+    // Filter links based on user role
+    const getMobileLinks = () => {
+      const baseLinks = mobileLinks.filter(link => {
+        if (link.href === '/administrator/addusers') {
+          return userProfile?.role === 'super_admin'
+        }
+        return true
+      })
+      
+      // Add notifications if it doesn't already exist
+      if (!baseLinks.some(link => link.href === '/notifications')) {
+        baseLinks.push({ label: 'Notify', href: '/notifications', icon: Bell })
+      }
+      
+      return baseLinks
+    }
+    
+    const userMobileLinks = getMobileLinks()
+    
     return (
-      <Link 
-        href="/administrator/profile" 
-        className="flex items-center"
-      >
-        <div className={`relative ${sizeClasses} bg-gradient-to-br from-blue-600 to-blue-700 rounded-full flex items-center justify-center border-2 border-blue-400 overflow-hidden`}>
-          {avatarFullUrl && !imageError ? (
-            <Image
-              src={avatarFullUrl}
-              alt="Profile"
-              fill
-              className="object-cover w-full h-full"
-              sizes="36px"
-              onError={() => setImageError(true)}
-              unoptimized={true}
-            />
-          ) : (
-            <span className={`${textSizeClasses} font-bold text-white`}>
-              {getInitials()}
-            </span>
-          )}
+      <nav className="lg:hidden fixed bottom-0 left-0 right-0 z-40 border-t border-blue-800 bg-[#0b1b3b]">
+        <div className="flex items-center justify-around h-16 px-2">
+          {userMobileLinks.map(({ label, href, icon: Icon }) => {
+            const active = isActive(href)
+            const isNotifications = href === '/notifications'
+            
+            return (
+              <Link
+                key={href}
+                href={href}
+                className={cn(
+                  'relative flex flex-col items-center justify-center w-16 py-2 transition-all duration-200 rounded-lg',
+                  'hover:bg-blue-700/30',
+                  active ? 'text-blue-400' : 'text-gray-400'
+                )}
+              >
+                <div className="relative">
+                  <Icon className={cn(
+                    "size-5 transition-all duration-200",
+                    active && "scale-110"
+                  )} />
+                  
+                  {/* Notification badge */}
+                  {isNotifications && unreadCount > 0 && (
+                    <span className="absolute -top-1 -right-1 flex items-center justify-center h-4 min-w-4 px-1 text-xs font-semibold bg-red-500 text-white rounded-full">
+                      {unreadCount > 9 ? '9+' : unreadCount}
+                    </span>
+                  )}
+                </div>
+                
+                {/* Active indicator */}
+                {active && (
+                  <div className="absolute top-0 w-10 h-0.5 bg-blue-400 rounded-full" />
+                )}
+                
+                <span className={cn(
+                  "text-xs mt-1 font-medium transition-all duration-200",
+                  active ? "text-blue-400" : "text-gray-500"
+                )}>
+                  {label}
+                </span>
+              </Link>
+            )
+          })}
         </div>
-      </Link>
+        
+        {/* Safe area for iPhone notch */}
+        <div className="h-safe-bottom bg-[#0b1b3b]" />
+      </nav>
     )
   }
 
@@ -330,9 +372,9 @@ export default function AdminHRSidebar({ mobileOpen, onMobileClose }: HRSidebarP
 
   return (
     <>
-      {/* Desktop Sidebar - ADJUSTED SIZE (w-64 = 256px) */}
+      {/* Desktop Sidebar */}
       <aside className="hidden fixed left-0 top-0 h-screen w-64 border-r border-blue-800 bg-[#0b1b3b] text-white md:flex md:flex-col">
-        {/* Logo Section - Slightly bigger */}
+        {/* Logo Section */}
         <div className="flex-shrink-0 border-b border-blue-800 bg-[#11214a] py-5 px-4">
           <div className="flex flex-col items-center justify-center">
             <div className="relative w-12 h-12 rounded-xl mb-2 overflow-hidden">
@@ -352,7 +394,7 @@ export default function AdminHRSidebar({ mobileOpen, onMobileClose }: HRSidebarP
           </div>
         </div>
 
-        {/* Profile Section - Adjusted */}
+        {/* Profile Section */}
         <div className="flex-shrink-0 px-4 py-4 bg-blue-900/20 border-b border-blue-800">
           <Link 
             href="/administrator/profile"
@@ -378,7 +420,7 @@ export default function AdminHRSidebar({ mobileOpen, onMobileClose }: HRSidebarP
           </div>
         </div>
 
-        {/* Navigation - Adjusted spacing */}
+        {/* Navigation */}
         <div className="flex-1 overflow-y-auto py-4">
           <nav className="px-3">
             <ul className="space-y-1.5">
@@ -438,9 +480,12 @@ export default function AdminHRSidebar({ mobileOpen, onMobileClose }: HRSidebarP
         </div>
       </aside>
 
+      {/* Mobile Navigation Footer */}
+      <MobileNavBar />
+
       {/* Mobile Sidebar Overlay */}
       <div className={cn(
-        'fixed inset-0 z-40 bg-black/50 transition-opacity md:hidden',
+        'fixed inset-0 z-40 bg-black/50 transition-opacity lg:hidden',
         mobileOpen ? 'opacity-100' : 'pointer-events-none opacity-0'
       )}>
         <div className={cn(
@@ -569,7 +614,7 @@ export function MobileTopbar({ onMenu }: { onMenu: () => void }) {
   const [avatarFullUrl, setAvatarFullUrl] = useState<string | null>(null)
   const [imageError, setImageError] = useState(false)
   const [loading, setLoading] = useState(true)
-  const [unreadCount, setUnreadCount] = useState(0) // Added unreadCount
+  const [unreadCount, setUnreadCount] = useState(0)
 
   useEffect(() => {
     const fetchProfile = async () => {
@@ -771,7 +816,7 @@ export function MobileTopbar({ onMenu }: { onMenu: () => void }) {
   )
 }
 
-// Layout Wrapper Component - Updated for w-64 sidebar
+// Layout Wrapper Component
 export function AdminLayout({ children }: { children: React.ReactNode }) {
   const [sidebarOpen, setSidebarOpen] = useState(false)
 
@@ -782,12 +827,12 @@ export function AdminLayout({ children }: { children: React.ReactNode }) {
         onMobileClose={() => setSidebarOpen(false)}
       />
       
-      {/* Main content area with adjusted spacing for w-64 */}
+      {/* Main content area */}
       <div className="lg:pl-64">
         <MobileTopbar onMenu={() => setSidebarOpen(true)} />
         
-        {/* Main content wrapper */}
-        <div className="min-h-screen">
+        {/* Main content wrapper - Add padding bottom for mobile nav */}
+        <div className="min-h-screen pb-16 lg:pb-0">
           {/* Content area */}
           <main className="p-4 md:p-6">
             <div className="max-w-7xl mx-auto">

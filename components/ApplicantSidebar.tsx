@@ -7,21 +7,33 @@ import { usePathname, useRouter } from 'next/navigation'
 import { 
   Menu, LayoutDashboard, Briefcase, ClipboardList, 
   Compass, X, Mail, User as UserIcon, LogOut, User,
-  FileText, Bell // Added Bell import
+  FileText, Bell, Home,
+  BookOpen,
+  FileCheck
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import { getCurrentUser, signOut, supabase } from '@/lib/supabaseClient'
 
-// Links - Added Notifications
+// Links for sidebar
 const links = [
-  { label: 'Instructions', href: '/applicant/instructions', icon: FileText },
+  { label: 'Instructions', href: '/applicant/instructions', icon: BookOpen },
   { label: 'Profile', href: '/applicant/profile', icon: User },
   { label: 'Dashboard', href: '/applicant', icon: LayoutDashboard },
   { label: 'Apply Job', href: '/applicant/job-postings', icon: Briefcase },
   { label: 'Requirements', href: '/applicant/requirements', icon: ClipboardList },
-  { label: 'Track Application', href: '/applicant/track', icon: Compass },
-  { label: 'Notifications', href: '/notifications', icon: Bell }, // This will open the panel
+  { label: 'Track Application', href: '/applicant/track', icon: FileCheck },
+  { label: 'Notifications', href: '/notifications', icon: Bell },
+]
+
+// Mobile links
+const mobileLinks = [
+  { label: 'Home', href: '/applicant', icon: Home },
+  { label: 'Jobs', href: '/applicant/job-postings', icon: Briefcase },
+  { label: 'Guide', href: '/applicant/instructions', icon: BookOpen },
+  { label: 'Track', href: '/applicant/track', icon: FileCheck },
+  { label: 'Profile', href: '/applicant/profile', icon: User },
+  { label: 'Notifications', href: '/notifications', icon: Bell },
 ]
 
 type UserProfile = {
@@ -36,7 +48,7 @@ function useApplicantProfile() {
     email: 'Loading...',
     avatarUrl: null
   })
-  const [unreadCount, setUnreadCount] = React.useState(0) // Added unreadCount
+  const [unreadCount, setUnreadCount] = React.useState(0)
   const [loading, setLoading] = React.useState(true)
   
   React.useEffect(() => {
@@ -47,7 +59,6 @@ function useApplicantProfile() {
       try {
         setLoading(true)
         
-        // Try to get from localStorage first
         const storedName = localStorage.getItem('applicant_name')
         const storedEmail = localStorage.getItem('applicant_email')
         const storedAvatar = localStorage.getItem('applicant_avatar')
@@ -60,7 +71,6 @@ function useApplicantProfile() {
           })
         }
 
-        // Fetch fresh data from database
         const user = await getCurrentUser()
         if (!mounted) return
         
@@ -87,43 +97,28 @@ function useApplicantProfile() {
               ? `${profileData.first_name} ${profileData.last_name}`
               : profileData.first_name || profileData.last_name || user.email.split('@')[0] || 'Applicant'
             
-            // Construct full avatar URL if it exists
             let avatarUrl = null
             if (profileData.avatar_url) {
-              console.log('Avatar URL from database:', profileData.avatar_url)
-              
-              // If it's already a full URL, use it as is
               if (profileData.avatar_url.startsWith('http')) {
                 avatarUrl = profileData.avatar_url
               } else {
-                // For Supabase storage paths
-                // Remove leading slash if present
                 const filePath = profileData.avatar_url.startsWith('/') 
                   ? profileData.avatar_url.slice(1) 
                   : profileData.avatar_url
                 
-                // Try to construct the correct Supabase storage URL
-                // From the error, it looks like the bucket is 'profile'
                 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
                 
                 if (supabaseUrl) {
-                  // Check if it's already a full storage URL
                   if (filePath.includes('storage/v1/object/public/')) {
                     avatarUrl = filePath
                   } else {
-                    // Construct the URL based on the path structure
-                    // If the path has UUID folder structure
                     if (filePath.includes('/')) {
-                      // Path like: "c3cff6e5-90a4-4540-9cf1-e17332ad0b79/1768457894195.jpg"
                       avatarUrl = `${supabaseUrl}/storage/v1/object/public/profile/${filePath}`
                     } else {
-                      // Just a filename
                       avatarUrl = `${supabaseUrl}/storage/v1/object/public/profile/${filePath}`
                     }
                   }
                 }
-                
-                console.log('Constructed avatar URL:', avatarUrl)
               }
             }
             
@@ -210,7 +205,6 @@ function useApplicantProfile() {
 
     loadUserProfile()
 
-    // Cleanup function
     return () => {
       mounted = false
       if (channel) {
@@ -222,6 +216,21 @@ function useApplicantProfile() {
   return { profile, loading, unreadCount }
 }
 
+// FIXED: Proper active link detection
+function isActiveLink(pathname: string, href: string) {
+  // Special case for dashboard
+  if (href === '/applicant') {
+    return pathname === '/applicant' || pathname === '/applicant/dashboard'
+  }
+  
+  // For other links, check exact match or subpaths
+  if (href === '/notifications') {
+    return pathname === href
+  }
+  
+  return pathname === href || pathname.startsWith(`${href}/`)
+}
+
 function NavList({ onNavigate }: { onNavigate?: () => void }) {
   const pathname = usePathname()
   const { unreadCount } = useApplicantProfile()
@@ -230,8 +239,8 @@ function NavList({ onNavigate }: { onNavigate?: () => void }) {
     <nav className="p-3">
       <ul className="space-y-1">
         {links.map(({ label, href, icon: Icon }) => {
-          const active = pathname === href || pathname.startsWith(href + '/')
-          const isNotifications = href === '/notifications' // Check if this is notifications link
+          const active = isActiveLink(pathname, href)
+          const isNotifications = href === '/notifications'
           
           return (
             <li key={href}>
@@ -248,7 +257,6 @@ function NavList({ onNavigate }: { onNavigate?: () => void }) {
                   <Icon className="size-4" />
                   <span>{label}</span>
                 </div>
-                {/* Show badge for notifications if there are unread */}
                 {isNotifications && unreadCount > 0 && (
                   <span className={cn(
                     "flex items-center justify-center h-5 min-w-5 px-1 text-xs font-semibold rounded-full",
@@ -262,6 +270,55 @@ function NavList({ onNavigate }: { onNavigate?: () => void }) {
           )
         })}
       </ul>
+    </nav>
+  )
+}
+
+function MobileNavBar() {
+  const pathname = usePathname()
+  const { unreadCount } = useApplicantProfile()
+  
+  return (
+    <nav className="fixed bottom-0 left-0 right-0 z-40 border-t border-blue-800 bg-[#0b1b3b] md:hidden">
+      <div className="flex items-center justify-around h-16 px-2">
+        {mobileLinks.map(({ label, href, icon: Icon }) => {
+          const active = isActiveLink(pathname, href)
+          
+          return (
+            <Link
+              key={href}
+              href={href}
+              className={cn(
+                'relative flex flex-col items-center justify-center w-16 py-2 transition-all duration-200 rounded-lg',
+                'hover:bg-blue-700/30',
+                active ? 'text-blue-400' : 'text-gray-400'
+              )}
+            >
+              <div className="relative">
+                <Icon className={cn(
+                  "size-5 transition-all duration-200",
+                  active && "scale-110"
+                )} />
+              </div>
+              
+              {/* Active indicator */}
+              {active && (
+                <div className="absolute top-0 w-10 h-0.5 bg-blue-400 rounded-full" />
+              )}
+              
+              <span className={cn(
+                "text-xs mt-1 font-medium transition-all duration-200",
+                active ? "text-blue-400" : "text-gray-500"
+              )}>
+                {label}
+              </span>
+            </Link>
+          )
+        })}
+      </div>
+      
+      {/* Safe area for iPhone notch */}
+      <div className="h-safe-bottom bg-[#0b1b3b]" />
     </nav>
   )
 }
@@ -311,7 +368,6 @@ function LogoutButton({ onNavigate }: { onNavigate?: () => void }) {
 function ProfileSection({ profile, loading }: { profile: UserProfile; loading: boolean }) {
   const [imageError, setImageError] = React.useState(false)
   
-  // Reset image error when avatarUrl changes
   React.useEffect(() => {
     setImageError(false)
   }, [profile.avatarUrl])
@@ -346,10 +402,7 @@ function ProfileSection({ profile, loading }: { profile: UserProfile; loading: b
                 width={40}
                 height={40}
                 className="object-cover w-full h-full"
-                onError={() => {
-                  console.error('Image failed to load:', profile.avatarUrl)
-                  setImageError(true)
-                }}
+                onError={() => setImageError(true)}
                 priority={false}
                 unoptimized={true}
               />
@@ -382,7 +435,7 @@ function ProfileSection({ profile, loading }: { profile: UserProfile; loading: b
 }
 
 export function ApplicantMobileTopbar() {
-  const { profile, loading, unreadCount } = useApplicantProfile()
+  const { profile, unreadCount } = useApplicantProfile()
   const [mobileMenuOpen, setMobileMenuOpen] = React.useState(false)
 
   return (
@@ -412,17 +465,18 @@ export function ApplicantMobileTopbar() {
             </p>
           </div>
         </div>
-        {/* Mobile notifications bell with badge */}
-        {unreadCount > 0 && (
-          <div className="ml-auto">
-            <Link href="/notifications" className="relative">
-              <Bell className="size-5 text-white" />
+        
+        {/* Notifications in topbar */}
+        <div className="ml-auto">
+          <Link href="/notifications" className="relative">
+            <Bell className="size-5 text-white" />
+            {unreadCount > 0 && (
               <span className="absolute -top-1 -right-1 flex items-center justify-center h-4 min-w-4 px-1 text-xs font-semibold bg-red-500 text-white rounded-full">
-                {unreadCount > 99 ? '99+' : unreadCount}
+                {unreadCount > 9 ? '9+' : unreadCount}
               </span>
-            </Link>
-          </div>
-        )}
+            )}
+          </Link>
+        </div>
       </div>
 
       <div className={cn(
@@ -445,7 +499,7 @@ export function ApplicantMobileTopbar() {
             <p className="text-xs text-gray-300 text-center">Welcome, {profile.name}!</p>
           </div>
 
-          <ProfileSection profile={profile} loading={loading} />
+          <ProfileSection profile={profile} loading={false} />
 
           <NavList onNavigate={() => setMobileMenuOpen(false)} />
 
@@ -471,24 +525,29 @@ export function ApplicantSidebar() {
   const { profile, loading } = useApplicantProfile()
 
   return (
-    <aside className="hidden h-full min-h-screen w-72 border-r border-blue-800 bg-[#0b1b3b] text-white md:block">
-      <div className="flex flex-col items-center justify-center border-b border-blue-800 bg-[#11214a] py-5 px-4">
-        <Image
-          src="/images/norsu.png"
-          alt="NORSU HR Logo"
-          width={70}
-          height={70}
-          className="rounded-xl mb-2"
-        />
-        <h1 className="text-base font-semibold text-center mb-1">NORSU HR Applicant</h1>
-        <p className="text-xs text-gray-300 text-center">Welcome, {profile.name}!</p>
-      </div>
+    <>
+      <aside className="hidden h-full min-h-screen w-72 border-r border-blue-800 bg-[#0b1b3b] text-white md:block">
+        <div className="flex flex-col items-center justify-center border-b border-blue-800 bg-[#11214a] py-5 px-4">
+          <Image
+            src="/images/norsu.png"
+            alt="NORSU HR Logo"
+            width={70}
+            height={70}
+            className="rounded-xl mb-2"
+          />
+          <h1 className="text-base font-semibold text-center mb-1">NORSU HR Applicant</h1>
+          <p className="text-xs text-gray-300 text-center">Welcome, {profile.name}!</p>
+        </div>
 
-      <ProfileSection profile={profile} loading={loading} />
+        <ProfileSection profile={profile} loading={loading} />
 
-      <NavList />
+        <NavList />
 
-      <LogoutButton />
-    </aside>
+        <LogoutButton />
+      </aside>
+      
+      {/* Mobile Navigation Footer */}
+      <MobileNavBar />
+    </>
   )
 }

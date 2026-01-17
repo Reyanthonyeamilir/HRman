@@ -532,28 +532,26 @@ export default function RootLayout({
         <footer className="bg-slate-900 text-slate-400 mt-auto">
           <div className="mx-auto w-full max-w-6xl px-4 py-8">
             <div className="grid grid-cols-1 gap-8 text-sm md:grid-cols-4">
-              {/* Brand Section */}
-              <div className="space-y-3">
-                <div className="inline-flex items-center gap-2 font-bold text-white">
+              {/* Brand Section - Centered on mobile, left on desktop */}
+              <div className="text-center md:text-left space-y-3">
+                <div className="inline-flex items-center justify-center md:justify-start gap-2 font-bold text-white">
                   <Image src="/images/norsu.png" alt="NORSU Seal" width={24} height={24} />
                   <span>NORSU • HRM</span>
                 </div>
-                <p className="leading-relaxed text-slate-500">
+                <p className="leading-relaxed text-slate-500 md:text-left text-center">
                   Capitol Area, Kagawasan Ave, Dumaguete City, Negros Oriental
                 </p>
-                <p className="text-slate-600">Mon–Fri, 8:00 AM – 5:00 PM</p>
+                <p className="text-slate-600 text-center md:text-left">Mon–Fri, 8:00 AM – 5:00 PM</p>
               </div>
 
-              {/* Quick Links */}
-              <div className="space-y-3">
+              {/* Quick Links - Hidden on mobile, shown on desktop */}
+              <div className="hidden md:block space-y-3">
                 <h4 className="font-semibold uppercase tracking-wider text-white">Quick Links</h4>
                 <ul className="space-y-2">
                   <li><Link href="/vacancies" className="text-slate-500 hover:text-white transition-colors">Vacancies</Link></li>
                   <li><Link href="/about" className="text-slate-500 hover:text-white transition-colors">About HR</Link></li>
                   {isLoggedIn ? (
-                    <>
-                      <li><Link href={getDashboardLink(userRole)} className="text-slate-500 hover:text-white transition-colors">Dashboard</Link></li>
-                    </>
+                    <li><Link href={getDashboardLink(userRole)} className="text-slate-500 hover:text-white transition-colors">Dashboard</Link></li>
                   ) : (
                     <>
                       <li><Link href="/login" className="text-slate-500 hover:text-white transition-colors">Login</Link></li>
@@ -563,8 +561,8 @@ export default function RootLayout({
                 </ul>
               </div>
 
-              {/* Contact */}
-              <div className="space-y-3">
+              {/* Contact - Hidden on mobile, shown on desktop */}
+              <div className="hidden md:block space-y-3">
                 <h4 className="font-semibold uppercase tracking-wider text-white">Contact</h4>
                 <ul className="space-y-2">
                   <li>
@@ -574,8 +572,8 @@ export default function RootLayout({
                 </ul>
               </div>
 
-              {/* Social */}
-              <div className="space-y-3">
+              {/* Social - Hidden on mobile, shown on desktop */}
+              <div className="hidden md:block space-y-3">
                 <h4 className="font-semibold uppercase tracking-wider text-white">Follow</h4>
                 <div className="flex gap-4 pt-1">
                   <a href="#" className="text-slate-500 hover:text-white transition-colors" aria-label="Facebook">
@@ -587,8 +585,7 @@ export default function RootLayout({
                 </div>
               </div>
             </div>
-
-            {/* Copyright */}
+            {/* Copyright - Full width */}
             <div className="mt-8 border-t border-slate-800 pt-6 text-center">
               <p className="text-sm text-slate-600">
                 © {new Date().getFullYear()} Negros Oriental State University • Human Resource Management.
