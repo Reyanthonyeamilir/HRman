@@ -1,11 +1,9 @@
 'use client'
 
-import { Suspense } from 'react'
-import * as React from 'react'
+import { Suspense, useState, useEffect, useRef, useCallback } from 'react'
 import Link from 'next/link'
 import { useRouter, useSearchParams } from 'next/navigation'
 
-// Simple loading spinner component
 const LoadingSpinner = () => (
   <div className="h-16 w-16 rounded-full border-4 border-blue-100 border-t-blue-600 animate-spin"></div>
 )
@@ -43,6 +41,8 @@ type Job = {
   department?: string;
   location?: string;
   status?: 'active' | 'closed';
+  job_description?: string;
+  date_posted?: string;
 }
 
 type Row = {
@@ -79,6 +79,7 @@ const loadApplicantFunctions = async () => {
       getSignedUrl: async () => '',
       getCurrentUser: async () => null,
       updateApplication: async () => { throw new Error('Not available during SSR') },
+      validateFile: async () => ({ valid: false, error: 'Not available during SSR' }),
       supabase: { auth: { signOut: async () => {} } }
     }
   }
@@ -92,7 +93,6 @@ const loadApplicantFunctions = async () => {
   }
 }
 
-// Mobile-optimized error toast
 const MobileErrorToast = ({ errors, onDismiss }: { errors: AppError[], onDismiss: (index: number) => void }) => {
   if (errors.length === 0) return null
 
@@ -145,14 +145,13 @@ const MobileErrorToast = ({ errors, onDismiss }: { errors: AppError[], onDismiss
   )
 }
 
-// Status badge for mobile
 const StatusBadge = ({ status }: { status: string }) => {
   const configs: Record<string, { color: string, icon: string, text: string }> = {
-    'for_review': { color: 'bg-blue-100 text-blue-800', icon: '⏳', text: 'Review' },
+    'for_review': { color: 'bg-blue-100 text-blue-800', icon: '⏳', text: 'Under Review' },
     'shortlisted': { color: 'bg-green-100 text-green-800', icon: '✅', text: 'Shortlisted' },
     'for_interview': { color: 'bg-purple-100 text-purple-800', icon: '👔', text: 'Interview' },
     'hired': { color: 'bg-emerald-100 text-emerald-800', icon: '🏆', text: 'Hired' },
-    'rejected': { color: 'bg-red-100 text-red-800', icon: '❌', text: 'Rejected' }
+    'rejected': { color: 'bg-red-100 text-red-800', icon: '❌', text: 'Not Selected' }
   }
   
   const config = configs[status] || { color: 'bg-gray-100 text-gray-800', icon: '📋', text: status }
@@ -165,7 +164,6 @@ const StatusBadge = ({ status }: { status: string }) => {
   )
 }
 
-// Mobile loading overlay
 const MobileLoadingOverlay = ({ message, progress }: { message: string, progress?: number }) => (
   <div className="fixed inset-0 bg-black/50 z-50 flex flex-col items-center justify-center p-4">
     <div className="bg-white rounded-xl p-6 max-w-sm w-full">
@@ -189,69 +187,296 @@ const MobileLoadingOverlay = ({ message, progress }: { message: string, progress
   </div>
 )
 
+// Job Details Preview Component
+const JobDetailsPreview = ({ job, onClose }: { 
+  job: Job | null, 
+  onClose: () => void 
+}) => {
+  if (!job) return null
+
+  const formatDate = (dateString?: string) => {
+    if (!dateString) return 'Recently'
+    const date = new Date(dateString)
+    return date.toLocaleDateString('en-US', {
+      year: 'numeric',
+      month: 'long',
+      day: 'numeric'
+    })
+  }
+
+  const parseDescription = (description?: string) => {
+    if (!description) return 'No description available.'
+    
+    const lines = description.split('\n').filter(line => line.trim())
+    return lines.map((line, index) => (
+      <p key={index} className="mb-2 text-gray-700">{line}</p>
+    ))
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+      <div className="bg-white rounded-xl max-w-lg w-full max-h-[80vh] overflow-hidden flex flex-col">
+        {/* Header */}
+        <div className="sticky top-0 bg-white border-b border-gray-200 p-4">
+          <div className="flex items-center justify-between">
+            <h2 className="text-xl font-bold text-gray-900">Job Details</h2>
+            <button
+              onClick={onClose}
+              className="text-gray-400 hover:text-gray-600 text-2xl"
+              aria-label="Close"
+            >
+              ×
+            </button>
+          </div>
+          <div className="flex flex-wrap gap-2 mt-2">
+            <span className="inline-flex items-center px-2 py-1 rounded-full text-xs bg-blue-100 text-blue-800">
+              📍 {job.location || 'Location not specified'}
+            </span>
+            <span className="inline-flex items-center px-2 py-1 rounded-full text-xs bg-green-100 text-green-800">
+              🏢 {job.department || 'Department not specified'}
+            </span>
+            <span className="inline-flex items-center px-2 py-1 rounded-full text-xs bg-gray-100 text-gray-800">
+              📅 Posted: {formatDate(job.date_posted)}
+            </span>
+          </div>
+        </div>
+
+        {/* Content - Scrollable */}
+        <div className="flex-1 overflow-y-auto p-6">
+          <div className="mb-6">
+            <h3 className="text-lg font-semibold text-gray-900 mb-3">Job Description</h3>
+            <div className="prose max-w-none">
+              {parseDescription(job.job_description)}
+            </div>
+          </div>
+
+          <div className="bg-gray-50 rounded-lg p-4">
+            <h4 className="font-medium text-gray-900 mb-2">About this Position</h4>
+            <div className="space-y-2 text-sm text-gray-600">
+              <p>Review the job description above before applying.</p>
+              <p>Make sure your resume matches the requirements.</p>
+              <p>You can add additional notes in the application form.</p>
+            </div>
+          </div>
+        </div>
+
+        {/* Footer */}
+        <div className="sticky bottom-0 bg-white border-t border-gray-200 p-4">
+          <button
+            onClick={onClose}
+            className="w-full bg-gray-100 hover:bg-gray-200 text-gray-800 font-medium py-3 rounded-lg transition-colors"
+          >
+            Close Details
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// Edit Form Component for Table Row
+const EditApplicationForm = ({ 
+  application, 
+  onUpdate, 
+  onCancel,
+  submitting,
+  uploadProgress 
+}: { 
+  application: Row,
+  onUpdate: (file: File | null, comment: string) => Promise<void>,
+  onCancel: () => void,
+  submitting: boolean,
+  uploadProgress: number
+}) => {
+  const fileInputRef = useRef<HTMLInputElement>(null)
+  const [file, setFile] = useState<File | null>(null)
+  const [comment, setComment] = useState<string>(application.applicant_comment || '')
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files
+    if (files && files.length > 0) {
+      const selectedFile = files[0]
+      
+      // Basic validation
+      if (selectedFile.type !== 'application/pdf') {
+        alert('Only PDF files are allowed')
+        return
+      }
+      
+      if (selectedFile.size > 10 * 1024 * 1024) {
+        alert('File size must be less than 10MB')
+        return
+      }
+      
+      setFile(selectedFile)
+    }
+  }
+
+  const handleSubmit = async () => {
+    if (!file) {
+      alert('Please select a new PDF file to update')
+      return
+    }
+    await onUpdate(file, comment)
+  }
+
+  const handleClear = () => {
+    setFile(null)
+    setComment('')
+    if (fileInputRef.current) {
+      fileInputRef.current.value = ''
+    }
+  }
+
+  return (
+    <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mt-2">
+      <div className="mb-4">
+        <p className="text-sm font-medium text-gray-700 mb-1">Update Resume (PDF) *</p>
+        <div className="flex items-center gap-3">
+          <label className="flex-1">
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="application/pdf"
+              onChange={handleFileChange}
+              className="hidden"
+            />
+            <div className="border border-gray-300 rounded-lg px-4 py-3 bg-white hover:bg-gray-50 cursor-pointer">
+              <div className="flex items-center justify-between">
+                <span className="text-gray-600">
+                  {file ? `✓ ${file.name}` : 'Select new PDF file'}
+                </span>
+                <span className="text-gray-400">📄</span>
+              </div>
+            </div>
+          </label>
+          {file && (
+            <button
+              onClick={handleClear}
+              className="text-sm text-red-600 hover:text-red-800"
+            >
+              Clear
+            </button>
+          )}
+        </div>
+        <p className="text-xs text-gray-500 mt-1">Current file: {application.pdf_path.split('/').pop()}</p>
+      </div>
+
+      <div className="mb-4">
+        <label className="block text-sm font-medium text-gray-700 mb-1">
+          Update Notes (Optional)
+        </label>
+        <textarea
+          value={comment}
+          onChange={(e) => setComment(e.target.value)}
+          placeholder="Update your notes for HR..."
+          rows={2}
+          className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm resize-none"
+        />
+      </div>
+
+      {uploadProgress > 0 && (
+        <div className="mb-4">
+          <div className="flex justify-between text-xs text-gray-600 mb-1">
+            <span>Uploading...</span>
+            <span>{uploadProgress}%</span>
+          </div>
+          <div className="w-full bg-gray-200 rounded-full h-1.5">
+            <div 
+              className="bg-blue-600 h-1.5 rounded-full transition-all duration-300" 
+              style={{ width: `${uploadProgress}%` }}
+            ></div>
+          </div>
+        </div>
+      )}
+
+      <div className="flex gap-2">
+        <button
+          onClick={handleSubmit}
+          disabled={submitting || !file}
+          className="flex-1 bg-blue-600 hover:bg-blue-700 text-white font-medium py-2 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed text-sm"
+        >
+          {submitting ? 'Updating...' : 'Update Application'}
+        </button>
+        <button
+          onClick={onCancel}
+          disabled={submitting}
+          className="flex-1 border border-gray-300 hover:bg-gray-50 text-gray-700 font-medium py-2 rounded-lg text-sm"
+        >
+          Cancel
+        </button>
+      </div>
+    </div>
+  )
+}
+
 function RequirementsContent() {
   const params = useSearchParams()
   const initPos = params.get('position') || '—'
   const router = useRouter()
 
-  // States
-  const [jobs, setJobs] = React.useState<Job[]>([])
-  const [jobId, setJobId] = React.useState<string | null>(null)
-  const [applicantComment, setApplicantComment] = React.useState<string>('')
-  const [file, setFile] = React.useState<File | null>(null)
-  const [submitting, setSubmitting] = React.useState<boolean>(false)
-  const [editingApplicationId, setEditingApplicationId] = React.useState<string | null>(null)
-  const [editingApplication, setEditingApplication] = React.useState<Row | null>(null)
-  const [position, setPosition] = React.useState<string>(initPos)
-  const [rows, setRows] = React.useState<Row[]>([])
-  const [loadingTable, setLoadingTable] = React.useState<boolean>(false)
-  const [loadingJobs, setLoadingJobs] = React.useState<boolean>(false)
-  const [errors, setErrors] = React.useState<AppError[]>([])
-  const [success, setSuccess] = React.useState<string | null>(null)
-  const [authChecked, setAuthChecked] = React.useState<boolean>(false)
-  const [cooldownData, setCooldownData] = React.useState({
+  const [jobs, setJobs] = useState<Job[]>([])
+  const [jobId, setJobId] = useState<string | null>(null)
+  const [applicantComment, setApplicantComment] = useState<string>('')
+  const [file, setFile] = useState<File | null>(null)
+  const [submitting, setSubmitting] = useState<boolean>(false)
+  const [editingApplicationId, setEditingApplicationId] = useState<string | null>(null)
+  const [editingApplication, setEditingApplication] = useState<Row | null>(null)
+  const [position, setPosition] = useState<string>(initPos)
+  const [rows, setRows] = useState<Row[]>([])
+  const [loadingTable, setLoadingTable] = useState<boolean>(false)
+  const [loadingJobs, setLoadingJobs] = useState<boolean>(false)
+  const [errors, setErrors] = useState<AppError[]>([])
+  const [success, setSuccess] = useState<string | null>(null)
+  const [authChecked, setAuthChecked] = useState<boolean>(false)
+  const [cooldownData, setCooldownData] = useState({
     canApply: true,
     nextAvailableTime: null as Date | null,
     message: '',
     todaysCount: 0
   })
-  const fileInputRef = React.useRef<HTMLInputElement>(null)
-  const [applicantFunctions, setApplicantFunctions] = React.useState<any>(null)
-  const [loadingFunctions, setLoadingFunctions] = React.useState(false)
+  const fileInputRef = useRef<HTMLInputElement>(null)
+  const [applicantFunctions, setApplicantFunctions] = useState<any>(null)
+  const [loadingFunctions, setLoadingFunctions] = useState(false)
   
-  // Mobile loading states
-  const [mobileLoading, setMobileLoading] = React.useState({
+  const [mobileLoading, setMobileLoading] = useState({
     show: false,
     message: '',
     progress: 0
   })
-  const [uploadProgress, setUploadProgress] = React.useState<number>(0)
+  const [uploadProgress, setUploadProgress] = useState<number>(0)
 
-  // Check if mobile
-  const [isMobile, setIsMobile] = React.useState(false)
-  React.useEffect(() => {
-    setIsMobile(/iPhone|iPad|iPod|Android/i.test(navigator.userAgent))
+  // Job preview state
+  const [selectedJobPreview, setSelectedJobPreview] = useState<Job | null>(null)
+
+  // Edit form state for table rows
+  const [editingRowId, setEditingRowId] = useState<string | null>(null)
+  const [rowUploadProgress, setRowUploadProgress] = useState<number>(0)
+  const [rowSubmitting, setRowSubmitting] = useState<boolean>(false)
+
+  const [isAndroid, setIsAndroid] = useState(false)
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      setIsAndroid(/Android/i.test(navigator.userAgent))
+    }
   }, [])
 
-  // Add error
-  const addError = React.useCallback((error: AppError) => {
+  const addError = useCallback((error: AppError) => {
     setErrors(prev => {
       const isDuplicate = prev.some(e => 
         e.type === error.type && 
         e.message === error.message &&
         Date.now() - (e.timestamp?.getTime() || 0) < 5000
       )
-      return isDuplicate ? prev : [...prev, error]
+      return isDuplicate ? prev : [...prev, { ...error, timestamp: new Date() }]
     })
   }, [])
 
-  // Remove error
-  const removeError = React.useCallback((index: number) => {
+  const removeError = useCallback((index: number) => {
     setErrors(prev => prev.filter((_, i) => i !== index))
   }, [])
 
-  // Show mobile loading
-  const showMobileLoading = React.useCallback((message: string, progress?: number) => {
+  const showMobileLoading = useCallback((message: string, progress?: number) => {
     setMobileLoading({
       show: true,
       message,
@@ -259,8 +484,7 @@ function RequirementsContent() {
     })
   }, [])
 
-  // Hide mobile loading
-  const hideMobileLoading = React.useCallback(() => {
+  const hideMobileLoading = useCallback(() => {
     setMobileLoading({
       show: false,
       message: '',
@@ -268,12 +492,23 @@ function RequirementsContent() {
     })
   }, [])
 
-  // Load functions with mobile loading
-  React.useEffect(() => {
+  // Helper to check network speed
+  const checkNetworkSpeed = useCallback(async (): Promise<'fast' | 'slow' | 'unknown'> => {
+    if ('connection' in navigator && 'effectiveType' in (navigator as any).connection) {
+      const connection = (navigator as any).connection;
+      if (connection.effectiveType === 'slow-2g' || connection.effectiveType === '2g') {
+        return 'slow';
+      }
+      return 'fast';
+    }
+    return 'unknown';
+  }, [])
+
+  useEffect(() => {
     const loadFunctions = async () => {
       try {
         setLoadingFunctions(true)
-        if (isMobile) showMobileLoading('Loading application portal...')
+        if (isAndroid) showMobileLoading('Loading application portal...')
         
         const functions = await loadApplicantFunctions()
         setApplicantFunctions(functions)
@@ -283,33 +518,30 @@ function RequirementsContent() {
           type: 'LOADING',
           message: 'Failed to load application functions',
           details: error?.message,
-          retryable: true,
-          timestamp: new Date()
+          retryable: true
         })
       } finally {
         setLoadingFunctions(false)
-        if (isMobile) hideMobileLoading()
+        if (isAndroid) hideMobileLoading()
       }
     }
 
     loadFunctions()
-  }, [isMobile, addError, showMobileLoading, hideMobileLoading])
+  }, [isAndroid, addError, showMobileLoading, hideMobileLoading])
 
-  // Check auth
-  React.useEffect(() => {
+  useEffect(() => {
     if (!applicantFunctions || loadingFunctions) return
 
     const checkAuth = async () => {
       try {
-        if (isMobile) showMobileLoading('Checking authentication...')
+        if (isAndroid) showMobileLoading('Checking authentication...')
         
         const user = await applicantFunctions.getCurrentUser()
         if (!user) {
           addError({
             type: 'AUTH',
             message: 'Please sign in to access the application portal',
-            retryable: false,
-            timestamp: new Date()
+            retryable: false
           })
           setTimeout(() => {
             router.push('/login?next=/applicant/requirements')
@@ -323,55 +555,52 @@ function RequirementsContent() {
           type: 'AUTH',
           message: 'Authentication check failed',
           details: error?.message,
-          retryable: true,
-          timestamp: new Date()
+          retryable: true
         })
       } finally {
-        if (isMobile) hideMobileLoading()
+        if (isAndroid) hideMobileLoading()
       }
     }
 
     checkAuth()
-  }, [applicantFunctions, loadingFunctions, router, isMobile, addError, showMobileLoading, hideMobileLoading])
+  }, [applicantFunctions, loadingFunctions, router, isAndroid, addError, showMobileLoading, hideMobileLoading])
 
-  // Load data with mobile loading
-  React.useEffect(() => {
+  useEffect(() => {
     if (!authChecked || !applicantFunctions) return
 
     let alive = true
 
     const loadData = async () => {
       try {
-        if (isMobile) showMobileLoading('Loading jobs and applications...', 0)
+        if (isAndroid) showMobileLoading('Loading data...', 0)
         
         setLoadingJobs(true)
         setLoadingTable(true)
         
-        // Step 1: Load jobs
-        if (isMobile) showMobileLoading('Loading available jobs...', 30)
+        if (isAndroid) showMobileLoading('Loading available jobs...', 30)
         const activeJobs = await applicantFunctions.listActiveJobs()
         
         if (!alive) return
         
-        // Step 2: Load applications
-        if (isMobile) showMobileLoading('Loading your applications...', 60)
+        if (isAndroid) showMobileLoading('Loading your applications...', 60)
         const myApplications = await applicantFunctions.listMyApplications()
         
         if (!alive) return
 
-        // Transform data
         const formattedJobs = (activeJobs || []).map((job: any) => ({
           id: job.id,
           job_title: job.job_title,
           department: job.department,
           location: job.location,
-          status: job.status
+          job_description: job.job_description,
+          status: job.status,
+          date_posted: job.date_posted
         }))
         
         const formattedApplications = (myApplications || []).map((app: any) => ({
           id: app.id,
           job_id: app.job_id,
-          job_title: app.job?.job_title || 'Unknown Position',
+          job_title: app.job_title || 'Unknown Position',
           pdf_path: app.pdf_path,
           applicant_comment: app.applicant_comment || '',
           hr_comment: app.hr_comment || '',
@@ -379,17 +608,13 @@ function RequirementsContent() {
           status: app.status || 'for_review',
           updated_at: app.updated_at,
           hr_comment_at: app.hr_comment_at,
-          hr_comment_by: app.hr_comment_by_user,
-          applicant_id: app.applicant_id,
-          interview_date: app.interview_date,
-          interview_status: app.interview_status,
-          interview_notes: app.interview_notes
+          hr_comment_by: app.hr_comment_by,
+          applicant_id: app.applicant_id
         }))
         
         if (!alive) return
 
-        // Step 3: Finalize
-        if (isMobile) showMobileLoading('Finalizing...', 90)
+        if (isAndroid) showMobileLoading('Finalizing...', 90)
         
         setJobs(formattedJobs)
         setRows(formattedApplications)
@@ -410,15 +635,14 @@ function RequirementsContent() {
             type: 'LOADING',
             message: 'Failed to load job data and applications',
             details: e?.message,
-            retryable: true,
-            timestamp: new Date()
+            retryable: true
           })
         }
       } finally {
         if (alive) {
           setLoadingJobs(false)
           setLoadingTable(false)
-          if (isMobile) {
+          if (isAndroid) {
             setTimeout(() => hideMobileLoading(), 500)
           }
         }
@@ -430,7 +654,7 @@ function RequirementsContent() {
     return () => {
       alive = false
     }
-  }, [authChecked, applicantFunctions, initPos, isMobile, addError, showMobileLoading, hideMobileLoading])
+  }, [authChecked, applicantFunctions, initPos, isAndroid, addError, showMobileLoading, hideMobileLoading])
 
   const checkSpamProtection = async (applications: Row[]) => {
     if (!applications || applications.length === 0) {
@@ -505,81 +729,264 @@ function RequirementsContent() {
     return `${minutes}m`
   }
 
-  function onPick(e: React.ChangeEvent<HTMLInputElement>) {
-    const f = e.target.files?.[0] ?? null
+  // Handle job selection - show preview
+  const handleJobSelect = (e: React.ChangeEvent<HTMLSelectElement>) => {
+    const selectedJobId = e.target.value || null
+    setJobId(selectedJobId)
+    
+    if (selectedJobId) {
+      const selected = jobs.find(j => j.id === selectedJobId)
+      if (selected) {
+        setPosition(selected.job_title)
+        // Show job details preview
+        setSelectedJobPreview(selected)
+      }
+    } else {
+      setPosition('—')
+    }
+  }
+
+  const onPick = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files
+    if (!files || files.length === 0) {
+      setFile(null)
+      return
+    }
+
+    const f = files[0]
     
     setErrors([])
     setSuccess(null)
     setUploadProgress(0)
     
-    if (f) {
-      if (f.type !== 'application/pdf') {
-        addError({
-          type: 'FILE',
-          message: 'Only PDF files are allowed',
-          retryable: false,
-          timestamp: new Date()
-        })
-        setFile(null)
-        if (fileInputRef.current) {
-          fileInputRef.current.value = ''
-        }
-        return
-      }
-      
-      if (f.size > 10 * 1024 * 1024) {
-        addError({
-          type: 'FILE',
-          message: 'File size must be less than 10MB',
-          retryable: false,
-          timestamp: new Date()
-        })
-        setFile(null)
-        if (fileInputRef.current) {
-          fileInputRef.current.value = ''
-        }
-        return
-      }
-      
-      // Show reading progress on mobile
-      if (isMobile) {
-        showMobileLoading('Reading PDF file...', 10)
-      }
-      
-      const reader = new FileReader()
-      
-      reader.onloadstart = () => {
-        setUploadProgress(10)
-      }
-      
-      reader.onprogress = (event) => {
-        if (event.lengthComputable) {
-          const progress = Math.round((event.loaded / event.total) * 100)
-          setUploadProgress(progress)
-          if (isMobile) {
-            showMobileLoading('Reading PDF file...', progress)
+    // Show loading immediately for mobile
+    if (isAndroid) {
+      showMobileLoading('Processing file...', 10)
+    }
+
+    try {
+      // Validate file using the function from applicant.ts
+      if (applicantFunctions?.validateFile) {
+        const validation = await applicantFunctions.validateFile(f)
+        if (!validation.valid) {
+          addError({
+            type: 'FILE',
+            message: validation.error || 'Invalid file',
+            retryable: true
+          })
+          setFile(null)
+          if (fileInputRef.current) {
+            fileInputRef.current.value = ''
           }
+          return
+        }
+      } else {
+        // Fallback validation
+        if (f.type !== 'application/pdf') {
+          addError({
+            type: 'FILE',
+            message: 'Only PDF files are allowed.',
+            retryable: false
+          })
+          setFile(null)
+          if (fileInputRef.current) {
+            fileInputRef.current.value = ''
+          }
+          return
+        }
+
+        if (f.size > 10 * 1024 * 1024) {
+          addError({
+            type: 'FILE',
+            message: 'File size must be less than 10MB.',
+            retryable: false
+          })
+          setFile(null)
+          if (fileInputRef.current) {
+            fileInputRef.current.value = ''
+          }
+          return
+        }
+
+        if (f.size === 0) {
+          addError({
+            type: 'FILE',
+            message: 'File appears to be empty. Please try selecting a different file.',
+            retryable: true
+          })
+          setFile(null)
+          if (fileInputRef.current) {
+            fileInputRef.current.value = ''
+          }
+          return
+        }
+      }
+
+      // For Android, add extra processing time
+      if (isAndroid) {
+        setUploadProgress(30)
+        showMobileLoading('Processing PDF...', 30)
+        
+        // Small delay to ensure file is fully loaded
+        await new Promise(resolve => setTimeout(resolve, 300))
+        
+        // Additional check for file readability
+        try {
+          const reader = new FileReader()
+          await new Promise((resolve, reject) => {
+            reader.onload = resolve
+            reader.onerror = reject
+            reader.readAsArrayBuffer(f.slice(0, 1024)) // Read first 1KB to check
+          })
+          
+          setUploadProgress(60)
+          showMobileLoading('File validated', 60)
+          
+        } catch (readError) {
+          console.error('File read error:', readError)
+          addError({
+            type: 'FILE',
+            message: 'Unable to read file. It may be corrupted or in an unsupported format.',
+            retryable: true
+          })
+          setFile(null)
+          if (fileInputRef.current) {
+            fileInputRef.current.value = ''
+          }
+          return
         }
       }
       
-      reader.onloadend = () => {
-        setUploadProgress(100)
-        if (isMobile) {
-          hideMobileLoading()
-        }
-        setTimeout(() => {
-          setUploadProgress(0)
-        }, 500)
+      setFile(f)
+      setUploadProgress(100)
+      
+      // Show success briefly
+      if (isAndroid) {
+        showMobileLoading('File ready!', 100)
+        setTimeout(() => hideMobileLoading(), 500)
       }
       
-      reader.onerror = () => {
-        if (isMobile) hideMobileLoading()
+    } catch (error: any) {
+      console.error('File pick error:', error)
+      addError({
+        type: 'FILE',
+        message: 'Failed to process file',
+        details: error.message,
+        retryable: true
+      })
+      setFile(null)
+      if (fileInputRef.current) {
+        fileInputRef.current.value = ''
+      }
+    } finally {
+      if (isAndroid && !file) {
+        hideMobileLoading()
       }
       
-      reader.readAsDataURL(f)
+      setTimeout(() => {
+        setUploadProgress(0)
+      }, 1500)
+    }
+  }
+
+  // Handle edit button click in table row
+  const handleEditClick = (application: Row) => {
+    if (application.status !== 'for_review') {
+      addError({
+        type: 'VALIDATION',
+        message: `Cannot edit application with status: ${application.status}`,
+        details: 'Only applications "Under Review" can be edited',
+        retryable: false
+      })
+      return
     }
     
-    setFile(f)
+    // Set the row that's being edited
+    setEditingRowId(application.id)
+    setEditingApplicationId(application.id)
+    setEditingApplication(application)
+  }
+
+  // Handle cancel edit in table row
+  const handleCancelEdit = () => {
+    setEditingRowId(null)
+    setEditingApplicationId(null)
+    setEditingApplication(null)
+    setRowUploadProgress(0)
+    setRowSubmitting(false)
+  }
+
+  // Handle update from table row edit form
+  const handleRowUpdate = async (file: File | null, comment: string) => {
+    if (!applicantFunctions || !editingApplicationId || !editingApplication || !file) {
+      return
+    }
+
+    try {
+      setRowSubmitting(true)
+      setRowUploadProgress(10)
+
+      // Simulate upload progress
+      const progressInterval = setInterval(() => {
+        setRowUploadProgress(prev => {
+          if (prev >= 90) {
+            clearInterval(progressInterval)
+            return 90
+          }
+          return prev + 20
+        })
+      }, 300)
+
+      await applicantFunctions.updateApplication(editingApplicationId, { 
+        file, 
+        applicant_comment: comment 
+      })
+
+      clearInterval(progressInterval)
+      setRowUploadProgress(100)
+
+      // Refresh applications list
+      setTimeout(async () => {
+        try {
+          const myApplications = await applicantFunctions.listMyApplications()
+          const formattedApplications = (myApplications || []).map((app: any) => ({
+            id: app.id,
+            job_id: app.job_id,
+            job_title: app.job_title || 'Unknown Position',
+            pdf_path: app.pdf_path,
+            applicant_comment: app.applicant_comment || '',
+            hr_comment: app.hr_comment || '',
+            submitted_at: app.submitted_at,
+            status: app.status || 'for_review',
+            updated_at: app.updated_at,
+            hr_comment_at: app.hr_comment_at,
+            hr_comment_by: app.hr_comment_by,
+            applicant_id: app.applicant_id
+          }))
+          
+          setRows(formattedApplications)
+          await checkSpamProtection(formattedApplications)
+          
+          setSuccess('Application updated successfully!')
+        } catch (refreshError) {
+          console.error('Failed to refresh data:', refreshError)
+        } finally {
+          handleCancelEdit()
+        }
+      }, 1000)
+
+    } catch (e: any) {
+      console.error('Update error:', e)
+      
+      addError({
+        type: 'SUBMISSION',
+        message: 'Failed to update application',
+        details: e.message,
+        retryable: true
+      })
+    } finally {
+      setRowSubmitting(false)
+    }
   }
 
   async function onSubmit() {
@@ -587,8 +994,7 @@ function RequirementsContent() {
       addError({
         type: 'LOADING',
         message: 'Application functions not loaded',
-        retryable: true,
-        timestamp: new Date()
+        retryable: true
       })
       return
     }
@@ -602,8 +1008,7 @@ function RequirementsContent() {
         addError({
           type: 'VALIDATION',
           message: 'Please select a job position',
-          retryable: false,
-          timestamp: new Date()
+          retryable: false
         })
         return
       }
@@ -613,8 +1018,7 @@ function RequirementsContent() {
           type: 'VALIDATION',
           message: cooldownData.message,
           details: cooldownData.nextAvailableTime ? `Available in ${formatTimeRemaining(cooldownData.nextAvailableTime)}` : undefined,
-          retryable: false,
-          timestamp: new Date()
+          retryable: false
         })
         return
       }
@@ -623,8 +1027,7 @@ function RequirementsContent() {
         addError({
           type: 'VALIDATION',
           message: 'Please select a PDF file',
-          retryable: false,
-          timestamp: new Date()
+          retryable: false
         })
         return
       }
@@ -633,96 +1036,67 @@ function RequirementsContent() {
     try {
       setSubmitting(true)
       
-      // Show mobile loading
-      if (isMobile) {
-        showMobileLoading('Uploading application...', 0)
+      // Check network speed
+      const networkSpeed = await checkNetworkSpeed()
+      if (networkSpeed === 'slow' && isAndroid) {
+        showMobileLoading('Slow network detected. Upload may take longer...', 5)
+      } else if (isAndroid) {
+        showMobileLoading('Preparing upload...', 10)
       }
 
-      // Simulate upload progress
+      // Simulated progress updates for better UX
       const progressInterval = setInterval(() => {
         setUploadProgress(prev => {
-          if (prev >= 90) {
+          if (prev >= 85) {
             clearInterval(progressInterval)
-            return 90
+            return 85
           }
-          const newProgress = prev + 10
-          if (isMobile) {
-            showMobileLoading('Uploading application...', newProgress)
+          const newProgress = Math.min(prev + 15, 85)
+          if (isAndroid) {
+            showMobileLoading('Uploading...', newProgress)
           }
           return newProgress
         })
       }, 300)
 
-      let result;
-      if (editingApplicationId && editingApplication) {
-        if (!file) {
-          addError({
-            type: 'VALIDATION',
-            message: 'Please select a new PDF file',
-            retryable: false,
-            timestamp: new Date()
-          })
-          return
-        }
-
-        if (editingApplication.status !== 'for_review') {
-          addError({
-            type: 'VALIDATION',
-            message: `Cannot edit application with status: ${editingApplication.status}`,
-            details: 'Only applications "Under Review" can be edited',
-            retryable: false,
-            timestamp: new Date()
-          })
-          setSubmitting(false)
-          clearInterval(progressInterval)
-          if (isMobile) hideMobileLoading()
-          return
-        }
-
-        result = await applicantFunctions.updateApplication(editingApplicationId, { 
-          file, 
-          applicant_comment: editingApplication.applicant_comment
-        })
-        
-        setSuccess('Application updated successfully!')
-        setEditingApplicationId(null)
-        setEditingApplication(null)
-        
-      } else {
-        result = await applicantFunctions.submitApplication({ 
-          job_id: jobId!, 
-          file: file!, 
-          applicant_comment: applicantComment
-        })
-        
-        setSuccess(`Application submitted! Reference: #${result}`)
-      }
+      // Actual submission
+      const result = await applicantFunctions.submitApplication({ 
+        job_id: jobId!, 
+        file: file!, 
+        applicant_comment: applicantComment
+      })
       
       clearInterval(progressInterval)
       setUploadProgress(100)
-      if (isMobile) showMobileLoading('Finalizing...', 100)
+      if (isAndroid) showMobileLoading('Finalizing...', 100)
       
-      // Clear form
+      setSuccess(`Application submitted successfully! Reference: #${result}`)
+      
+      // Reset form after success
       setTimeout(() => {
         setFile(null)
         setApplicantComment('')
         setUploadProgress(0)
+        setJobId(null)
+        setPosition('—')
         if (fileInputRef.current) {
           fileInputRef.current.value = ''
         }
-        if (isMobile) hideMobileLoading()
-      }, 500)
+        if (isAndroid) {
+          setTimeout(() => hideMobileLoading(), 500)
+        }
+      }, 1000)
       
-      // Refresh data
+      // Refresh applications list
       setTimeout(async () => {
         try {
-          if (isMobile) showMobileLoading('Refreshing data...', 0)
+          if (isAndroid) showMobileLoading('Refreshing...', 0)
           
           const myApplications = await applicantFunctions.listMyApplications()
           const formattedApplications = (myApplications || []).map((app: any) => ({
             id: app.id,
             job_id: app.job_id,
-            job_title: app.job?.job_title || 'Unknown Position',
+            job_title: app.job_title || 'Unknown Position',
             pdf_path: app.pdf_path,
             applicant_comment: app.applicant_comment || '',
             hr_comment: app.hr_comment || '',
@@ -730,11 +1104,8 @@ function RequirementsContent() {
             status: app.status || 'for_review',
             updated_at: app.updated_at,
             hr_comment_at: app.hr_comment_at,
-            hr_comment_by: app.hr_comment_by_user,
-            applicant_id: app.applicant_id,
-            interview_date: app.interview_date,
-            interview_status: app.interview_status,
-            interview_notes: app.interview_notes
+            hr_comment_by: app.hr_comment_by,
+            applicant_id: app.applicant_id
           }))
           
           setRows(formattedApplications)
@@ -743,18 +1114,21 @@ function RequirementsContent() {
         } catch (refreshError) {
           console.error('Failed to refresh data:', refreshError)
         } finally {
-          if (isMobile) hideMobileLoading()
+          if (isAndroid) {
+            setTimeout(() => hideMobileLoading(), 500)
+          }
         }
-      }, 1000)
+      }, 1500)
       
     } catch (e: any) {
       console.error('Submission error:', e)
       setUploadProgress(0)
-      if (isMobile) hideMobileLoading()
+      if (isAndroid) hideMobileLoading()
       
       let errorType: AppError['type'] = 'SUBMISSION'
       let userMessage = 'An error occurred. Please try again.'
       
+      // More specific error handling
       if (e.message.includes('cooldown') || e.message.includes('limit')) {
         errorType = 'VALIDATION'
         userMessage = e.message
@@ -768,14 +1142,19 @@ function RequirementsContent() {
       } else if (e.message.includes('network') || e.message.includes('fetch')) {
         errorType = 'NETWORK'
         userMessage = 'Network error. Please check your connection.'
+      } else if (e.message.includes('size') || e.message.includes('large')) {
+        errorType = 'FILE'
+        userMessage = 'File is too large. Maximum size is 10MB.'
+      } else if (e.message.includes('type') || e.message.includes('format')) {
+        errorType = 'FILE'
+        userMessage = 'Invalid file format. Only PDF files are allowed.'
       }
       
       addError({
         type: errorType,
         message: userMessage,
         details: e.message,
-        retryable: true,
-        timestamp: new Date()
+        retryable: true
       })
     } finally {
       setSubmitting(false)
@@ -788,61 +1167,14 @@ function RequirementsContent() {
     setErrors([])
     setSuccess(null)
     setUploadProgress(0)
-    setEditingApplicationId(null)
-    setEditingApplication(null)
+    setJobId(null)
+    setPosition('—')
     if (fileInputRef.current) {
       fileInputRef.current.value = ''
     }
   }
 
-  const handleEditApplication = (application: Row) => {
-    if (application.status && application.status !== 'for_review') {
-      addError({
-        type: 'VALIDATION',
-        message: `Cannot edit application with status: ${application.status}`,
-        details: 'Only applications "Under Review" can be edited',
-        retryable: false,
-        timestamp: new Date()
-      })
-      return
-    }
-
-    try {
-      setEditingApplicationId(application.id)
-      setEditingApplication(application)
-      setJobId(application.job_id)
-      setPosition(application.job_title)
-      setApplicantComment(application.applicant_comment)
-      setFile(null)
-      setUploadProgress(0)
-      setErrors([])
-      setSuccess(null)
-      
-      if (fileInputRef.current) {
-        fileInputRef.current.value = ''
-      }
-      
-      // Scroll to form on mobile
-      setTimeout(() => {
-        document.getElementById('application-form')?.scrollIntoView({ 
-          behavior: 'smooth',
-          block: 'start'
-        })
-      }, 100)
-      
-    } catch (e: any) {
-      console.error('Failed to load application for editing:', e)
-      addError({
-        type: 'LOADING',
-        message: 'Failed to load application for editing',
-        details: e.message,
-        retryable: true,
-        timestamp: new Date()
-      })
-    }
-  }
-
-  React.useEffect(() => {
+  useEffect(() => {
     if (errors.length > 0) {
       const timer = setTimeout(() => {
         setErrors(prev => prev.slice(1))
@@ -863,17 +1195,19 @@ function RequirementsContent() {
     )
   }
 
-  const selectedJob = jobs.find(j => j.id === jobId)
-
   return (
     <div className="min-h-screen bg-gray-50">
-      {/* Mobile Loading Overlay */}
       {mobileLoading.show && <MobileLoadingOverlay message={mobileLoading.message} progress={mobileLoading.progress} />}
 
-      {/* Mobile Error Toast */}
-      {isMobile && <MobileErrorToast errors={errors} onDismiss={removeError} />}
+      {isAndroid && <MobileErrorToast errors={errors} onDismiss={removeError} />}
 
-      {/* Header */}
+      {selectedJobPreview && (
+        <JobDetailsPreview 
+          job={selectedJobPreview}
+          onClose={() => setSelectedJobPreview(null)}
+        />
+      )}
+
       <div className="bg-white border-b border-gray-200 sticky top-0 z-40">
         <div className="max-w-7xl mx-auto px-4">
           <div className="flex items-center justify-between py-4">
@@ -882,17 +1216,16 @@ function RequirementsContent() {
                 <span className="text-gray-600">←</span>
               </Link>
               <div>
-                <h1 className="text-xl font-bold text-gray-900">Applications</h1>
-                <p className="text-sm text-gray-600">Submit and manage job applications</p>
+                <h1 className="text-xl font-bold text-gray-900">Job Applications</h1>
+                <p className="text-sm text-gray-600">Apply for positions and manage your applications</p>
               </div>
             </div>
           </div>
         </div>
       </div>
 
-      <div className="max-w-7xl mx-auto px-4 py-6 pb-24"> {/* Added pb-24 for mobile bottom padding */}
-        {/* Desktop Error Display */}
-        {!isMobile && errors.length > 0 && (
+      <div className="max-w-7xl mx-auto px-4 py-6 pb-24">
+        {!isAndroid && errors.length > 0 && (
           <div className="mb-4 space-y-2">
             {errors.map((error, index) => (
               <div key={index} className="bg-red-50 border border-red-200 rounded-lg p-3">
@@ -923,7 +1256,6 @@ function RequirementsContent() {
           </div>
         )}
 
-        {/* Cooldown Warning */}
         {!editingApplicationId && !cooldownData.canApply && cooldownData.message && (
           <div className="mb-4 bg-amber-50 border border-amber-200 rounded-lg p-3">
             <div className="flex items-center gap-2">
@@ -933,7 +1265,6 @@ function RequirementsContent() {
           </div>
         )}
 
-        {/* Success Alert */}
         {success && (
           <div className="mb-4 bg-green-50 border border-green-200 rounded-lg p-3">
             <div className="flex items-center gap-2">
@@ -950,41 +1281,27 @@ function RequirementsContent() {
             <p className="text-2xl font-bold text-gray-900 mt-1">{rows.length}</p>
           </div>
           <div className="bg-white rounded-lg border border-gray-200 p-4">
-            <p className="text-sm text-gray-600">Available Jobs</p>
-            <p className="text-2xl font-bold text-gray-900 mt-1">{jobs.filter(j => j.status === 'active').length}</p>
+            <p className="text-sm text-gray-600">Daily Limit</p>
+            <p className="text-2xl font-bold text-gray-900 mt-1">
+              {cooldownData.todaysCount}/{MAX_APPLICATIONS_PER_DAY}
+            </p>
           </div>
         </div>
 
-        {/* Application Form */}
+        {/* New Application Form */}
         <div className="mb-8">
-          <div className="flex items-center justify-between mb-4">
-            <h2 className="text-lg font-bold text-gray-900">
-              {editingApplicationId ? 'Update Application' : 'New Application'}
-            </h2>
-            {editingApplicationId && (
-              <button
-                onClick={clearForm}
-                className="text-sm text-gray-600 hover:text-gray-900"
-              >
-                Cancel
-              </button>
-            )}
-          </div>
+          <h2 className="text-lg font-bold text-gray-900 mb-4">New Application</h2>
 
-          <div id="application-form" className="bg-white rounded-xl border border-gray-200 p-4 shadow-sm">
-            {/* Job Select */}
+          <div className="bg-white rounded-xl border border-gray-200 p-4 shadow-sm">
             <div className="mb-4">
               <label className="block text-sm font-medium text-gray-700 mb-2">
                 Select Position *
+                <span className="text-xs text-gray-500 ml-1">(Click to view details)</span>
               </label>
               <select
                 value={jobId || ''}
-                onChange={(e) => {
-                  setJobId(e.target.value || null)
-                  const selected = jobs.find(j => j.id === e.target.value)
-                  setPosition(selected?.job_title || '—')
-                }}
-                disabled={loadingJobs || editingApplicationId !== null}
+                onChange={handleJobSelect}
+                disabled={loadingJobs}
                 className="w-full border border-gray-300 rounded-lg px-3 py-3 text-base bg-white disabled:bg-gray-50"
               >
                 <option value="">Choose a job position...</option>
@@ -992,56 +1309,60 @@ function RequirementsContent() {
                   .filter(job => job.status === 'active')
                   .map((job) => (
                     <option key={job.id} value={job.id}>
-                      {job.job_title}
+                      {job.job_title} - {job.department}
                     </option>
                   ))}
               </select>
             </div>
 
-            {/* File Upload - Mobile Optimized */}
             <div className="mb-4">
               <label className="block text-sm font-medium text-gray-700 mb-2">
                 Upload Resume (PDF) *
               </label>
               
-              <div className="relative">
+              <label
+                htmlFor="file-upload"
+                className={`
+                  block border-2 border-dashed border-gray-300 rounded-xl p-6 
+                  hover:border-blue-400 transition-colors bg-white 
+                  active:bg-gray-50 cursor-pointer
+                  ${submitting ? 'opacity-50 cursor-not-allowed' : ''}
+                `}
+              >
                 <input
                   ref={fileInputRef}
                   type="file"
                   accept="application/pdf"
                   onChange={onPick}
-                  className="absolute inset-0 w-full h-full opacity-0 cursor-pointer disabled:cursor-not-allowed"
+                  className="hidden"
                   id="file-upload"
                   disabled={submitting}
                 />
                 
-                <div className="border-2 border-dashed border-gray-300 rounded-xl p-6 hover:border-blue-400 transition-colors bg-white active:bg-gray-50">
-                  <div className="flex flex-col items-center justify-center">
-                    <span className="text-gray-400 text-2xl mb-3">📄</span>
-                    
-                    {file ? (
-                      <div className="text-center">
-                        <p className="text-base font-medium text-gray-900 truncate max-w-full">
-                          ✓ {file.name}
-                        </p>
-                        <p className="text-sm text-green-600 mt-2">
-                          {(file.size / 1024 / 1024).toFixed(2)} MB • Ready to upload
-                        </p>
-                      </div>
-                    ) : (
-                      <div className="text-center">
-                        <p className="text-base text-gray-600 mb-1">
-                          Tap to select PDF
-                        </p>
-                        <p className="text-sm text-gray-500">Maximum 10MB</p>
-                        <p className="text-xs text-gray-400 mt-2">Resume or CV in PDF format</p>
-                      </div>
-                    )}
-                  </div>
+                <div className="flex flex-col items-center justify-center">
+                  <span className="text-gray-400 text-2xl mb-3">📄</span>
+                  
+                  {file ? (
+                    <div className="text-center">
+                      <p className="text-base font-medium text-gray-900 truncate max-w-full">
+                        ✓ {file.name}
+                      </p>
+                      <p className="text-sm text-green-600 mt-2">
+                        {(file.size / 1024 / 1024).toFixed(2)} MB • Ready to upload
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="text-center">
+                      <p className="text-base text-gray-600 mb-1">
+                        Tap to select PDF
+                      </p>
+                      <p className="text-sm text-gray-500">Maximum 10MB</p>
+                      <p className="text-xs text-gray-400 mt-2">Resume or CV in PDF format</p>
+                    </div>
+                  )}
                 </div>
-              </div>
+              </label>
               
-              {/* Upload Progress */}
               {uploadProgress > 0 && (
                 <div className="mt-4">
                   <div className="flex justify-between text-sm text-gray-600 mb-2">
@@ -1058,26 +1379,22 @@ function RequirementsContent() {
               )}
             </div>
 
-            {/* Comments */}
-            {!editingApplicationId && (
-              <div className="mb-6">
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Additional Notes (Optional)
-                </label>
-                <textarea
-                  value={applicantComment}
-                  onChange={(e) => setApplicantComment(e.target.value)}
-                  placeholder="Add any comments or notes for HR..."
-                  rows={3}
-                  className="w-full border border-gray-300 rounded-lg px-3 py-3 text-base resize-none"
-                />
-              </div>
-            )}
+            <div className="mb-6">
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Additional Notes (Optional)
+              </label>
+              <textarea
+                value={applicantComment}
+                onChange={(e) => setApplicantComment(e.target.value)}
+                placeholder="Add any comments or notes for HR..."
+                rows={3}
+                className="w-full border border-gray-300 rounded-lg px-3 py-3 text-base resize-none"
+              />
+            </div>
 
-            {/* Submit Button - Mobile Optimized */}
             <button
               onClick={onSubmit}
-              disabled={submitting || (!file && !editingApplicationId) || (!jobId && !editingApplicationId)}
+              disabled={submitting || !file || !jobId}
               className="w-full bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white font-medium py-4 rounded-xl disabled:opacity-50 disabled:cursor-not-allowed text-base transition-colors touch-manipulation"
             >
               {submitting ? (
@@ -1085,13 +1402,12 @@ function RequirementsContent() {
                   <span className="h-5 w-5 border-2 border-white border-t-transparent rounded-full animate-spin"></span>
                   {uploadProgress > 0 ? `Uploading (${uploadProgress}%)` : 'Processing...'}
                 </div>
-              ) : editingApplicationId ? 'Update Application' : 'Submit Application'}
+              ) : 'Submit Application'}
             </button>
 
-            {/* Clear Button */}
             <button
               onClick={clearForm}
-              disabled={!file && !applicantComment && !editingApplicationId}
+              disabled={!file && !applicantComment && !jobId}
               className="w-full border border-gray-300 hover:bg-gray-50 active:bg-gray-100 text-gray-700 font-medium py-3 rounded-lg mt-3 text-base touch-manipulation"
             >
               Clear Form
@@ -1099,20 +1415,20 @@ function RequirementsContent() {
           </div>
         </div>
 
-        {/* Applications History */}
+        {/* My Applications List */}
         <div>
           <div className="flex items-center justify-between mb-4">
             <h2 className="text-lg font-bold text-gray-900">My Applications</h2>
             <button
               onClick={async () => {
                 setLoadingTable(true)
-                if (isMobile) showMobileLoading('Refreshing applications...')
+                if (isAndroid) showMobileLoading('Refreshing applications...')
                 try {
                   const myApplications = await applicantFunctions.listMyApplications()
                   const formattedApplications = (myApplications || []).map((app: any) => ({
                     id: app.id,
                     job_id: app.job_id,
-                    job_title: app.job?.job_title || 'Unknown Position',
+                    job_title: app.job_title || 'Unknown Position',
                     pdf_path: app.pdf_path,
                     applicant_comment: app.applicant_comment || '',
                     hr_comment: app.hr_comment || '',
@@ -1120,18 +1436,15 @@ function RequirementsContent() {
                     status: app.status || 'for_review',
                     updated_at: app.updated_at,
                     hr_comment_at: app.hr_comment_at,
-                    hr_comment_by: app.hr_comment_by_user,
-                    applicant_id: app.applicant_id,
-                    interview_date: app.interview_date,
-                    interview_status: app.interview_status,
-                    interview_notes: app.interview_notes
+                    hr_comment_by: app.hr_comment_by,
+                    applicant_id: app.applicant_id
                   }))
                   
                   setRows(formattedApplications)
                   await checkSpamProtection(formattedApplications)
                 } finally {
                   setLoadingTable(false)
-                  if (isMobile) hideMobileLoading()
+                  if (isAndroid) hideMobileLoading()
                 }
               }}
               disabled={loadingTable}
@@ -1158,54 +1471,76 @@ function RequirementsContent() {
               <p className="text-sm text-gray-400 mt-1">Submit your first application above</p>
             </div>
           ) : (
-            <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
-              <div className="overflow-x-auto">
-                <table className="w-full">
-                  <thead className="bg-gray-50">
-                    <tr>
-                      <th className="text-left p-4 text-sm font-medium text-gray-700">Job</th>
-                      <th className="text-left p-4 text-sm font-medium text-gray-700">Status</th>
-                      <th className="text-left p-4 text-sm font-medium text-gray-700">Date</th>
-                      <th className="text-left p-4 text-sm font-medium text-gray-700">Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-gray-200">
-                    {rows.map((row) => (
-                      <tr key={row.id} className="hover:bg-gray-50 active:bg-gray-100">
-                        <td className="p-4">
-                          <div className="font-medium text-gray-900">{row.job_title}</div>
-                        </td>
-                        <td className="p-4">
-                          <StatusBadge status={row.status} />
-                        </td>
-                        <td className="p-4 text-sm text-gray-600">
-                          {new Date(row.submitted_at).toLocaleDateString('en-US', {
-                            month: 'short',
-                            day: 'numeric'
-                          })}
-                        </td>
-                        <td className="p-4">
-                          <div className="flex gap-3">
-                            <button
-                              onClick={() => handleEditApplication(row)}
-                              disabled={row.status !== 'for_review'}
-                              className="text-blue-600 hover:text-blue-800 active:text-blue-900 disabled:text-gray-400 disabled:cursor-not-allowed text-sm touch-manipulation"
-                              title={row.status !== 'for_review' ? 'Only "Under Review" applications can be edited' : 'Edit application'}
-                            >
-                              Edit
-                            </button>
+            <div className="space-y-4">
+              {rows.map((row) => (
+                <div key={row.id} className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+                  <div className="p-4">
+                    <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
+                      <div className="flex-1">
+                        <div className="flex items-start gap-3">
+                          <div className="flex-1">
+                            <h3 className="font-bold text-gray-900">{row.job_title}</h3>
+                            <div className="flex items-center gap-2 mt-1">
+                              <span className="text-sm text-gray-600">
+                                {jobs.find(j => j.id === row.job_id)?.department || 'Unknown Department'}
+                              </span>
+                              <span className="text-gray-300">•</span>
+                              <span className="text-sm text-gray-600">
+                                Applied on {new Date(row.submitted_at).toLocaleDateString('en-US', {
+                                  month: 'short',
+                                  day: 'numeric',
+                                  year: 'numeric'
+                                })}
+                              </span>
+                            </div>
                           </div>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+                          <div className="flex-shrink-0">
+                            <StatusBadge status={row.status} />
+                          </div>
+                        </div>
+                        
+                        {row.applicant_comment && (
+                          <div className="mt-2 text-sm text-gray-600">
+                            <span className="font-medium">Your notes:</span> {row.applicant_comment}
+                          </div>
+                        )}
+                        
+                        {row.hr_comment && (
+                          <div className="mt-2 text-sm text-blue-600">
+                            <span className="font-medium">HR comment:</span> {row.hr_comment}
+                          </div>
+                        )}
+                      </div>
+                      
+                      <div className="flex gap-3">
+                        {row.status === 'for_review' && editingRowId !== row.id && (
+                          <button
+                            onClick={() => handleEditClick(row)}
+                            className="text-green-600 hover:text-green-800 active:text-green-900 text-sm font-medium px-4 py-2 border border-green-600 rounded-lg hover:bg-green-50"
+                          >
+                            Edit
+                          </button>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Edit Form - Shows below the row when editing */}
+                    {editingRowId === row.id && (
+                      <EditApplicationForm
+                        application={row}
+                        onUpdate={handleRowUpdate}
+                        onCancel={handleCancelEdit}
+                        submitting={rowSubmitting}
+                        uploadProgress={rowUploadProgress}
+                      />
+                    )}
+                  </div>
+                </div>
+              ))}
             </div>
           )}
         </div>
 
-        {/* Mobile Bottom Safe Area Spacer */}
         <div className="h-16 sm:h-0"></div>
       </div>
     </div>

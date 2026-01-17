@@ -33,7 +33,8 @@ const mobileLinks = [
   { label: 'Guide', href: '/applicant/instructions', icon: BookOpen },
   { label: 'Track', href: '/applicant/track', icon: FileCheck },
   { label: 'Profile', href: '/applicant/profile', icon: User },
-  { label: 'Notifications', href: '/notifications', icon: Bell },
+  { label: 'Requirements', href: '/applicant/requirements', icon: ClipboardList },
+  { label: 'Info', href: '/notifications', icon: Bell },
 ]
 
 type UserProfile = {

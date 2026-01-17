@@ -376,10 +376,10 @@ export interface Application {
   job_id: string
   applicant_id: string
   pdf_path: string
-  applicant_comment?: string  // Renamed from 'comment'
-  hr_comment?: string        // New field
-  hr_comment_by?: string     // New field
-  hr_comment_at?: string     // New field
+  applicant_comment?: string
+  hr_comment?: string
+  hr_comment_by?: string
+  hr_comment_at?: string
   submitted_at: string
   status: 'for_review' | 'shortlisted' | 'hired' | 'rejected'
   updated_at?: string
@@ -387,36 +387,81 @@ export interface Application {
     job_title: string
     status: string
   }
-  hr_comment_profiles?: {    // New field
+  hr_comment_profiles?: {
     first_name: string
     last_name: string
     role: string
   }
 }
 
-export async function listActiveJobs(): Promise<JobPosting[]> {
+/* ---------- File Validation ---------- */
+export async function validateFile(file: File): Promise<{ valid: boolean; error?: string }> {
   try {
-    console.log('📋 Fetching active jobs...');
-    
-    const { data, error } = await supabase
-      .from('job_postings')
-      .select('*')
-      .eq('status', 'active')
-      .order('date_posted', { ascending: false });
-
-    if (error) {
-      console.error('❌ Error fetching active jobs:', error);
-      throw error;
+    // Check file type
+    if (file.type !== 'application/pdf') {
+      return { valid: false, error: 'Only PDF files are allowed.' };
     }
-    
-    console.log(`✅ Found ${data?.length || 0} active jobs`);
-    return data || [];
+
+    // Check file size
+    if (file.size > 10 * 1024 * 1024) {
+      return { valid: false, error: 'File size must be less than 10MB.' };
+    }
+
+    // Check if file is empty (common on Android)
+    if (file.size === 0) {
+      return { valid: false, error: 'File appears to be empty. Please try selecting a different file.' };
+    }
+
+    // Additional Android-specific checks
+    if (typeof window !== 'undefined' && /Android/i.test(navigator.userAgent)) {
+      // Check if file name is valid
+      if (!file.name || file.name.trim() === '') {
+        return { valid: false, error: 'Invalid file name. Please rename your file and try again.' };
+      }
+
+      // Check file extension
+      const validExtensions = ['.pdf', '.PDF'];
+      const hasValidExtension = validExtensions.some(ext => file.name.toLowerCase().endsWith(ext));
+      if (!hasValidExtension) {
+        return { valid: false, error: 'File must have a .pdf extension.' };
+      }
+    }
+
+    return { valid: true };
   } catch (error) {
-    console.error('❌ Error fetching active jobs:', error);
-    throw error;
+    console.error('File validation error:', error);
+    return { valid: false, error: 'Failed to validate file. Please try again.' };
   }
 }
 
+/* ---------- Network Recovery Helper ---------- */
+const withRetry = async <T>(
+  operation: () => Promise<T>,
+  maxRetries = 3,
+  delay = 1000
+): Promise<T> => {
+  let lastError: Error | null = null;
+  
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      return await operation();
+    } catch (error) {
+      lastError = error as Error;
+      console.log(`Attempt ${attempt} failed:`, error);
+      
+      if (attempt < maxRetries) {
+        // Exponential backoff
+        const waitTime = delay * Math.pow(2, attempt - 1);
+        console.log(`Waiting ${waitTime}ms before retry...`);
+        await new Promise(resolve => setTimeout(resolve, waitTime));
+      }
+    }
+  }
+  
+  throw lastError || new Error('Operation failed after all retries');
+};
+
+/* ---------- Submit Application with Enhanced Upload ---------- */
 export async function submitApplication({ job_id, file, applicant_comment }: {
   job_id: string;
   file: File;
@@ -424,42 +469,38 @@ export async function submitApplication({ job_id, file, applicant_comment }: {
 }) {
   try {
     console.log('🚀 Starting application submission...');
-    console.log('📊 Submission details:', { job_id, file: file.name, applicant_commentLength: applicant_comment?.length });
+    console.log('📊 Submission details:', { 
+      job_id, 
+      file: file.name, 
+      size: (file.size / 1024 / 1024).toFixed(2) + 'MB',
+      type: file.type 
+    });
     
-    // 1. Get current user with enhanced error handling
+    // 1. Get current user
     const user = await getCurrentUser();
     
     if (!user) {
-      console.error('❌ No user found - not authenticated');
       throw new Error('Not authenticated. Please sign in to submit an application.');
     }
 
     console.log('✅ User authenticated:', { id: user.id, email: user.email });
 
-    // 2. Validate file type
-    if (file.type !== 'application/pdf') {
-      console.error('❌ Invalid file type:', file.type);
-      throw new Error('Only PDF files are allowed.');
+    // 2. Enhanced file validation
+    const validation = await validateFile(file);
+    if (!validation.valid) {
+      throw new Error(validation.error || 'Invalid file');
     }
 
-    // 3. Validate file size (10MB limit as per your page)
-    if (file.size > 10 * 1024 * 1024) {
-      console.error('❌ File too large:', file.size);
-      throw new Error('File size must be less than 10MB.');
-    }
-
-    // 4. Check for spam protection
+    // 3. Check for spam protection
     const cooldownCheck = await checkRecentApplication(job_id);
     
     if (!cooldownCheck.canApply) {
-      console.error('❌ Spam protection triggered:', cooldownCheck.message);
       throw new Error(cooldownCheck.message);
     }
 
     console.log('✅ Spam check passed');
 
-    // 5. Verify job exists and is active
-    console.log('🔍 Verifying job exists...');
+    // 4. Verify job exists and is active
     const { data: job, error: jobError } = await supabase
       .from('job_postings')
       .select('id, job_title, status')
@@ -468,96 +509,103 @@ export async function submitApplication({ job_id, file, applicant_comment }: {
       .single();
 
     if (jobError || !job) {
-      console.error('❌ Job verification failed:', jobError);
       throw new Error('Job not found or no longer active. Please select a different position.');
     }
 
     console.log('✅ Job verified:', job.job_title);
 
-    // 6. Check for duplicate applications
-    console.log('🔍 Checking for duplicates...');
-    const { data: existingApp, error: duplicateError } = await supabase
+    // 5. Check for duplicate applications
+    const { data: existingApp } = await supabase
       .from('applications')
       .select('id')
       .eq('job_id', job_id)
       .eq('applicant_id', user.id)
       .maybeSingle();
 
-    if (duplicateError) {
-      console.error('❌ Duplicate check error:', duplicateError);
-      // Continue anyway - don't fail on check error
-    }
-
     if (existingApp) {
-      console.error('❌ Duplicate application found');
       throw new Error('You have already applied to this position.');
     }
 
     console.log('✅ No duplicate found');
 
-    // 7. Upload PDF file
-    console.log('📤 Uploading file...');
-    const fileExt = file.name.split('.').pop();
-    const fileName = `${user.id}-${job_id}-${Date.now()}.${fileExt}`;
+    // 6. Create unique file path
+    const timestamp = Date.now();
+    const randomString = Math.random().toString(36).substring(2, 9);
+    const fileExt = file.name.split('.').pop() || 'pdf';
+    const fileName = `${user.id}-${job_id}-${timestamp}-${randomString}.${fileExt}`;
     const filePath = `applications/${fileName}`;
 
-    const { error: uploadError } = await supabase.storage
-      .from('applications')
-      .upload(filePath, file, {
-        cacheControl: '3600',
-        upsert: false
-      });
+    console.log('📤 Starting file upload:', filePath);
+
+    // 7. Upload PDF file with retry logic
+    const { error: uploadError } = await withRetry(
+      async () => {
+        const result = await supabase.storage
+          .from('applications')
+          .upload(filePath, file, {
+            cacheControl: '3600',
+            upsert: false,
+            contentType: 'application/pdf'
+          });
+        return result;
+      }
+    );
 
     if (uploadError) {
-      console.error('❌ Upload error:', uploadError);
-      throw new Error(`File upload failed: ${uploadError.message}`);
+      console.error('❌ Upload error details:', {
+        message: uploadError.message,
+        name: uploadError.name
+      });
+      
+      // Try to get more specific error
+      if (uploadError.message.includes('Payload too large')) {
+        throw new Error('File is too large. Maximum size is 10MB.');
+      } else if (uploadError.message.includes('Invalid file type')) {
+        throw new Error('Invalid file type. Only PDF files are accepted.');
+      } else if (uploadError.message.includes('network')) {
+        throw new Error('Network error during upload. Please check your connection and try again.');
+      } else {
+        throw new Error(`Upload failed: ${uploadError.message}`);
+      }
     }
 
-    console.log('✅ File uploaded:', filePath);
+    console.log('✅ File uploaded successfully:', filePath);
 
-    // 8. Create application record
-    console.log('🗂️ Inserting application record...');
-    
+    // 8. Create application record with retry logic
     const applicationData = {
       job_id,
       applicant_id: user.id,
       pdf_path: filePath,
-      applicant_comment: applicant_comment || null,  // Use new field name
+      applicant_comment: applicant_comment || null,
       status: 'for_review',
       submitted_at: new Date().toISOString()
     };
 
-    console.log('📝 Application data:', applicationData);
-
-    const { data, error: insertError } = await supabase
-      .from('applications')
-      .insert(applicationData)
-      .select()
-      .single();
+    const { data, error: insertError } = await withRetry(
+      async () => {
+        const result = await supabase
+          .from('applications')
+          .insert(applicationData)
+          .select()
+          .single();
+        return result;
+      }
+    );
 
     if (insertError) {
-      console.error('❌ Database insert error:', {
-        code: insertError.code,
-        message: insertError.message,
-        details: insertError.details,
-        hint: insertError.hint,
-        fullError: insertError
-      });
+      // Clean up uploaded file
+      await supabase.storage.from('applications').remove([filePath]).catch(console.warn);
       
-      // Clean up uploaded file if database insert fails
-      console.log('🧹 Cleaning up uploaded file due to insert error...');
-      await supabase.storage.from('applications').remove([filePath]);
-      
-      // User-friendly error messages based on error code
-      if (insertError.code === '23503') {
-        throw new Error('Database error: Invalid job or user. Please try again.');
-      } else if (insertError.code === '23505') {
+      // User-friendly error messages
+      if (insertError.code === '23505') {
         throw new Error('You have already applied to this position.');
+      } else if (insertError.code === '23503') {
+        throw new Error('Invalid job or user reference. Please try again.');
       } else {
-        throw new Error(`Failed to submit application: ${insertError.message}`);
+        throw new Error('Failed to save application. Please try again.');
       }
     }
-    
+
     console.log('✅ Application submitted successfully! ID:', data?.id);
     return data?.id || '';
     
@@ -579,13 +627,13 @@ export interface MyApplication {
   job_title: string
   job_status: string
   pdf_path: string
-  applicant_comment: string  // Updated field name
-  hr_comment: string        // New field
+  applicant_comment: string
+  hr_comment: string
   submitted_at: string
   status: 'for_review' | 'shortlisted' | 'hired' | 'rejected'
   updated_at?: string
-  hr_comment_at?: string    // New field
-  hr_comment_by?: {         // New field
+  hr_comment_at?: string
+  hr_comment_by?: {
     first_name: string
     last_name: string
     role: string
@@ -646,8 +694,8 @@ export async function listMyApplications(): Promise<MyApplication[]> {
         job_title: jobPosting?.job_title || 'Unknown Job',
         job_status: jobPosting?.status || 'unknown',
         pdf_path: app.pdf_path,
-        applicant_comment: app.applicant_comment || '',  // Updated field name
-        hr_comment: app.hr_comment || '',               // New field
+        applicant_comment: app.applicant_comment || '',
+        hr_comment: app.hr_comment || '',
         submitted_at: app.submitted_at,
         status: app.status || 'for_review',
         updated_at: app.updated_at,
@@ -711,27 +759,34 @@ export async function getJobDetails(jobId: string): Promise<JobPosting | null> {
   }
 }
 
+export async function listActiveJobs(): Promise<JobPosting[]> {
+  try {
+    console.log('📋 Fetching active jobs...');
+    
+    const { data, error } = await supabase
+      .from('job_postings')
+      .select('*')
+      .eq('status', 'active')
+      .order('date_posted', { ascending: false });
+
+    if (error) {
+      console.error('❌ Error fetching active jobs:', error);
+      throw error;
+    }
+    
+    console.log(`✅ Found ${data?.length || 0} active jobs`);
+    return data || [];
+  } catch (error) {
+    console.error('❌ Error fetching active jobs:', error);
+    throw error;
+  }
+}
+
 /* ---------- Anti-Spam Functions ---------- */
 export interface CheckCooldownResult {
   canApply: boolean
   nextAvailableTime: Date | null
   message: string
-}
-
-// Helper function for formatting time remaining
-function formatTimeRemaining(date: Date): string {
-  const now = new Date();
-  const diff = date.getTime() - now.getTime();
-  
-  if (diff <= 0) return 'now';
-  
-  const hours = Math.floor(diff / (1000 * 60 * 60));
-  const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
-  
-  if (hours > 0) {
-    return `${hours} hour${hours > 1 ? 's' : ''} ${minutes} minute${minutes > 1 ? 's' : ''}`;
-  }
-  return `${minutes} minute${minutes > 1 ? 's' : ''}`;
 }
 
 export async function checkRecentApplication(jobId: string): Promise<CheckCooldownResult> {
@@ -779,7 +834,7 @@ export async function checkRecentApplication(jobId: string): Promise<CheckCooldo
       return {
         canApply: false,
         nextAvailableTime: nextAvailable,
-        message: `You've already applied to this position recently. You can apply again after ${formatTimeRemaining(nextAvailable)}.`
+        message: `You've already applied to this position recently. Please wait 24 hours before applying again.`
       };
     }
 
@@ -797,7 +852,7 @@ export async function checkRecentApplication(jobId: string): Promise<CheckCooldo
 
 export async function updateApplication(
   applicationId: string, 
-  data: { file: File; applicant_comment: string }  // Updated field name
+  data: { file: File; applicant_comment: string }
 ): Promise<string> {
   try {
     const user = await getCurrentUser();
@@ -826,56 +881,65 @@ export async function updateApplication(
       throw new Error(`Cannot edit application that has been ${existingApp.status}.`);
     }
 
+    // Validate file
+    const validation = await validateFile(data.file);
+    if (!validation.valid) {
+      throw new Error(validation.error || 'Invalid file');
+    }
+
     let filePath = existingApp.pdf_path;
 
-    // Validate and upload new file if provided
-    if (data.file) {
-      if (data.file.type !== 'application/pdf') {
-        throw new Error('Only PDF files are allowed.');
+    // Upload new PDF file
+    const timestamp = Date.now();
+    const randomString = Math.random().toString(36).substring(2, 9);
+    const fileExt = data.file.name.split('.').pop() || 'pdf';
+    const fileName = `${user.id}-${existingApp.job_id}-${timestamp}-${randomString}.${fileExt}`;
+    filePath = `applications/${fileName}`;
+
+    const { error: uploadError } = await withRetry(
+      async () => {
+        const result = await supabase.storage
+          .from('applications')
+          .upload(filePath, data.file, {
+            contentType: 'application/pdf'
+          });
+        return result;
       }
+    );
 
-      if (data.file.size > 10 * 1024 * 1024) {
-        throw new Error('File size must be less than 10MB.');
-      }
+    if (uploadError) {
+      console.error('❌ Upload error:', uploadError);
+      throw new Error(`File upload failed: ${uploadError.message}`);
+    }
 
-      // Upload new PDF file
-      const fileExt = data.file.name.split('.').pop();
-      const fileName = `${user.id}-${existingApp.job_id}-${Date.now()}-updated.${fileExt}`;
-      filePath = `applications/${fileName}`;
-
-      const { error: uploadError } = await supabase.storage
-        .from('applications')
-        .upload(filePath, data.file);
-
-      if (uploadError) {
-        console.error('❌ Upload error:', uploadError);
-        throw new Error(`File upload failed: ${uploadError.message}`);
-      }
-
-      // Delete old file if exists
-      if (existingApp.pdf_path) {
-        try {
-          await supabase.storage
-            .from('applications')
-            .remove([existingApp.pdf_path]);
-        } catch (storageError) {
-          console.warn('⚠️ Failed to delete old file:', storageError);
-          // Continue with upload even if delete fails
-        }
+    // Delete old file if exists
+    if (existingApp.pdf_path) {
+      try {
+        await supabase.storage
+          .from('applications')
+          .remove([existingApp.pdf_path]);
+      } catch (storageError) {
+        console.warn('⚠️ Failed to delete old file:', storageError);
+        // Continue with upload even if delete fails
       }
     }
 
     // Update application record
-    const { data: updatedApp, error: updateError } = await supabase
-      .from('applications')
-      .update({
-        pdf_path: filePath,
-        applicant_comment: data.applicant_comment || null,  // Use new field name
-        updated_at: new Date().toISOString()
-      })
-      .eq('id', applicationId)
-      .select()
-      .single();
+    const { data: updatedApp, error: updateError } = await withRetry(
+      async () => {
+        const result = await supabase
+          .from('applications')
+          .update({
+            pdf_path: filePath,
+            applicant_comment: data.applicant_comment || null,
+            updated_at: new Date().toISOString()
+          })
+          .eq('id', applicationId)
+          .select()
+          .single();
+        return result;
+      }
+    );
 
     if (updateError) {
       console.error('❌ Update error:', updateError);
@@ -932,17 +996,6 @@ export async function addHRComment(applicationId: string, comment: string) {
     }
 
     console.log('✅ HR comment added successfully');
-
-    // Create notification for applicant
-    await createNotification({
-      user_id: data.applicant_id,
-      type: 'hr_comment',
-      title: 'HR Comment Added',
-      message: `HR has added a comment to your application for ${data.job_postings?.job_title || 'a position'}`,
-      related_entity_type: 'application',
-      related_entity_id: applicationId,
-      created_by: user.id
-    });
 
     return data;
   } catch (error) {
@@ -1160,37 +1213,6 @@ export async function getEligibilities() {
   }
 }
 
-/* ---------- Notification Functions ---------- */
-interface NotificationInput {
-  user_id: string
-  type: 'application_update' | 'hr_comment' | 'status_change' | 'general' | 'new_application'
-  title: string
-  message: string
-  related_entity_type?: 'application' | 'job_posting' | 'profile'
-  related_entity_id?: string
-  created_by?: string
-}
-
-async function createNotification(notification: NotificationInput) {
-  try {
-    const { error } = await supabase
-      .from('notifications')
-      .insert({
-        ...notification,
-        is_read: false,
-        created_at: new Date().toISOString()
-      });
-
-    if (error) {
-      console.error('❌ Error creating notification:', error);
-    } else {
-      console.log('✅ Notification created');
-    }
-  } catch (error) {
-    console.error('❌ Error creating notification:', error);
-  }
-}
-
 /* ---------- Admin/HR Functions ---------- */
 export async function getAllUsers(): Promise<User[]> {
   try {
@@ -1256,33 +1278,41 @@ export async function getDashboardStats(role: User['role']): Promise<DashboardSt
 
     switch (role) {
       case 'super_admin':
+        const usersPromise = supabase.from('profiles').select('*', { count: 'exact', head: true });
+        const jobsPromise = supabase.from('job_postings').select('*', { count: 'exact', head: true });
+        const applicationsPromise = supabase.from('applications').select('*', { count: 'exact', head: true });
+        
         const [usersCount, jobsCount, applicationsCount] = await Promise.all([
-          supabase.from('profiles').select('*', { count: 'exact', head: true }),
-          supabase.from('job_postings').select('*', { count: 'exact', head: true }),
-          supabase.from('applications').select('*', { count: 'exact', head: true })
+          usersPromise.then(res => ({ count: res.count || 0 })),
+          jobsPromise.then(res => ({ count: res.count || 0 })),
+          applicationsPromise.then(res => ({ count: res.count || 0 }))
         ]);
 
         stats = {
-          totalUsers: usersCount.count || 0,
-          activeJobs: jobsCount.count || 0,
-          totalApplications: applicationsCount.count || 0,
-          pendingReviews: applicationsCount.count || 0
+          totalUsers: usersCount.count,
+          activeJobs: jobsCount.count,
+          totalApplications: applicationsCount.count,
+          pendingReviews: applicationsCount.count
         };
         break;
 
       case 'hr':
+        const applicantsPromise = supabase.from('profiles').select('*', { count: 'exact', head: true }).eq('role', 'applicant');
+        const hrJobsPromise = supabase.from('job_postings').select('*', { count: 'exact', head: true }).eq('status', 'active');
+        const hrApplicationsPromise = supabase.from('applications').select('*', { count: 'exact', head: true });
+        
         const [applicantsCount, hrJobsCount, hrApplicationsCount] = await Promise.all([
-          supabase.from('profiles').select('*', { count: 'exact', head: true }).eq('role', 'applicant'),
-          supabase.from('job_postings').select('*', { count: 'exact', head: true }).eq('status', 'active'),
-          supabase.from('applications').select('*', { count: 'exact', head: true })
+          applicantsPromise.then(res => ({ count: res.count || 0 })),
+          hrJobsPromise.then(res => ({ count: res.count || 0 })),
+          hrApplicationsPromise.then(res => ({ count: res.count || 0 }))
         ]);
 
         stats = {
-          totalApplicants: applicantsCount.count || 0,
-          totalUsers: applicantsCount.count || 0,
-          activeJobs: hrJobsCount.count || 0,
-          totalApplications: hrApplicationsCount.count || 0,
-          pendingReviews: hrApplicationsCount.count || 0
+          totalApplicants: applicantsCount.count,
+          totalUsers: applicantsCount.count,
+          activeJobs: hrJobsCount.count,
+          totalApplications: hrApplicationsCount.count,
+          pendingReviews: hrApplicationsCount.count
         };
         break;
 
@@ -1331,7 +1361,3 @@ export async function initializeDatabase() {
     return { success: false, error: String(error) };
   }
 }
-
-// Initialize on import (optional)
-// Comment this out if you don't want automatic initialization
-// initializeDatabase().catch(console.error);
