@@ -186,6 +186,188 @@ const MobileLoadingOverlay = ({ message, progress }: { message: string, progress
   </div>
 )
 
+// Edit Form Component for Inline Editing
+const EditApplicationForm = ({ 
+  application, 
+  onCancel, 
+  onUpdate,
+  loading,
+  uploadProgress 
+}: { 
+  application: Row
+  onCancel: () => void
+  onUpdate: (file: File | null, comment: string) => Promise<void>
+  loading: boolean
+  uploadProgress: number
+}) => {
+  const [file, setFile] = useState<File | null>(null)
+  const [comment, setComment] = useState(application.applicant_comment || '')
+  const fileInputRef = useRef<HTMLInputElement>(null)
+  const [localError, setLocalError] = useState<string | null>(null)
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files
+    if (!files || files.length === 0) {
+      setFile(null)
+      return
+    }
+
+    const f = files[0]
+    
+    // Basic validation
+    if (f.type !== 'application/pdf') {
+      setLocalError('Only PDF files are allowed.')
+      setFile(null)
+      if (fileInputRef.current) {
+        fileInputRef.current.value = ''
+      }
+      return
+    }
+
+    if (f.size === 0) {
+      setLocalError('File appears to be empty.')
+      setFile(null)
+      if (fileInputRef.current) {
+        fileInputRef.current.value = ''
+      }
+      return
+    }
+
+    setLocalError(null)
+    setFile(f)
+  }
+
+  const handleSubmit = async () => {
+    if (!file) {
+      setLocalError('Please select a new PDF file to update.')
+      return
+    }
+    
+    await onUpdate(file, comment)
+  }
+
+  return (
+    <div className="bg-gray-50 rounded-lg p-4 border border-gray-200 mt-4">
+      <div className="flex items-center justify-between mb-4">
+        <h3 className="font-medium text-gray-900">Edit Application</h3>
+        <button
+          onClick={onCancel}
+          disabled={loading}
+          className="text-gray-500 hover:text-gray-700 text-sm"
+        >
+          Cancel
+        </button>
+      </div>
+
+      {localError && (
+        <div className="mb-4 bg-red-50 border border-red-200 rounded-lg p-3">
+          <p className="text-sm text-red-700">{localError}</p>
+        </div>
+      )}
+
+      <div className="mb-4">
+        <label className="block text-sm font-medium text-gray-700 mb-2">
+          Update Resume (PDF) *
+          <span className="text-xs text-gray-500 ml-1">Select a new PDF file</span>
+        </label>
+        
+        <label
+          htmlFor={`edit-file-${application.id}`}
+          className={`
+            block border-2 border-dashed border-gray-300 rounded-lg p-4 
+            hover:border-blue-400 transition-colors bg-white 
+            ${loading ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}
+          `}
+        >
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="application/pdf"
+            onChange={handleFileChange}
+            className="hidden"
+            id={`edit-file-${application.id}`}
+            disabled={loading}
+          />
+          
+          <div className="flex flex-col items-center justify-center">
+            <span className="text-gray-400 text-xl mb-2">📄</span>
+            
+            {file ? (
+              <div className="text-center">
+                <p className="text-sm font-medium text-gray-900 truncate max-w-full">
+                  ✓ {file.name}
+                </p>
+                <p className="text-xs text-green-600 mt-1">
+                  {(file.size / 1024 / 1024).toFixed(2)} MB • Ready to update
+                </p>
+              </div>
+            ) : (
+              <div className="text-center">
+                <p className="text-sm text-gray-600 mb-1">
+                  Click to select new PDF
+                </p>
+                <p className="text-xs text-gray-500">Replace current resume</p>
+              </div>
+            )}
+          </div>
+        </label>
+        
+        {uploadProgress > 0 && (
+          <div className="mt-3">
+            <div className="flex justify-between text-xs text-gray-600 mb-1">
+              <span>Uploading...</span>
+              <span className="font-medium">{uploadProgress}%</span>
+            </div>
+            <div className="w-full bg-gray-200 rounded-full h-1.5">
+              <div 
+                className="bg-green-600 h-1.5 rounded-full transition-all duration-300" 
+                style={{ width: `${uploadProgress}%` }}
+              ></div>
+            </div>
+          </div>
+        )}
+      </div>
+
+      <div className="mb-4">
+        <label className="block text-sm font-medium text-gray-700 mb-2">
+          Update Notes (Optional)
+        </label>
+        <textarea
+          value={comment}
+          onChange={(e) => setComment(e.target.value)}
+          placeholder="Update your notes for HR..."
+          rows={2}
+          className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm resize-none"
+          disabled={loading}
+        />
+      </div>
+
+      <div className="flex gap-3">
+        <button
+          onClick={handleSubmit}
+          disabled={loading || !file}
+          className="flex-1 bg-green-600 hover:bg-green-700 text-white font-medium py-2.5 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed text-sm"
+        >
+          {loading ? (
+            <div className="flex items-center justify-center gap-2">
+              <span className="h-4 w-4 border-2 border-white border-t-transparent rounded-full animate-spin"></span>
+              {uploadProgress > 0 ? `Uploading (${uploadProgress}%)` : 'Updating...'}
+            </div>
+          ) : 'Update Application'}
+        </button>
+        
+        <button
+          onClick={onCancel}
+          disabled={loading}
+          className="px-4 border border-gray-300 hover:bg-gray-50 text-gray-700 font-medium py-2.5 rounded-lg text-sm"
+        >
+          Cancel
+        </button>
+      </div>
+    </div>
+  )
+}
+
 function RequirementsContent() {
   const params = useSearchParams()
   const initPos = params.get('position') || '—'
@@ -219,7 +401,6 @@ function RequirementsContent() {
 
   const [selectedJobPreview, setSelectedJobPreview] = useState<Job | null>(null)
 
-  const [editingRowId, setEditingRowId] = useState<string | null>(null)
   const [rowUploadProgress, setRowUploadProgress] = useState<number>(0)
   const [rowSubmitting, setRowSubmitting] = useState<boolean>(false)
 
@@ -283,7 +464,6 @@ function RequirementsContent() {
     setUploadProgress(0)
     setAlreadyAppliedCheck(null)
     
-    // SSR-safe Android check
     const isAndroidClient = typeof window !== 'undefined' && /Android/i.test(navigator.userAgent)
     
     if (isAndroidClient) {
@@ -293,7 +473,6 @@ function RequirementsContent() {
     try {
       let processedFile = f;
       
-      // ANDROID FIX: Chrome often returns empty type for PDFs
       if (isAndroidClient && f.name.toLowerCase().endsWith('.pdf')) {
         console.log('Android PDF detected, fixing MIME type...')
         processedFile = new File([f], f.name, { 
@@ -385,13 +564,11 @@ function RequirementsContent() {
       return
     }
     
-    setEditingRowId(application.id)
     setEditingApplicationId(application.id)
     setEditingApplication(application)
   }
 
   const handleCancelEdit = () => {
-    setEditingRowId(null)
     setEditingApplicationId(null)
     setEditingApplication(null)
     setRowUploadProgress(0)
@@ -494,14 +671,12 @@ function RequirementsContent() {
     try {
       setSubmitting(true)
       
-      // SSR-safe Android check
       const isAndroidClient = typeof window !== 'undefined' && /Android/i.test(navigator.userAgent)
       
       if (isAndroidClient) {
         showMobileLoading('Preparing upload...', 10)
       }
 
-      // Start upload progress
       setUploadProgress(10)
 
       const result = await applicantFunctions.submitApplication({ 
@@ -565,7 +740,6 @@ function RequirementsContent() {
       console.error('Submission error:', e)
       setUploadProgress(0)
       
-      // SSR-safe Android check
       const isAndroidClient = typeof window !== 'undefined' && /Android/i.test(navigator.userAgent)
       
       if (isAndroidClient) hideMobileLoading()
@@ -630,7 +804,6 @@ function RequirementsContent() {
       try {
         setLoadingFunctions(true)
         
-        // SSR-safe Android check
         const isAndroidClient = typeof window !== 'undefined' && /Android/i.test(navigator.userAgent)
         
         if (isAndroidClient) showMobileLoading('Loading application portal...')
@@ -648,7 +821,6 @@ function RequirementsContent() {
       } finally {
         setLoadingFunctions(false)
         
-        // SSR-safe Android check
         const isAndroidClient = typeof window !== 'undefined' && /Android/i.test(navigator.userAgent)
         
         if (isAndroidClient) hideMobileLoading()
@@ -663,7 +835,6 @@ function RequirementsContent() {
 
     const checkAuth = async () => {
       try {
-        // SSR-safe Android check
         const isAndroidClient = typeof window !== 'undefined' && /Android/i.test(navigator.userAgent)
         
         if (isAndroidClient) showMobileLoading('Checking authentication...')
@@ -690,7 +861,6 @@ function RequirementsContent() {
           retryable: true
         })
       } finally {
-        // SSR-safe Android check
         const isAndroidClient = typeof window !== 'undefined' && /Android/i.test(navigator.userAgent)
         
         if (isAndroidClient) hideMobileLoading()
@@ -707,7 +877,6 @@ function RequirementsContent() {
 
     const loadData = async () => {
       try {
-        // SSR-safe Android check
         const isAndroidClient = typeof window !== 'undefined' && /Android/i.test(navigator.userAgent)
         
         if (isAndroidClient) showMobileLoading('Loading data...', 0)
@@ -779,7 +948,6 @@ function RequirementsContent() {
           setLoadingJobs(false)
           setLoadingTable(false)
           
-          // SSR-safe Android check
           const isAndroidClient = typeof window !== 'undefined' && /Android/i.test(navigator.userAgent)
           
           if (isAndroidClient) {
@@ -817,7 +985,6 @@ function RequirementsContent() {
     )
   }
 
-  // SSR-safe Android check
   const isAndroidClient = typeof window !== 'undefined' && /Android/i.test(navigator.userAgent)
 
   return (
@@ -1049,7 +1216,6 @@ function RequirementsContent() {
               onClick={async () => {
                 setLoadingTable(true)
                 
-                // SSR-safe Android check
                 const isAndroidClient = typeof window !== 'undefined' && /Android/i.test(navigator.userAgent)
                 
                 if (isAndroidClient) showMobileLoading('Refreshing applications...')
@@ -1075,7 +1241,6 @@ function RequirementsContent() {
                 } finally {
                   setLoadingTable(false)
                   
-                  // SSR-safe Android check
                   const isAndroidClient = typeof window !== 'undefined' && /Android/i.test(navigator.userAgent)
                   
                   if (isAndroidClient) hideMobileLoading()
@@ -1143,7 +1308,7 @@ function RequirementsContent() {
                       </div>
                       
                       <div className="flex gap-3">
-                        {row.status === 'for_review' && editingRowId !== row.id && (
+                        {row.status === 'for_review' && editingApplicationId !== row.id && (
                           <button
                             onClick={() => handleEditClick(row)}
                             className="text-green-600 hover:text-green-800 active:text-green-900 text-sm font-medium px-4 py-2 border border-green-600 rounded-lg hover:bg-green-50"
@@ -1153,6 +1318,17 @@ function RequirementsContent() {
                         )}
                       </div>
                     </div>
+
+                    {/* EDIT FORM - Visible only for this application when in edit mode */}
+                    {editingApplicationId === row.id && editingApplication && (
+                      <EditApplicationForm
+                        application={editingApplication}
+                        onCancel={handleCancelEdit}
+                        onUpdate={handleRowUpdate}
+                        loading={rowSubmitting}
+                        uploadProgress={rowUploadProgress}
+                      />
+                    )}
                   </div>
                 </div>
               ))}
