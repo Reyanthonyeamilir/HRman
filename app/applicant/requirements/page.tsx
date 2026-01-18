@@ -292,7 +292,10 @@ function RequirementsContent() {
 
     try {
       let processedFile = f;
-      if (isAndroidClient && (!f.type || f.type === '') && f.name.toLowerCase().endsWith('.pdf')) {
+      
+      // ANDROID FIX: Chrome often returns empty type for PDFs
+      if (isAndroidClient && f.name.toLowerCase().endsWith('.pdf')) {
+        console.log('Android PDF detected, fixing MIME type...')
         processedFile = new File([f], f.name, { 
           type: 'application/pdf',
           lastModified: f.lastModified
@@ -345,7 +348,7 @@ function RequirementsContent() {
       setUploadProgress(100)
       
       if (isAndroidClient) {
-        showMobileLoading('✅ PDF ready!', 100)
+        showMobileLoading('✅ PDF ready for upload!', 100)
         setTimeout(() => hideMobileLoading(), 500)
       }
       
@@ -353,7 +356,7 @@ function RequirementsContent() {
       console.error('File pick error:', error)
       addError({
         type: 'FILE',
-        message: 'Failed to process file',
+        message: 'Failed to process file. Please try again.',
         retryable: true
       })
       setFile(null)
@@ -361,6 +364,7 @@ function RequirementsContent() {
         fileInputRef.current.value = ''
       }
     } finally {
+      const isAndroidClient = typeof window !== 'undefined' && /Android/i.test(navigator.userAgent)
       if (isAndroidClient && !file) {
         hideMobileLoading()
       }
@@ -496,6 +500,9 @@ function RequirementsContent() {
       if (isAndroidClient) {
         showMobileLoading('Preparing upload...', 10)
       }
+
+      // Start upload progress
+      setUploadProgress(10)
 
       const result = await applicantFunctions.submitApplication({ 
         job_id: jobId!, 
