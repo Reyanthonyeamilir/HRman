@@ -79,8 +79,10 @@ const loadApplicantFunctions = async () => {
       getSignedUrl: async () => '',
       getCurrentUser: async () => null,
       updateApplication: async () => { throw new Error('Not available during SSR') },
-      validateFile: async () => ({ valid: false, error: 'Not available during SSR' }),
-      supabase: { auth: { signOut: async () => {} } }
+      validateFile: () => ({ valid: false, error: 'Not available during SSR' }),
+      testMobileUpload: async () => ({ success: false, message: 'Not available during SSR' }),
+      signOut: async () => {},
+      checkRecentApplication: async () => ({ canApply: true, message: '' })
     }
   }
   
@@ -111,6 +113,7 @@ const MobileErrorToast = ({ errors, onDismiss }: { errors: AppError[], onDismiss
               <p className="text-sm font-medium text-red-800 truncate">
                 {error.type === 'NETWORK' ? 'Connection Issue' : 
                  error.type === 'AUTH' ? 'Sign In Required' : 
+                 error.type === 'FILE' ? 'File Error' :
                  'Error'}
               </p>
               <p className="text-xs text-red-700 mt-1 line-clamp-2">{error.message}</p>
@@ -187,7 +190,6 @@ const MobileLoadingOverlay = ({ message, progress }: { message: string, progress
   </div>
 )
 
-// Job Details Preview Component
 const JobDetailsPreview = ({ job, onClose }: { 
   job: Job | null, 
   onClose: () => void 
@@ -216,7 +218,6 @@ const JobDetailsPreview = ({ job, onClose }: {
   return (
     <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
       <div className="bg-white rounded-xl max-w-lg w-full max-h-[80vh] overflow-hidden flex flex-col">
-        {/* Header */}
         <div className="sticky top-0 bg-white border-b border-gray-200 p-4">
           <div className="flex items-center justify-between">
             <h2 className="text-xl font-bold text-gray-900">Job Details</h2>
@@ -241,7 +242,6 @@ const JobDetailsPreview = ({ job, onClose }: {
           </div>
         </div>
 
-        {/* Content - Scrollable */}
         <div className="flex-1 overflow-y-auto p-6">
           <div className="mb-6">
             <h3 className="text-lg font-semibold text-gray-900 mb-3">Job Description</h3>
@@ -260,7 +260,6 @@ const JobDetailsPreview = ({ job, onClose }: {
           </div>
         </div>
 
-        {/* Footer */}
         <div className="sticky bottom-0 bg-white border-t border-gray-200 p-4">
           <button
             onClick={onClose}
@@ -274,7 +273,6 @@ const JobDetailsPreview = ({ job, onClose }: {
   )
 }
 
-// Edit Form Component for Table Row
 const EditApplicationForm = ({ 
   application, 
   onUpdate, 
@@ -297,7 +295,6 @@ const EditApplicationForm = ({
     if (files && files.length > 0) {
       const selectedFile = files[0]
       
-      // Basic validation
       if (selectedFile.type !== 'application/pdf') {
         alert('Only PDF files are allowed')
         return
@@ -410,6 +407,28 @@ const EditApplicationForm = ({
   )
 }
 
+const MobileDebugButton = ({ onTest }: { onTest: () => void }) => {
+  const [show, setShow] = useState(false)
+  
+  useEffect(() => {
+    const isAndroid = typeof window !== 'undefined' && /Android/i.test(navigator.userAgent)
+    const isIOS = typeof window !== 'undefined' && /iPhone|iPad|iPod/i.test(navigator.userAgent)
+    setShow(isAndroid || isIOS)
+  }, [])
+  
+  if (!show) return null
+  
+  return (
+    <button
+      onClick={onTest}
+      className="fixed bottom-24 right-4 bg-purple-600 text-white p-3 rounded-full shadow-lg z-50 hover:bg-purple-700 active:bg-purple-800 transition-colors"
+      title="Test Mobile Upload"
+    >
+      🧪 Test
+    </button>
+  )
+}
+
 function RequirementsContent() {
   const params = useSearchParams()
   const initPos = params.get('position') || '—'
@@ -446,18 +465,18 @@ function RequirementsContent() {
   })
   const [uploadProgress, setUploadProgress] = useState<number>(0)
 
-  // Job preview state
   const [selectedJobPreview, setSelectedJobPreview] = useState<Job | null>(null)
 
-  // Edit form state for table rows
   const [editingRowId, setEditingRowId] = useState<string | null>(null)
   const [rowUploadProgress, setRowUploadProgress] = useState<number>(0)
   const [rowSubmitting, setRowSubmitting] = useState<boolean>(false)
 
   const [isAndroid, setIsAndroid] = useState(false)
+  const [isIOS, setIsIOS] = useState(false)
   useEffect(() => {
     if (typeof window !== 'undefined') {
       setIsAndroid(/Android/i.test(navigator.userAgent))
+      setIsIOS(/iPhone|iPad|iPod/i.test(navigator.userAgent))
     }
   }, [])
 
@@ -492,7 +511,6 @@ function RequirementsContent() {
     })
   }, [])
 
-  // Helper to check network speed
   const checkNetworkSpeed = useCallback(async (): Promise<'fast' | 'slow' | 'unknown'> => {
     if ('connection' in navigator && 'effectiveType' in (navigator as any).connection) {
       const connection = (navigator as any).connection;
@@ -504,11 +522,40 @@ function RequirementsContent() {
     return 'unknown';
   }, [])
 
+  const testMobileUpload = async () => {
+    if (!applicantFunctions) return;
+    
+    showMobileLoading('Testing mobile upload...', 10);
+    
+    try {
+      const testResult = await applicantFunctions.testMobileUpload();
+      
+      if (testResult.success) {
+        setSuccess(`✅ ${testResult.message}`);
+      } else {
+        addError({
+          type: 'NETWORK',
+          message: `Upload test failed: ${testResult.error || 'Unknown error'}`,
+          retryable: true
+        });
+      }
+    } catch (error: any) {
+      addError({
+        type: 'NETWORK',
+        message: 'Mobile test error: ' + (error.message || 'Unknown error'),
+        details: error.toString(),
+        retryable: true
+      });
+    } finally {
+      hideMobileLoading();
+    }
+  };
+
   useEffect(() => {
     const loadFunctions = async () => {
       try {
         setLoadingFunctions(true)
-        if (isAndroid) showMobileLoading('Loading application portal...')
+        if (isAndroid || isIOS) showMobileLoading('Loading application portal...')
         
         const functions = await loadApplicantFunctions()
         setApplicantFunctions(functions)
@@ -522,19 +569,19 @@ function RequirementsContent() {
         })
       } finally {
         setLoadingFunctions(false)
-        if (isAndroid) hideMobileLoading()
+        if (isAndroid || isIOS) hideMobileLoading()
       }
     }
 
     loadFunctions()
-  }, [isAndroid, addError, showMobileLoading, hideMobileLoading])
+  }, [isAndroid, isIOS, addError, showMobileLoading, hideMobileLoading])
 
   useEffect(() => {
     if (!applicantFunctions || loadingFunctions) return
 
     const checkAuth = async () => {
       try {
-        if (isAndroid) showMobileLoading('Checking authentication...')
+        if (isAndroid || isIOS) showMobileLoading('Checking authentication...')
         
         const user = await applicantFunctions.getCurrentUser()
         if (!user) {
@@ -558,12 +605,12 @@ function RequirementsContent() {
           retryable: true
         })
       } finally {
-        if (isAndroid) hideMobileLoading()
+        if (isAndroid || isIOS) hideMobileLoading()
       }
     }
 
     checkAuth()
-  }, [applicantFunctions, loadingFunctions, router, isAndroid, addError, showMobileLoading, hideMobileLoading])
+  }, [applicantFunctions, loadingFunctions, router, isAndroid, isIOS, addError, showMobileLoading, hideMobileLoading])
 
   useEffect(() => {
     if (!authChecked || !applicantFunctions) return
@@ -572,17 +619,17 @@ function RequirementsContent() {
 
     const loadData = async () => {
       try {
-        if (isAndroid) showMobileLoading('Loading data...', 0)
+        if (isAndroid || isIOS) showMobileLoading('Loading data...', 0)
         
         setLoadingJobs(true)
         setLoadingTable(true)
         
-        if (isAndroid) showMobileLoading('Loading available jobs...', 30)
+        if (isAndroid || isIOS) showMobileLoading('Loading available jobs...', 30)
         const activeJobs = await applicantFunctions.listActiveJobs()
         
         if (!alive) return
         
-        if (isAndroid) showMobileLoading('Loading your applications...', 60)
+        if (isAndroid || isIOS) showMobileLoading('Loading your applications...', 60)
         const myApplications = await applicantFunctions.listMyApplications()
         
         if (!alive) return
@@ -614,7 +661,7 @@ function RequirementsContent() {
         
         if (!alive) return
 
-        if (isAndroid) showMobileLoading('Finalizing...', 90)
+        if (isAndroid || isIOS) showMobileLoading('Finalizing...', 90)
         
         setJobs(formattedJobs)
         setRows(formattedApplications)
@@ -642,7 +689,7 @@ function RequirementsContent() {
         if (alive) {
           setLoadingJobs(false)
           setLoadingTable(false)
-          if (isAndroid) {
+          if (isAndroid || isIOS) {
             setTimeout(() => hideMobileLoading(), 500)
           }
         }
@@ -654,7 +701,7 @@ function RequirementsContent() {
     return () => {
       alive = false
     }
-  }, [authChecked, applicantFunctions, initPos, isAndroid, addError, showMobileLoading, hideMobileLoading])
+  }, [authChecked, applicantFunctions, initPos, isAndroid, isIOS, addError, showMobileLoading, hideMobileLoading])
 
   const checkSpamProtection = async (applications: Row[]) => {
     if (!applications || applications.length === 0) {
@@ -729,7 +776,6 @@ function RequirementsContent() {
     return `${minutes}m`
   }
 
-  // Handle job selection - show preview
   const handleJobSelect = (e: React.ChangeEvent<HTMLSelectElement>) => {
     const selectedJobId = e.target.value || null
     setJobId(selectedJobId)
@@ -738,7 +784,6 @@ function RequirementsContent() {
       const selected = jobs.find(j => j.id === selectedJobId)
       if (selected) {
         setPosition(selected.job_title)
-        // Show job details preview
         setSelectedJobPreview(selected)
       }
     } else {
@@ -759,15 +804,13 @@ function RequirementsContent() {
     setSuccess(null)
     setUploadProgress(0)
     
-    // Show loading immediately for mobile
-    if (isAndroid) {
-      showMobileLoading('Processing file...', 10)
+    if (isAndroid || isIOS) {
+      showMobileLoading('Processing PDF file...', 10)
     }
 
     try {
-      // Validate file using the function from applicant.ts
       if (applicantFunctions?.validateFile) {
-        const validation = await applicantFunctions.validateFile(f)
+        const validation = applicantFunctions.validateFile(f)
         if (!validation.valid) {
           addError({
             type: 'FILE',
@@ -781,7 +824,6 @@ function RequirementsContent() {
           return
         }
       } else {
-        // Fallback validation
         if (f.type !== 'application/pdf') {
           addError({
             type: 'FILE',
@@ -822,31 +864,28 @@ function RequirementsContent() {
         }
       }
 
-      // For Android, add extra processing time
       if (isAndroid) {
         setUploadProgress(30)
-        showMobileLoading('Processing PDF...', 30)
+        showMobileLoading('Checking file...', 30)
         
-        // Small delay to ensure file is fully loaded
-        await new Promise(resolve => setTimeout(resolve, 300))
+        await new Promise(resolve => setTimeout(resolve, 200))
         
-        // Additional check for file readability
         try {
           const reader = new FileReader()
           await new Promise((resolve, reject) => {
             reader.onload = resolve
             reader.onerror = reject
-            reader.readAsArrayBuffer(f.slice(0, 1024)) // Read first 1KB to check
+            reader.readAsArrayBuffer(f.slice(0, 512))
           })
           
           setUploadProgress(60)
-          showMobileLoading('File validated', 60)
+          showMobileLoading('File ready!', 60)
           
         } catch (readError) {
           console.error('File read error:', readError)
           addError({
             type: 'FILE',
-            message: 'Unable to read file. It may be corrupted or in an unsupported format.',
+            message: 'File may be corrupted. Try selecting it again.',
             retryable: true
           })
           setFile(null)
@@ -860,9 +899,8 @@ function RequirementsContent() {
       setFile(f)
       setUploadProgress(100)
       
-      // Show success briefly
-      if (isAndroid) {
-        showMobileLoading('File ready!', 100)
+      if (isAndroid || isIOS) {
+        showMobileLoading('✅ Ready to upload!', 100)
         setTimeout(() => hideMobileLoading(), 500)
       }
       
@@ -870,7 +908,9 @@ function RequirementsContent() {
       console.error('File pick error:', error)
       addError({
         type: 'FILE',
-        message: 'Failed to process file',
+        message: isAndroid || isIOS
+          ? 'File selection issue. Try opening PDF first, then share to this app'
+          : 'Failed to process file',
         details: error.message,
         retryable: true
       })
@@ -879,17 +919,16 @@ function RequirementsContent() {
         fileInputRef.current.value = ''
       }
     } finally {
-      if (isAndroid && !file) {
+      if ((isAndroid || isIOS) && !file) {
         hideMobileLoading()
       }
       
       setTimeout(() => {
         setUploadProgress(0)
-      }, 1500)
+      }, 1000)
     }
   }
 
-  // Handle edit button click in table row
   const handleEditClick = (application: Row) => {
     if (application.status !== 'for_review') {
       addError({
@@ -901,13 +940,11 @@ function RequirementsContent() {
       return
     }
     
-    // Set the row that's being edited
     setEditingRowId(application.id)
     setEditingApplicationId(application.id)
     setEditingApplication(application)
   }
 
-  // Handle cancel edit in table row
   const handleCancelEdit = () => {
     setEditingRowId(null)
     setEditingApplicationId(null)
@@ -916,7 +953,6 @@ function RequirementsContent() {
     setRowSubmitting(false)
   }
 
-  // Handle update from table row edit form
   const handleRowUpdate = async (file: File | null, comment: string) => {
     if (!applicantFunctions || !editingApplicationId || !editingApplication || !file) {
       return
@@ -926,7 +962,6 @@ function RequirementsContent() {
       setRowSubmitting(true)
       setRowUploadProgress(10)
 
-      // Simulate upload progress
       const progressInterval = setInterval(() => {
         setRowUploadProgress(prev => {
           if (prev >= 90) {
@@ -945,7 +980,6 @@ function RequirementsContent() {
       clearInterval(progressInterval)
       setRowUploadProgress(100)
 
-      // Refresh applications list
       setTimeout(async () => {
         try {
           const myApplications = await applicantFunctions.listMyApplications()
@@ -1036,15 +1070,13 @@ function RequirementsContent() {
     try {
       setSubmitting(true)
       
-      // Check network speed
       const networkSpeed = await checkNetworkSpeed()
-      if (networkSpeed === 'slow' && isAndroid) {
+      if (networkSpeed === 'slow' && (isAndroid || isIOS)) {
         showMobileLoading('Slow network detected. Upload may take longer...', 5)
-      } else if (isAndroid) {
+      } else if (isAndroid || isIOS) {
         showMobileLoading('Preparing upload...', 10)
       }
 
-      // Simulated progress updates for better UX
       const progressInterval = setInterval(() => {
         setUploadProgress(prev => {
           if (prev >= 85) {
@@ -1052,14 +1084,13 @@ function RequirementsContent() {
             return 85
           }
           const newProgress = Math.min(prev + 15, 85)
-          if (isAndroid) {
-            showMobileLoading('Uploading...', newProgress)
+          if (isAndroid || isIOS) {
+            showMobileLoading('Uploading PDF...', newProgress)
           }
           return newProgress
         })
       }, 300)
 
-      // Actual submission
       const result = await applicantFunctions.submitApplication({ 
         job_id: jobId!, 
         file: file!, 
@@ -1068,11 +1099,10 @@ function RequirementsContent() {
       
       clearInterval(progressInterval)
       setUploadProgress(100)
-      if (isAndroid) showMobileLoading('Finalizing...', 100)
+      if (isAndroid || isIOS) showMobileLoading('Finalizing...', 100)
       
-      setSuccess(`Application submitted successfully! Reference: #${result}`)
+      setSuccess(`✅ Application submitted! Reference: #${result}`)
       
-      // Reset form after success
       setTimeout(() => {
         setFile(null)
         setApplicantComment('')
@@ -1082,15 +1112,14 @@ function RequirementsContent() {
         if (fileInputRef.current) {
           fileInputRef.current.value = ''
         }
-        if (isAndroid) {
+        if (isAndroid || isIOS) {
           setTimeout(() => hideMobileLoading(), 500)
         }
       }, 1000)
       
-      // Refresh applications list
       setTimeout(async () => {
         try {
-          if (isAndroid) showMobileLoading('Refreshing...', 0)
+          if (isAndroid || isIOS) showMobileLoading('Refreshing...', 0)
           
           const myApplications = await applicantFunctions.listMyApplications()
           const formattedApplications = (myApplications || []).map((app: any) => ({
@@ -1114,7 +1143,7 @@ function RequirementsContent() {
         } catch (refreshError) {
           console.error('Failed to refresh data:', refreshError)
         } finally {
-          if (isAndroid) {
+          if (isAndroid || isIOS) {
             setTimeout(() => hideMobileLoading(), 500)
           }
         }
@@ -1123,31 +1152,37 @@ function RequirementsContent() {
     } catch (e: any) {
       console.error('Submission error:', e)
       setUploadProgress(0)
-      if (isAndroid) hideMobileLoading()
+      if (isAndroid || isIOS) hideMobileLoading()
       
       let errorType: AppError['type'] = 'SUBMISSION'
-      let userMessage = 'An error occurred. Please try again.'
+      let userMessage = e.message || 'An error occurred. Please try again.'
       
-      // More specific error handling
-      if (e.message.includes('cooldown') || e.message.includes('limit')) {
-        errorType = 'VALIDATION'
-        userMessage = e.message
-      } else if (e.message.includes('authenticated')) {
-        errorType = 'AUTH'
-        userMessage = 'Session expired. Please sign in again.'
-        setTimeout(() => router.push('/login?next=/applicant/requirements'), 2000)
-      } else if (e.message.includes('PDF') || e.message.includes('file')) {
-        errorType = 'FILE'
-        userMessage = e.message
-      } else if (e.message.includes('network') || e.message.includes('fetch')) {
-        errorType = 'NETWORK'
-        userMessage = 'Network error. Please check your connection.'
-      } else if (e.message.includes('size') || e.message.includes('large')) {
-        errorType = 'FILE'
-        userMessage = 'File is too large. Maximum size is 10MB.'
-      } else if (e.message.includes('type') || e.message.includes('format')) {
-        errorType = 'FILE'
-        userMessage = 'Invalid file format. Only PDF files are allowed.'
+      if (isAndroid || isIOS) {
+        if (e.message.includes('network') || e.message.includes('fetch')) {
+          errorType = 'NETWORK'
+          userMessage = '📶 Network issue. Check connection and try again.'
+        } else if (e.message.includes('size')) {
+          errorType = 'FILE'
+          userMessage = '📁 File too large (max 10MB). Try compressing the PDF.'
+        } else if (e.message.includes('type') || e.message.includes('pdf')) {
+          errorType = 'FILE'
+          userMessage = '📄 Only PDF files allowed. Make sure file ends with .pdf'
+        } else if (e.message.includes('permission')) {
+          errorType = 'AUTH'
+          userMessage = '🔑 Permission error. Try logging out and back in.'
+        } else if (e.message.includes('storage') || e.message.includes('bucket')) {
+          errorType = 'FILE'
+          userMessage = '💾 Storage error. Please try again or contact support.'
+        }
+      } else {
+        if (e.message.includes('cooldown') || e.message.includes('limit')) {
+          errorType = 'VALIDATION'
+          userMessage = e.message
+        } else if (e.message.includes('authenticated')) {
+          errorType = 'AUTH'
+          userMessage = 'Session expired. Please sign in again.'
+          setTimeout(() => router.push('/login?next=/applicant/requirements'), 2000)
+        }
       }
       
       addError({
@@ -1199,7 +1234,9 @@ function RequirementsContent() {
     <div className="min-h-screen bg-gray-50">
       {mobileLoading.show && <MobileLoadingOverlay message={mobileLoading.message} progress={mobileLoading.progress} />}
 
-      {isAndroid && <MobileErrorToast errors={errors} onDismiss={removeError} />}
+      {(isAndroid || isIOS) && <MobileErrorToast errors={errors} onDismiss={removeError} />}
+
+      <MobileDebugButton onTest={testMobileUpload} />
 
       {selectedJobPreview && (
         <JobDetailsPreview 
@@ -1220,12 +1257,23 @@ function RequirementsContent() {
                 <p className="text-sm text-gray-600">Apply for positions and manage your applications</p>
               </div>
             </div>
+            <button
+              onClick={async () => {
+                if (applicantFunctions?.signOut) {
+                  await applicantFunctions.signOut();
+                  router.push('/login');
+                }
+              }}
+              className="text-sm text-red-600 hover:text-red-800"
+            >
+              Sign Out
+            </button>
           </div>
         </div>
       </div>
 
       <div className="max-w-7xl mx-auto px-4 py-6 pb-24">
-        {!isAndroid && errors.length > 0 && (
+        {!(isAndroid || isIOS) && errors.length > 0 && (
           <div className="mb-4 space-y-2">
             {errors.map((error, index) => (
               <div key={index} className="bg-red-50 border border-red-200 rounded-lg p-3">
@@ -1274,7 +1322,6 @@ function RequirementsContent() {
           </div>
         )}
 
-        {/* Mobile Stats */}
         <div className="grid grid-cols-2 gap-3 mb-6">
           <div className="bg-white rounded-lg border border-gray-200 p-4">
             <p className="text-sm text-gray-600">My Applications</p>
@@ -1288,7 +1335,6 @@ function RequirementsContent() {
           </div>
         </div>
 
-        {/* New Application Form */}
         <div className="mb-8">
           <h2 className="text-lg font-bold text-gray-900 mb-4">New Application</h2>
 
@@ -1354,7 +1400,7 @@ function RequirementsContent() {
                   ) : (
                     <div className="text-center">
                       <p className="text-base text-gray-600 mb-1">
-                        Tap to select PDF
+                        {isAndroid || isIOS ? 'Tap to select PDF' : 'Click to select PDF'}
                       </p>
                       <p className="text-sm text-gray-500">Maximum 10MB</p>
                       <p className="text-xs text-gray-400 mt-2">Resume or CV in PDF format</p>
@@ -1415,14 +1461,13 @@ function RequirementsContent() {
           </div>
         </div>
 
-        {/* My Applications List */}
         <div>
           <div className="flex items-center justify-between mb-4">
             <h2 className="text-lg font-bold text-gray-900">My Applications</h2>
             <button
               onClick={async () => {
                 setLoadingTable(true)
-                if (isAndroid) showMobileLoading('Refreshing applications...')
+                if (isAndroid || isIOS) showMobileLoading('Refreshing applications...')
                 try {
                   const myApplications = await applicantFunctions.listMyApplications()
                   const formattedApplications = (myApplications || []).map((app: any) => ({
@@ -1444,7 +1489,7 @@ function RequirementsContent() {
                   await checkSpamProtection(formattedApplications)
                 } finally {
                   setLoadingTable(false)
-                  if (isAndroid) hideMobileLoading()
+                  if (isAndroid || isIOS) hideMobileLoading()
                 }
               }}
               disabled={loadingTable}
@@ -1524,7 +1569,6 @@ function RequirementsContent() {
                       </div>
                     </div>
 
-                    {/* Edit Form - Shows below the row when editing */}
                     {editingRowId === row.id && (
                       <EditApplicationForm
                         application={row}

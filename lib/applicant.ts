@@ -10,7 +10,7 @@ export const supabase = createClient(url, anon, {
   }
 })
 
-// User interface matching our database schema
+// User interface
 export interface User {
   id: string
   email: string
@@ -23,287 +23,67 @@ export interface User {
   updated_at?: string
 }
 
-/* ---------- Database Health Check ---------- */
-export async function checkDatabaseHealth() {
-  try {
-    console.log('🔍 Checking database health...');
-    
-    // Check connection
-    const { data: test, error: connError } = await supabase
-      .from('profiles')
-      .select('count')
-      .limit(1);
-    
-    if (connError) {
-      console.error('❌ Database connection error:', connError);
-      return { healthy: false, error: connError.message };
-    }
-    
-    // Check RLS
-    const { data: profile, error: rlsError } = await supabase
-      .from('profiles')
-      .select('id')
-      .limit(1)
-      .maybeSingle();
-    
-    if (rlsError?.code === '42501') {
-      console.error('❌ RLS policy error - missing policies');
-      return { healthy: false, error: 'Missing RLS policies' };
-    }
-    
-    console.log('✅ Database is healthy');
-    return { healthy: true, error: null };
-  } catch (error) {
-    console.error('❌ Health check failed:', error);
-    return { healthy: false, error: String(error) };
+// Application interface
+export interface MyApplication {
+  id: string
+  job_id: string
+  job_title: string
+  job_status: string
+  pdf_path: string
+  applicant_comment: string
+  hr_comment: string
+  submitted_at: string
+  status: 'for_review' | 'shortlisted' | 'for_interview' | 'hired' | 'rejected'
+  updated_at?: string
+  hr_comment_at?: string
+  hr_comment_by?: {
+    first_name: string
+    last_name: string
+    role: string
   }
 }
 
-/* ---------- Profile Management ---------- */
-export async function ensureUserProfile(userId: string, email: string): Promise<boolean> {
+/* ---------- Get Current User ---------- */
+export async function getCurrentUser(): Promise<User | null> {
   try {
-    console.log('🔄 Ensuring profile exists for:', userId);
-    
+    const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+    if (sessionError || !session) {
+      console.log('No active session');
+      return null;
+    }
+
     // Check if profile exists
-    const { data: existingProfile, error: checkError } = await supabase
+    const { data: existingProfile } = await supabase
       .from('profiles')
       .select('id')
-      .eq('id', userId)
+      .eq('id', session.user.id)
       .single();
 
-    // If profile doesn't exist, create it
-    if (checkError?.code === 'PGRST116') {
-      console.log('📝 Creating missing profile...');
-      
-      const { error: createError } = await supabase
+    if (!existingProfile) {
+      // Create profile if doesn't exist
+      const { error: insertError } = await supabase
         .from('profiles')
         .insert({
-          id: userId,
-          email: email,
+          id: session.user.id,
+          email: session.user.email,
           role: 'applicant',
           created_at: new Date().toISOString()
         });
 
-      if (createError) {
-        console.error('❌ Failed to create profile:', createError);
-        return false;
-      }
-      
-      console.log('✅ Profile created successfully');
-      return true;
-    }
-
-    if (checkError) {
-      console.error('❌ Error checking profile:', checkError);
-      return false;
-    }
-
-    console.log('✅ Profile already exists');
-    return !!existingProfile;
-  } catch (error) {
-    console.error('❌ Error ensuring user profile:', error);
-    return false;
-  }
-}
-
-/* ---------- Auth Functions ---------- */
-export async function signUp({ email, password, phone, first_name, last_name }: {
-  email: string; 
-  password: string; 
-  phone?: string;
-  first_name?: string;
-  last_name?: string;
-}) {
-  try {
-    console.log('👤 Starting signup for:', email);
-    
-    const { data, error } = await supabase.auth.signUp({
-      email, 
-      password, 
-      options: { 
-        data: { 
-          phone: phone || '',
-          first_name: first_name || '',
-          last_name: last_name || ''
-        },
-        emailRedirectTo: `${window.location.origin}/auth/callback`
-      }
-    });
-    
-    if (error) {
-      console.error('❌ Auth signup error:', error);
-      throw error;
-    }
-
-    // If user is created successfully, create their profile
-    if (data.user) {
-      console.log('✅ Auth user created, ensuring profile...');
-      
-      // Use ensureUserProfile function
-      const profileCreated = await ensureUserProfile(data.user.id, email);
-      
-      if (profileCreated) {
-        console.log('✅ Profile created/verified');
-      } else {
-        console.warn('⚠️ Profile may not have been created');
+      if (insertError) {
+        console.error('Failed to create profile:', insertError);
+        return null;
       }
     }
 
-    return { 
-      user: data.user,
-      requiresEmailConfirmation: !data.session 
-    };
-  } catch (error) {
-    console.error('❌ Sign up error:', error);
-    throw error;
-  }
-}
-
-export async function signIn({ email, password }: { email: string; password: string }) {
-  try {
-    console.log('🔐 Signing in:', email);
-    
-    const { data, error } = await supabase.auth.signInWithPassword({ email, password });
-    
-    if (error) {
-      console.error('❌ Sign in error:', error);
-      throw error;
-    }
-    
-    console.log('✅ Signed in successfully:', data.user.id);
-    
-    // Ensure profile exists after sign in
-    if (data.user) {
-      await ensureUserProfile(data.user.id, data.user.email!);
-    }
-    
-    return data.user;
-  } catch (error) {
-    console.error('❌ Sign in error:', error);
-    throw error;
-  }
-}
-
-export async function signOut() {
-  try {
-    console.log('👋 Signing out...');
-    const { error } = await supabase.auth.signOut();
-    
-    if (error) {
-      console.error('❌ Sign out error:', error);
-      throw error;
-    }
-    
-    console.log('✅ Signed out successfully');
-  } catch (error) {
-    console.error('❌ Sign out error:', error);
-    throw error;
-  }
-}
-
-/* ---------- Password Reset Functions ---------- */
-export async function requestPasswordReset(email: string) {
-  try {
-    console.log('🔧 Requesting password reset for:', email);
-    
-    // Get the current origin
-    const origin = window.location.origin;
-    console.log('📍 Origin:', origin);
-    console.log('🔗 Redirect URL:', `${origin}/reset-password`);
-    
-    // Use the Supabase resetPasswordForEmail method
-    const { error } = await supabase.auth.resetPasswordForEmail(email, {
-      redirectTo: `${origin}/reset-password`,
-    });
-
-    if (error) {
-      console.error('❌ Password reset request error:', error);
-      throw error;
-    }
-
-    console.log('✅ Password reset email sent successfully');
-    return { success: true, message: 'Password reset email sent. Check your inbox.' };
-  } catch (error: any) {
-    console.error('❌ Error in requestPasswordReset:', error);
-    
-    // User-friendly error messages
-    let errorMessage = 'Failed to send reset email. Please try again.';
-    
-    if (error.message?.includes('rate limit')) {
-      errorMessage = 'Too many attempts. Please wait a few minutes before trying again.';
-    } else if (error.message?.includes('email')) {
-      errorMessage = 'Please enter a valid email address.';
-    } else if (error.message?.includes('user not found')) {
-      errorMessage = 'No account found with this email address.';
-    }
-    
-    return { 
-      success: false, 
-      error: errorMessage,
-      details: error.message 
-    };
-  }
-}
-
-export async function updateUserPassword(newPassword: string) {
-  try {
-    console.log('🔧 Updating user password...');
-    
-    const { error } = await supabase.auth.updateUser({
-      password: newPassword
-    });
-
-    if (error) {
-      console.error('❌ Update password error:', error);
-      throw error;
-    }
-
-    console.log('✅ Password updated successfully');
-    return { success: true, message: 'Password updated successfully.' };
-  } catch (error: any) {
-    console.error('❌ Error in updateUserPassword:', error);
-    return { 
-      success: false, 
-      error: error.message || 'Failed to update password. Please try again.'
-    };
-  }
-}
-
-export async function getCurrentUser(): Promise<User | null> {
-  try {
-    console.log('🔍 Getting current user...');
-    
-    const { data: { session }, error: sessionError } = await supabase.auth.getSession();
-    
-    if (sessionError || !session) {
-      console.log('❌ No active session');
-      return null;
-    }
-
-    console.log('✅ Session found for user:', session.user.id);
-
-    // First, ensure profile exists
-    const profileExists = await ensureUserProfile(session.user.id, session.user.email!);
-    
-    if (!profileExists) {
-      console.error('❌ Failed to ensure profile exists');
-      return null;
-    }
-
-    // Then fetch the profile
-    const { data: profile, error: profileError } = await supabase
+    const { data: profile } = await supabase
       .from('profiles')
       .select('*')
       .eq('id', session.user.id)
       .single();
 
-    if (profileError) {
-      console.error('❌ Profile fetch error:', profileError);
-      return null;
-    }
+    if (!profile) return null;
 
-    console.log('✅ Profile loaded:', profile.email);
-    
     return {
       id: profile.id,
       email: profile.email,
@@ -315,378 +95,240 @@ export async function getCurrentUser(): Promise<User | null> {
       created_at: profile.created_at,
       updated_at: profile.updated_at
     };
-
   } catch (error) {
-    console.error('❌ Error getting current user:', error);
+    console.error('Error getting current user:', error);
     return null;
   }
 }
 
-export async function updateUserProfile(updates: { 
-  first_name?: string; 
-  last_name?: string; 
-  middle_name?: string;
-  phone?: string;
-  date_of_birth?: string;
-  address?: string;
-}) {
+/* ---------- File Validation ---------- */
+export function validateFile(file: File): { valid: boolean; error?: string } {
+  if (!file) return { valid: false, error: 'No file selected.' };
+  
+  const fileName = file.name.toLowerCase();
+  const isPDF = fileName.endsWith('.pdf');
+  if (!isPDF) return { valid: false, error: 'Only PDF files are allowed.' };
+  
+  if (file.size > 10 * 1024 * 1024) return { valid: false, error: 'File size must be less than 10MB.' };
+  if (file.size === 0) return { valid: false, error: 'File appears to be empty.' };
+  
+  return { valid: true };
+}
+
+/* ---------- Prepare File for Mobile ---------- */
+export function prepareFileForMobile(file: File): File {
+  // Check if navigator is available (SSR safety)
+  if (typeof navigator === 'undefined') return file;
+  
+  const isAndroid = /Android/i.test(navigator.userAgent);
+  const isIOS = /iPhone|iPad|iPod/i.test(navigator.userAgent);
+  
+  if (!isAndroid && !isIOS) return file;
+
   try {
-    const user = await getCurrentUser();
+    let sanitizedName = file.name
+      .replace(/[^a-zA-Z0-9._-]/g, '_')
+      .replace(/\s+/g, '_')
+      .replace(/_+/g, '_');
     
-    if (!user) {
-      throw new Error('Not authenticated');
-    }
-
-    console.log('📝 Updating profile for:', user.id);
-    
-    const { error } = await supabase
-      .from('profiles')
-      .update({
-        ...updates,
-        updated_at: new Date().toISOString()
-      })
-      .eq('id', user.id);
-
-    if (error) {
-      console.error('❌ Profile update error:', error);
-      throw error;
+    if (!sanitizedName.toLowerCase().endsWith('.pdf')) {
+      sanitizedName = sanitizedName.replace(/\.[^/.]+$/, "") + '.pdf';
     }
     
-    console.log('✅ Profile updated successfully');
+    if (sanitizedName.length > 100) {
+      const extension = '.pdf';
+      const baseName = sanitizedName.slice(0, 100 - extension.length);
+      sanitizedName = baseName + extension;
+    }
+
+    return new File([file], sanitizedName, {
+      type: 'application/pdf',
+      lastModified: Date.now()
+    });
   } catch (error) {
-    console.error('❌ Error updating profile:', error);
+    console.warn('Failed to prepare file for mobile:', error);
+    return file;
+  }
+}
+
+/* ---------- Simple Upload Function ---------- */
+async function uploadFileToStorage(file: File, fileName: string, userId: string): Promise<any> {
+  // Check if navigator is available (SSR safety)
+  const isAndroid = typeof navigator !== 'undefined' && /Android/i.test(navigator.userAgent);
+  
+  console.log('📤 Uploading file:', {
+    fileName,
+    userId,
+    startsWithUserId: fileName.startsWith(userId),
+    isAndroid
+  });
+
+  // Ensure filename starts with userId-
+  if (!fileName.startsWith(`${userId}-`)) {
+    console.warn('⚠️ Fixing filename');
+    const parts = fileName.split('-');
+    fileName = `${userId}-${parts.slice(1).join('-')}`;
+  }
+
+  const uploadOptions: any = {
+    cacheControl: '3600',
+    upsert: false,
+    contentType: 'application/pdf'
+  };
+
+  if (isAndroid) {
+    uploadOptions.duplex = 'half';
+  }
+
+  const { data, error } = await supabase.storage
+    .from('applications')
+    .upload(fileName, file, uploadOptions);
+
+  if (error) {
+    console.error('❌ Upload error:', error.message);
     throw error;
   }
+
+  console.log('✅ File uploaded successfully');
+  return data;
 }
 
-/* ---------- Application Functions ---------- */
-export interface JobPosting {
-  id: string
-  job_title: string
-  department?: string
-  location?: string
-  job_description?: string
-  status: 'active' | 'closed'
-  date_posted: string
-  created_by: string
-}
-
-export interface Application {
-  id: string
-  job_id: string
-  applicant_id: string
-  pdf_path: string
-  applicant_comment?: string
-  hr_comment?: string
-  hr_comment_by?: string
-  hr_comment_at?: string
-  submitted_at: string
-  status: 'for_review' | 'shortlisted' | 'hired' | 'rejected'
-  updated_at?: string
-  job_postings?: {
-    job_title: string
-    status: string
-  }
-  hr_comment_profiles?: {
-    first_name: string
-    last_name: string
-    role: string
-  }
-}
-
-/* ---------- File Validation ---------- */
-export async function validateFile(file: File): Promise<{ valid: boolean; error?: string }> {
-  try {
-    // Check file type
-    if (file.type !== 'application/pdf') {
-      return { valid: false, error: 'Only PDF files are allowed.' };
-    }
-
-    // Check file size
-    if (file.size > 10 * 1024 * 1024) {
-      return { valid: false, error: 'File size must be less than 10MB.' };
-    }
-
-    // Check if file is empty (common on Android)
-    if (file.size === 0) {
-      return { valid: false, error: 'File appears to be empty. Please try selecting a different file.' };
-    }
-
-    // Additional Android-specific checks
-    if (typeof window !== 'undefined' && /Android/i.test(navigator.userAgent)) {
-      // Check if file name is valid
-      if (!file.name || file.name.trim() === '') {
-        return { valid: false, error: 'Invalid file name. Please rename your file and try again.' };
-      }
-
-      // Check file extension
-      const validExtensions = ['.pdf', '.PDF'];
-      const hasValidExtension = validExtensions.some(ext => file.name.toLowerCase().endsWith(ext));
-      if (!hasValidExtension) {
-        return { valid: false, error: 'File must have a .pdf extension.' };
-      }
-    }
-
-    return { valid: true };
-  } catch (error) {
-    console.error('File validation error:', error);
-    return { valid: false, error: 'Failed to validate file. Please try again.' };
-  }
-}
-
-/* ---------- Network Recovery Helper ---------- */
-const withRetry = async <T>(
-  operation: () => Promise<T>,
-  maxRetries = 3,
-  delay = 1000
-): Promise<T> => {
-  let lastError: Error | null = null;
-  
-  for (let attempt = 1; attempt <= maxRetries; attempt++) {
-    try {
-      return await operation();
-    } catch (error) {
-      lastError = error as Error;
-      console.log(`Attempt ${attempt} failed:`, error);
-      
-      if (attempt < maxRetries) {
-        // Exponential backoff
-        const waitTime = delay * Math.pow(2, attempt - 1);
-        console.log(`Waiting ${waitTime}ms before retry...`);
-        await new Promise(resolve => setTimeout(resolve, waitTime));
-      }
-    }
-  }
-  
-  throw lastError || new Error('Operation failed after all retries');
-};
-
-/* ---------- Submit Application with Enhanced Upload ---------- */
+/* ---------- Submit Application ---------- */
 export async function submitApplication({ job_id, file, applicant_comment }: {
-  job_id: string;
-  file: File;
-  applicant_comment: string;
-}) {
+  job_id: string; file: File; applicant_comment: string;
+}): Promise<string> {
   try {
     console.log('🚀 Starting application submission...');
-    console.log('📊 Submission details:', { 
-      job_id, 
-      file: file.name, 
-      size: (file.size / 1024 / 1024).toFixed(2) + 'MB',
-      type: file.type 
-    });
     
-    // 1. Get current user
+    // 1. Get user
     const user = await getCurrentUser();
+    if (!user) throw new Error('Please sign in to submit an application.');
     
-    if (!user) {
-      throw new Error('Not authenticated. Please sign in to submit an application.');
-    }
-
-    console.log('✅ User authenticated:', { id: user.id, email: user.email });
-
-    // 2. Enhanced file validation
-    const validation = await validateFile(file);
-    if (!validation.valid) {
-      throw new Error(validation.error || 'Invalid file');
-    }
-
-    // 3. Check for spam protection
-    const cooldownCheck = await checkRecentApplication(job_id);
+    // 2. Prepare file for mobile
+    const isAndroid = typeof navigator !== 'undefined' && /Android/i.test(navigator.userAgent);
+    const isIOS = typeof navigator !== 'undefined' && /iPhone|iPad|iPod/i.test(navigator.userAgent);
+    let uploadFile = file;
     
-    if (!cooldownCheck.canApply) {
-      throw new Error(cooldownCheck.message);
+    if (isAndroid || isIOS) {
+      uploadFile = prepareFileForMobile(file);
     }
-
-    console.log('✅ Spam check passed');
-
-    // 4. Verify job exists and is active
+    
+    // 3. Validate file
+    const validation = validateFile(uploadFile);
+    if (!validation.valid) throw new Error(validation.error || 'Invalid file');
+    
+    // 4. Check job exists
     const { data: job, error: jobError } = await supabase
       .from('job_postings')
       .select('id, job_title, status')
       .eq('id', job_id)
       .eq('status', 'active')
       .single();
-
-    if (jobError || !job) {
-      throw new Error('Job not found or no longer active. Please select a different position.');
-    }
-
-    console.log('✅ Job verified:', job.job_title);
-
-    // 5. Check for duplicate applications
-    const { data: existingApp } = await supabase
+    
+    if (jobError || !job) throw new Error('Job not found or no longer active.');
+    
+    // 5. Check duplicate
+    const { data: existingApp, error: duplicateError } = await supabase
       .from('applications')
       .select('id')
       .eq('job_id', job_id)
       .eq('applicant_id', user.id)
       .maybeSingle();
-
-    if (existingApp) {
-      throw new Error('You have already applied to this position.');
+    
+    if (duplicateError) {
+      console.error('Duplicate check error:', duplicateError);
     }
-
-    console.log('✅ No duplicate found');
-
-    // 6. Create unique file path
+    
+    if (existingApp) throw new Error('You have already applied to this position.');
+    
+    // 6. Create filename
     const timestamp = Date.now();
     const randomString = Math.random().toString(36).substring(2, 9);
-    const fileExt = file.name.split('.').pop() || 'pdf';
-    const fileName = `${user.id}-${job_id}-${timestamp}-${randomString}.${fileExt}`;
-    const filePath = `applications/${fileName}`;
-
-    console.log('📤 Starting file upload:', filePath);
-
-    // 7. Upload PDF file with retry logic
-    const { error: uploadError } = await withRetry(
-      async () => {
-        const result = await supabase.storage
-          .from('applications')
-          .upload(filePath, file, {
-            cacheControl: '3600',
-            upsert: false,
-            contentType: 'application/pdf'
-          });
-        return result;
-      }
-    );
-
-    if (uploadError) {
-      console.error('❌ Upload error details:', {
-        message: uploadError.message,
-        name: uploadError.name
-      });
-      
-      // Try to get more specific error
-      if (uploadError.message.includes('Payload too large')) {
-        throw new Error('File is too large. Maximum size is 10MB.');
-      } else if (uploadError.message.includes('Invalid file type')) {
-        throw new Error('Invalid file type. Only PDF files are accepted.');
-      } else if (uploadError.message.includes('network')) {
-        throw new Error('Network error during upload. Please check your connection and try again.');
-      } else {
-        throw new Error(`Upload failed: ${uploadError.message}`);
-      }
-    }
-
-    console.log('✅ File uploaded successfully:', filePath);
-
-    // 8. Create application record with retry logic
+    const fileName = `${user.id}-${job_id}-${timestamp}-${randomString}.pdf`;
+    
+    // 7. Upload file
+    await uploadFileToStorage(uploadFile, fileName, user.id);
+    
+    // 8. Save to database
     const applicationData = {
       job_id,
       applicant_id: user.id,
-      pdf_path: filePath,
+      pdf_path: fileName,
       applicant_comment: applicant_comment || null,
       status: 'for_review',
       submitted_at: new Date().toISOString()
     };
-
-    const { data, error: insertError } = await withRetry(
-      async () => {
-        const result = await supabase
-          .from('applications')
-          .insert(applicationData)
-          .select()
-          .single();
-        return result;
-      }
-    );
-
+    
+    const { data, error: insertError } = await supabase
+      .from('applications')
+      .insert(applicationData)
+      .select()
+      .single();
+    
     if (insertError) {
-      // Clean up uploaded file
-      await supabase.storage.from('applications').remove([filePath]).catch(console.warn);
+      console.error('❌ Database error:', insertError);
       
-      // User-friendly error messages
-      if (insertError.code === '23505') {
-        throw new Error('You have already applied to this position.');
-      } else if (insertError.code === '23503') {
-        throw new Error('Invalid job or user reference. Please try again.');
-      } else {
-        throw new Error('Failed to save application. Please try again.');
+      // Clean up file
+      try {
+        await supabase.storage.from('applications').remove([fileName]);
+      } catch (cleanupError) {
+        console.warn('⚠️ Failed to clean up file:', cleanupError);
       }
+      
+      throw new Error('Failed to save application. Please try again.');
     }
-
-    console.log('✅ Application submitted successfully! ID:', data?.id);
+    
+    console.log('✅ Application submitted! ID:', data?.id);
     return data?.id || '';
     
-  } catch (error) {
+  } catch (error: any) {
     console.error('❌ Error in submitApplication:', error);
     
-    // Re-throw the error for the UI to handle
-    if (error instanceof Error) {
-      throw error;
-    } else {
-      throw new Error('An unexpected error occurred. Please try again.');
+    // Mobile-friendly messages
+    const isAndroid = typeof navigator !== 'undefined' && /Android/i.test(navigator.userAgent);
+    const isIOS = typeof navigator !== 'undefined' && /iPhone|iPad|iPod/i.test(navigator.userAgent);
+    
+    let userMessage = error.message;
+    
+    if (isAndroid || isIOS) {
+      if (error.message.includes('network') || error.message.includes('fetch')) {
+        userMessage = 'Network issue. Check connection and try again.';
+      } else if (error.message.includes('size') || error.message.includes('large')) {
+        userMessage = 'File too large (max 10MB). Try compressing PDF.';
+      } else if (error.message.includes('type') || error.message.includes('pdf')) {
+        userMessage = 'Only PDF files allowed.';
+      } else if (error.message.includes('permission') || error.message.includes('violates')) {
+        userMessage = 'Permission error. Try logging out and back in.';
+      }
     }
+    
+    throw new Error(userMessage);
   }
 }
 
-export interface MyApplication {
-  id: string
-  job_id: string
-  job_title: string
-  job_status: string
-  pdf_path: string
-  applicant_comment: string
-  hr_comment: string
-  submitted_at: string
-  status: 'for_review' | 'shortlisted' | 'hired' | 'rejected'
-  updated_at?: string
-  hr_comment_at?: string
-  hr_comment_by?: {
-    first_name: string
-    last_name: string
-    role: string
-  }
-}
-
+/* ---------- List Applications ---------- */
 export async function listMyApplications(): Promise<MyApplication[]> {
   try {
     const user = await getCurrentUser();
-    
-    if (!user) {
-      throw new Error('Not authenticated. Please sign in to view your applications.');
-    }
-
-    console.log('📋 Fetching applications for user:', user.id);
+    if (!user) throw new Error('Please sign in to view your applications.');
 
     const { data, error } = await supabase
       .from('applications')
       .select(`
-        id,
-        job_id,
-        pdf_path,
-        applicant_comment,
-        hr_comment,
-        hr_comment_by,
-        hr_comment_at,
-        submitted_at,
-        status,
-        updated_at,
-        job_postings (
-          job_title,
-          status
-        ),
-        hr_comment_profiles:hr_comment_by (
-          first_name,
-          last_name,
-          role
-        )
+        *,
+        job_postings:job_id (job_title, status),
+        hr_comment_profiles:hr_comment_by (first_name, last_name, role)
       `)
       .eq('applicant_id', user.id)
       .order('submitted_at', { ascending: false });
 
-    if (error) {
-      console.error('❌ Error fetching applications:', error);
-      throw error;
-    }
+    if (error) throw error;
 
-    console.log(`✅ Found ${data?.length || 0} applications`);
-
-    // Transform the data to match our interface
-    return (data || []).map((app: any) => {
-      const jobPosting = Array.isArray(app.job_postings) ? app.job_postings[0] : app.job_postings;
-      const hrCommentProfile = Array.isArray(app.hr_comment_profiles) ? app.hr_comment_profiles[0] : app.hr_comment_profiles;
+    const applications = data || [];
+    
+    return applications.map((app: any) => {
+      const jobPosting = app.job_postings;
+      const hrCommentProfile = app.hr_comment_profiles;
       
       return {
         id: app.id,
@@ -708,162 +350,55 @@ export async function listMyApplications(): Promise<MyApplication[]> {
       };
     });
   } catch (error) {
-    console.error('❌ Error fetching applications:', error);
+    console.error('Error fetching applications:', error);
     throw error;
   }
 }
 
-export async function getSignedUrl(filePath: string): Promise<string> {
+/* ---------- List Active Jobs ---------- */
+export async function listActiveJobs(): Promise<any[]> {
   try {
-    if (!filePath) {
-      throw new Error('No file path provided');
-    }
-
-    console.log('🔗 Generating signed URL for:', filePath);
-    
-    const { data, error } = await supabase.storage
-      .from('applications')
-      .createSignedUrl(filePath, 60 * 60); // 1 hour expiry
-
-    if (error) {
-      console.error('❌ Error generating signed URL:', error);
-      throw error;
-    }
-    
-    return data.signedUrl;
-  } catch (error) {
-    console.error('❌ Error generating signed URL:', error);
-    throw error;
-  }
-}
-
-export async function getJobDetails(jobId: string): Promise<JobPosting | null> {
-  try {
-    console.log('🔍 Fetching job details for:', jobId);
-    
-    const { data, error } = await supabase
-      .from('job_postings')
-      .select('*')
-      .eq('id', jobId)
-      .single();
-
-    if (error) {
-      console.error('❌ Error fetching job details:', error);
-      throw error;
-    }
-    
-    return data;
-  } catch (error) {
-    console.error('❌ Error fetching job details:', error);
-    throw error;
-  }
-}
-
-export async function listActiveJobs(): Promise<JobPosting[]> {
-  try {
-    console.log('📋 Fetching active jobs...');
-    
     const { data, error } = await supabase
       .from('job_postings')
       .select('*')
       .eq('status', 'active')
       .order('date_posted', { ascending: false });
 
-    if (error) {
-      console.error('❌ Error fetching active jobs:', error);
-      throw error;
-    }
-    
-    console.log(`✅ Found ${data?.length || 0} active jobs`);
+    if (error) throw error;
     return data || [];
   } catch (error) {
-    console.error('❌ Error fetching active jobs:', error);
+    console.error('Error fetching active jobs:', error);
     throw error;
   }
 }
 
-/* ---------- Anti-Spam Functions ---------- */
-export interface CheckCooldownResult {
-  canApply: boolean
-  nextAvailableTime: Date | null
-  message: string
-}
-
-export async function checkRecentApplication(jobId: string): Promise<CheckCooldownResult> {
+/* ---------- Get Signed URL ---------- */
+export async function getSignedUrl(filePath: string): Promise<string> {
   try {
-    const user = await getCurrentUser();
+    if (!filePath) throw new Error('No file path provided');
     
-    if (!user) {
-      throw new Error('Not authenticated');
-    }
+    const { data, error } = await supabase.storage
+      .from('applications')
+      .createSignedUrl(filePath, 60 * 60);
 
-    const COOLDOWN_PERIOD = 24 * 60 * 60 * 1000; // 24 hours in milliseconds
-    const MAX_APPLICATIONS_PER_DAY = 3;
-
-    // Get all user's applications
-    const applications = await listMyApplications();
-    const now = new Date();
-    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-
-    // Check daily limit
-    const todaysApplications = applications.filter(app => {
-      const appDate = new Date(app.submitted_at);
-      return appDate >= today;
-    });
-
-    if (todaysApplications.length >= MAX_APPLICATIONS_PER_DAY) {
-      const tomorrow = new Date(today);
-      tomorrow.setDate(tomorrow.getDate() + 1);
-      
-      return {
-        canApply: false,
-        nextAvailableTime: tomorrow,
-        message: `You have reached the daily limit of ${MAX_APPLICATIONS_PER_DAY} applications. You can apply again tomorrow.`
-      };
-    }
-
-    // Check for recent application to same job
-    const recentSameJob = applications.find(app => 
-      app.job_id === jobId && 
-      (Date.now() - new Date(app.submitted_at).getTime()) < COOLDOWN_PERIOD
-    );
-
-    if (recentSameJob) {
-      const nextAvailable = new Date(new Date(recentSameJob.submitted_at).getTime() + COOLDOWN_PERIOD);
-      
-      return {
-        canApply: false,
-        nextAvailableTime: nextAvailable,
-        message: `You've already applied to this position recently. Please wait 24 hours before applying again.`
-      };
-    }
-
-    return {
-      canApply: true,
-      nextAvailableTime: null,
-      message: ''
-    };
-
+    if (error) throw error;
+    return data.signedUrl;
   } catch (error) {
-    console.error('❌ Error checking recent applications:', error);
+    console.error('Error generating signed URL:', error);
     throw error;
   }
 }
 
+/* ---------- Update Application ---------- */
 export async function updateApplication(
   applicationId: string, 
   data: { file: File; applicant_comment: string }
 ): Promise<string> {
   try {
     const user = await getCurrentUser();
-    
-    if (!user) {
-      throw new Error('Not authenticated');
-    }
+    if (!user) throw new Error('Not authenticated');
 
-    console.log('🔄 Updating application:', applicationId);
-
-    // Check if application exists and belongs to user
+    // Get existing application
     const { data: existingApp, error: fetchError } = await supabase
       .from('applications')
       .select('*')
@@ -871,493 +406,158 @@ export async function updateApplication(
       .eq('applicant_id', user.id)
       .single();
 
-    if (fetchError) {
-      console.error('❌ Application fetch error:', fetchError);
-      throw new Error('Application not found or you do not have permission to edit it');
-    }
-
-    // Check if application can be edited (only "for_review" applications can be edited)
+    if (fetchError) throw new Error('Application not found or no permission to edit');
+    
+    // Only allow editing if status is 'for_review'
     if (existingApp.status !== 'for_review') {
       throw new Error(`Cannot edit application that has been ${existingApp.status}.`);
     }
 
-    // Validate file
-    const validation = await validateFile(data.file);
-    if (!validation.valid) {
-      throw new Error(validation.error || 'Invalid file');
-    }
+    // Validate new file
+    const validation = validateFile(data.file);
+    if (!validation.valid) throw new Error(validation.error || 'Invalid file');
 
-    let filePath = existingApp.pdf_path;
-
-    // Upload new PDF file
+    // Create new filename
     const timestamp = Date.now();
     const randomString = Math.random().toString(36).substring(2, 9);
-    const fileExt = data.file.name.split('.').pop() || 'pdf';
-    const fileName = `${user.id}-${existingApp.job_id}-${timestamp}-${randomString}.${fileExt}`;
-    filePath = `applications/${fileName}`;
+    const fileName = `${user.id}-${existingApp.job_id}-${timestamp}-${randomString}.pdf`;
 
-    const { error: uploadError } = await withRetry(
-      async () => {
-        const result = await supabase.storage
-          .from('applications')
-          .upload(filePath, data.file, {
-            contentType: 'application/pdf'
-          });
-        return result;
-      }
-    );
+    // Upload new file
+    const isAndroid = typeof navigator !== 'undefined' && /Android/i.test(navigator.userAgent);
+    let uploadFile = data.file;
+    if (isAndroid) uploadFile = prepareFileForMobile(data.file);
+    
+    await uploadFileToStorage(uploadFile, fileName, user.id);
 
-    if (uploadError) {
-      console.error('❌ Upload error:', uploadError);
-      throw new Error(`File upload failed: ${uploadError.message}`);
-    }
-
-    // Delete old file if exists
+    // Delete old file
     if (existingApp.pdf_path) {
       try {
-        await supabase.storage
-          .from('applications')
-          .remove([existingApp.pdf_path]);
+        await supabase.storage.from('applications').remove([existingApp.pdf_path]);
       } catch (storageError) {
-        console.warn('⚠️ Failed to delete old file:', storageError);
-        // Continue with upload even if delete fails
+        console.warn('Failed to delete old file:', storageError);
       }
     }
 
-    // Update application record
-    const { data: updatedApp, error: updateError } = await withRetry(
-      async () => {
-        const result = await supabase
-          .from('applications')
-          .update({
-            pdf_path: filePath,
-            applicant_comment: data.applicant_comment || null,
-            updated_at: new Date().toISOString()
-          })
-          .eq('id', applicationId)
-          .select()
-          .single();
-        return result;
-      }
-    );
-
-    if (updateError) {
-      console.error('❌ Update error:', updateError);
-      throw updateError;
-    }
-    
-    console.log('✅ Application updated:', updatedApp.id);
-    return updatedApp.id;
-
-  } catch (error) {
-    console.error('❌ Error updating application:', error);
-    throw error;
-  }
-}
-
-/* ---------- HR Comment Functions ---------- */
-export async function addHRComment(applicationId: string, comment: string) {
-  try {
-    const user = await getCurrentUser();
-    
-    if (!user) {
-      throw new Error('Not authenticated');
-    }
-
-    // Check if user is HR or Superadmin
-    if (user.role !== 'hr' && user.role !== 'super_admin') {
-      throw new Error('Unauthorized: Only HR or Superadmin can add comments');
-    }
-
-    console.log('💬 Adding HR comment to application:', applicationId);
-
-    const { data, error } = await supabase
+    // Update database
+    const { data: updatedApp, error: updateError } = await supabase
       .from('applications')
       .update({
-        hr_comment: comment,
-        hr_comment_by: user.id,
-        hr_comment_at: new Date().toISOString(),
+        pdf_path: fileName,
+        applicant_comment: data.applicant_comment || null,
         updated_at: new Date().toISOString()
       })
       .eq('id', applicationId)
-      .select(`
-        *,
-        hr_comment_profiles:hr_comment_by (
-          first_name,
-          last_name,
-          role
-        )
-      `)
+      .select()
       .single();
 
-    if (error) {
-      console.error('❌ Error adding HR comment:', error);
-      throw new Error('Failed to add comment');
-    }
+    if (updateError) throw updateError;
+    
+    return updatedApp.id;
 
-    console.log('✅ HR comment added successfully');
-
-    return data;
   } catch (error) {
-    console.error('❌ Error adding HR comment:', error);
+    console.error('Error updating application:', error);
     throw error;
   }
 }
 
-export async function getApplicationWithComments(applicationId: string): Promise<Application> {
+/* ---------- Test Function ---------- */
+export async function testMobileUpload(): Promise<{ success: boolean; message: string; error?: string }> {
   try {
     const user = await getCurrentUser();
+    if (!user) throw new Error('Not authenticated');
+
+    const isAndroid = typeof navigator !== 'undefined' && /Android/i.test(navigator.userAgent);
+    const isIOS = typeof navigator !== 'undefined' && /iPhone|iPad|iPod/i.test(navigator.userAgent);
     
-    if (!user) {
-      throw new Error('Not authenticated');
-    }
-
-    console.log('🔍 Fetching application with comments:', applicationId);
-
-    const { data, error } = await supabase
+    const testContent = `Upload test ${new Date().toISOString()}`;
+    const testBlob = new Blob([testContent], { type: 'text/plain' });
+    const testFileName = `${user.id}-test-${Date.now()}.txt`;
+    
+    const { error } = await supabase.storage
       .from('applications')
-      .select(`
-        *,
-        job_postings (
-          job_title,
-          status
-        ),
-        hr_comment_profiles:hr_comment_by (
-          first_name,
-          last_name,
-          role
-        )
-      `)
-      .eq('id', applicationId)
-      .eq('applicant_id', user.id) // Ensure user owns this application
-      .single();
+      .upload(testFileName, testBlob, {
+        contentType: 'text/plain',
+        duplex: isAndroid ? 'half' : undefined
+      });
 
     if (error) {
-      console.error('❌ Error fetching application:', error);
-      throw new Error('Failed to load application details');
+      return { success: false, message: 'Upload test failed', error: error.message };
     }
 
-    console.log('✅ Application loaded with comments');
-    return data;
+    // Clean up
+    await supabase.storage.from('applications').remove([testFileName]);
+    
+    return { success: true, message: `Upload works! Device: ${isAndroid ? 'Android' : isIOS ? 'iOS' : 'Desktop'}` };
+    
+  } catch (error: any) {
+    return { success: false, message: 'Upload test failed', error: error.message };
+  }
+}
+
+/* ---------- Sign Out ---------- */
+export async function signOut() {
+  try {
+    const { error } = await supabase.auth.signOut();
+    if (error) throw error;
   } catch (error) {
-    console.error('❌ Error fetching application with comments:', error);
+    console.error('Error signing out:', error);
     throw error;
   }
 }
 
-export async function deleteApplication(applicationId: string): Promise<void> {
+/* ---------- Check Recent Application ---------- */
+export async function checkRecentApplication(jobId: string): Promise<{ canApply: boolean; message: string }> {
   try {
     const user = await getCurrentUser();
+    if (!user) throw new Error('Not authenticated');
+
+    const MAX_APPLICATIONS_PER_DAY = 3;
     
-    if (!user) {
-      throw new Error('Not authenticated');
-    }
-
-    console.log('🗑️ Deleting application:', applicationId);
-
-    // Check if application exists and belongs to user
-    const { data: existingApp, error: fetchError } = await supabase
+    // Get today's applications
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    
+    const { data: todaysApplications, error: countError } = await supabase
       .from('applications')
-      .select('*')
-      .eq('id', applicationId)
+      .select('id, submitted_at')
       .eq('applicant_id', user.id)
-      .single();
+      .gte('submitted_at', today.toISOString());
 
-    if (fetchError) {
-      throw new Error('Application not found or you do not have permission to delete it');
+    if (countError) throw countError;
+
+    const todaysCount = todaysApplications?.length || 0;
+
+    if (todaysCount >= MAX_APPLICATIONS_PER_DAY) {
+      return {
+        canApply: false,
+        message: `Daily limit reached (${MAX_APPLICATIONS_PER_DAY} applications). Try again tomorrow.`
+      };
     }
 
-    // Check if application can be deleted (only "for_review" applications can be deleted)
-    if (existingApp.status !== 'for_review') {
-      throw new Error(`Cannot delete application that has been ${existingApp.status}.`);
-    }
-
-    // Delete file from storage
-    if (existingApp.pdf_path) {
-      try {
-        await supabase.storage
-          .from('applications')
-          .remove([existingApp.pdf_path]);
-      } catch (storageError) {
-        console.warn('⚠️ Failed to delete file from storage:', storageError);
-        // Continue with deletion even if file delete fails
-      }
-    }
-
-    // Delete application record
-    const { error: deleteError } = await supabase
+    // Check for recent application to same job
+    const COOLDOWN_PERIOD = 24 * 60 * 60 * 1000; // 24 hours
+    const twentyFourHoursAgo = new Date(Date.now() - COOLDOWN_PERIOD);
+    
+    const { data: recentSameJob, error: recentError } = await supabase
       .from('applications')
-      .delete()
-      .eq('id', applicationId);
+      .select('id, submitted_at')
+      .eq('applicant_id', user.id)
+      .eq('job_id', jobId)
+      .gte('submitted_at', twentyFourHoursAgo.toISOString())
+      .limit(1);
 
-    if (deleteError) {
-      console.error('❌ Delete error:', deleteError);
-      throw deleteError;
+    if (recentError) throw recentError;
+
+    if (recentSameJob && recentSameJob.length > 0) {
+      return {
+        canApply: false,
+        message: 'Already applied to this position recently. Wait 24 hours.'
+      };
     }
 
-    console.log('✅ Application deleted successfully');
+    return { canApply: true, message: '' };
   } catch (error) {
-    console.error('❌ Error deleting application:', error);
+    console.error('Error checking recent applications:', error);
     throw error;
-  }
-}
-
-/* ---------- Profile Data Functions ---------- */
-export async function getWorkExperiences() {
-  try {
-    const user = await getCurrentUser();
-    
-    if (!user) {
-      throw new Error('Not authenticated');
-    }
-
-    const { data, error } = await supabase
-      .from('work_experiences')
-      .select('*')
-      .eq('profile_id', user.id)
-      .order('start_date', { ascending: false });
-
-    if (error) throw error;
-    return data || [];
-  } catch (error) {
-    console.error('❌ Error fetching work experiences:', error);
-    throw error;
-  }
-}
-
-export async function getEducations() {
-  try {
-    const user = await getCurrentUser();
-    
-    if (!user) {
-      throw new Error('Not authenticated');
-    }
-
-    const { data, error } = await supabase
-      .from('educations')
-      .select('*')
-      .eq('profile_id', user.id)
-      .order('year_graduated', { ascending: false });
-
-    if (error) throw error;
-    return data || [];
-  } catch (error) {
-    console.error('❌ Error fetching educations:', error);
-    throw error;
-  }
-}
-
-export async function getTrainings() {
-  try {
-    const user = await getCurrentUser();
-    
-    if (!user) {
-      throw new Error('Not authenticated');
-    }
-
-    const { data, error } = await supabase
-      .from('trainings')
-      .select('*')
-      .eq('profile_id', user.id)
-      .order('start_date', { ascending: false });
-
-    if (error) throw error;
-    return data || [];
-  } catch (error) {
-    console.error('❌ Error fetching trainings:', error);
-    throw error;
-  }
-}
-
-export async function getSkills() {
-  try {
-    const user = await getCurrentUser();
-    
-    if (!user) {
-      throw new Error('Not authenticated');
-    }
-
-    const { data, error } = await supabase
-      .from('skills')
-      .select('*')
-      .eq('profile_id', user.id)
-      .order('created_at', { ascending: false });
-
-    if (error) throw error;
-    return data || [];
-  } catch (error) {
-    console.error('❌ Error fetching skills:', error);
-    throw error;
-  }
-}
-
-export async function getEligibilities() {
-  try {
-    const user = await getCurrentUser();
-    
-    if (!user) {
-      throw new Error('Not authenticated');
-    }
-
-    const { data, error } = await supabase
-      .from('eligibilities')
-      .select('*')
-      .eq('profile_id', user.id)
-      .order('date_issued', { ascending: false });
-
-    if (error) throw error;
-    return data || [];
-  } catch (error) {
-    console.error('❌ Error fetching eligibilities:', error);
-    throw error;
-  }
-}
-
-/* ---------- Admin/HR Functions ---------- */
-export async function getAllUsers(): Promise<User[]> {
-  try {
-    const user = await getCurrentUser();
-    
-    // Only allow super_admin and HR roles to access all users
-    if (!user || !['hr', 'super_admin'].includes(user.role)) {
-      throw new Error('Unauthorized: Insufficient permissions');
-    }
-
-    const { data, error } = await supabase
-      .from('profiles')
-      .select('*')
-      .order('created_at', { ascending: false });
-
-    if (error) throw error;
-    return data || [];
-  } catch (error) {
-    console.error('❌ Error fetching users:', error);
-    throw error;
-  }
-}
-
-export async function updateUserRole(userId: string, newRole: User['role']): Promise<void> {
-  try {
-    const currentUser = await getCurrentUser();
-    
-    // Only allow super_admin to change roles
-    if (!currentUser || currentUser.role !== 'super_admin') {
-      throw new Error('Unauthorized: Only super administrators can change user roles');
-    }
-
-    const { error } = await supabase
-      .from('profiles')
-      .update({ role: newRole })
-      .eq('id', userId);
-
-    if (error) throw error;
-  } catch (error) {
-    console.error('❌ Error updating user role:', error);
-    throw error;
-  }
-}
-
-// Dashboard statistics functions
-export interface DashboardStats {
-  totalUsers?: number
-  totalApplicants?: number
-  activeJobs?: number
-  totalApplications?: number
-  pendingReviews?: number
-}
-
-export async function getDashboardStats(role: User['role']): Promise<DashboardStats> {
-  try {
-    const user = await getCurrentUser();
-    
-    if (!user) {
-      throw new Error('Not authenticated');
-    }
-
-    let stats: DashboardStats = {};
-
-    switch (role) {
-      case 'super_admin':
-        const usersPromise = supabase.from('profiles').select('*', { count: 'exact', head: true });
-        const jobsPromise = supabase.from('job_postings').select('*', { count: 'exact', head: true });
-        const applicationsPromise = supabase.from('applications').select('*', { count: 'exact', head: true });
-        
-        const [usersCount, jobsCount, applicationsCount] = await Promise.all([
-          usersPromise.then(res => ({ count: res.count || 0 })),
-          jobsPromise.then(res => ({ count: res.count || 0 })),
-          applicationsPromise.then(res => ({ count: res.count || 0 }))
-        ]);
-
-        stats = {
-          totalUsers: usersCount.count,
-          activeJobs: jobsCount.count,
-          totalApplications: applicationsCount.count,
-          pendingReviews: applicationsCount.count
-        };
-        break;
-
-      case 'hr':
-        const applicantsPromise = supabase.from('profiles').select('*', { count: 'exact', head: true }).eq('role', 'applicant');
-        const hrJobsPromise = supabase.from('job_postings').select('*', { count: 'exact', head: true }).eq('status', 'active');
-        const hrApplicationsPromise = supabase.from('applications').select('*', { count: 'exact', head: true });
-        
-        const [applicantsCount, hrJobsCount, hrApplicationsCount] = await Promise.all([
-          applicantsPromise.then(res => ({ count: res.count || 0 })),
-          hrJobsPromise.then(res => ({ count: res.count || 0 })),
-          hrApplicationsPromise.then(res => ({ count: res.count || 0 }))
-        ]);
-
-        stats = {
-          totalApplicants: applicantsCount.count,
-          totalUsers: applicantsCount.count,
-          activeJobs: hrJobsCount.count,
-          totalApplications: hrApplicationsCount.count,
-          pendingReviews: hrApplicationsCount.count
-        };
-        break;
-
-      case 'applicant':
-        const myApplications = await listMyApplications();
-        const activeJobs = await listActiveJobs();
-
-        stats = {
-          totalApplications: myApplications.length,
-          activeJobs: activeJobs.length
-        };
-        break;
-    }
-
-    return stats;
-  } catch (error) {
-    console.error('❌ Error fetching dashboard stats:', error);
-    throw error;
-  }
-}
-
-/* ---------- Utility Functions ---------- */
-export async function initializeDatabase() {
-  console.log('🔧 Initializing database...');
-  
-  try {
-    // Check database health
-    const health = await checkDatabaseHealth();
-    
-    if (!health.healthy) {
-      console.warn('⚠️ Database health check failed:', health.error);
-    }
-    
-    // Ensure current user has profile
-    const user = await getCurrentUser();
-    
-    if (user) {
-      console.log('✅ Database initialized for user:', user.email);
-    } else {
-      console.log('ℹ️ No user logged in, database ready');
-    }
-    
-    return { success: true, user: user?.email };
-  } catch (error) {
-    console.error('❌ Database initialization failed:', error);
-    return { success: false, error: String(error) };
   }
 }
