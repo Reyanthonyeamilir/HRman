@@ -111,6 +111,12 @@ export function validateFile(file: File): { valid: boolean; error?: string } {
   
   if (file.size === 0) return { valid: false, error: 'File appears to be empty.' };
   
+  // Optional: Add size limit for mobile (20MB)
+  const maxSize = 20 * 1024 * 1024; // 20MB
+  if (file.size > maxSize) {
+    return { valid: false, error: `File size exceeds ${maxSize / (1024 * 1024)}MB limit.` };
+  }
+  
   return { valid: true };
 }
 
@@ -126,18 +132,24 @@ function isAndroid(): boolean {
   return /android/.test(userAgent);
 }
 
-/* ---------- Fix Android PDF File (CRITICAL FIX) ---------- */
-export function fixAndroidPDF(file: File): File {
-  if (!isAndroid()) return file;
+/* ---------- Check if Mobile ---------- */
+function isMobile(): boolean {
+  if (!isBrowser()) return false;
+  return /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+}
 
-  console.log('🔧 Fixing Android PDF file...', {
+/* ---------- Fix Mobile PDF File ---------- */
+export function fixMobilePDF(file: File): File {
+  if (!isMobile()) return file;
+
+  console.log('🔧 Fixing mobile PDF file...', {
     originalName: file.name,
     originalType: file.type,
     originalSize: file.size
   });
 
   try {
-    // Android Chrome often returns empty type for PDFs
+    // Mobile browsers often return empty type or wrong MIME for PDFs
     const isLikelyPDF = file.name.toLowerCase().endsWith('.pdf') || 
                        file.type === 'application/pdf' || 
                        file.type === '' || 
@@ -151,7 +163,7 @@ export function fixAndroidPDF(file: File): File {
       lastModified: file.lastModified || Date.now()
     });
 
-    console.log('✅ Android PDF fixed:', {
+    console.log('✅ Mobile PDF fixed:', {
       newName: fixedFile.name,
       newType: fixedFile.type,
       newSize: fixedFile.size
@@ -159,33 +171,33 @@ export function fixAndroidPDF(file: File): File {
 
     return fixedFile;
   } catch (error) {
-    console.error('Failed to fix Android PDF:', error);
+    console.error('Failed to fix mobile PDF:', error);
     return file;
   }
 }
 
-/* ---------- Simple Upload Function (ANDROID PROOF) ---------- */
+/* ---------- Upload Function with Mobile Fix ---------- */
 async function uploadFileToStorage(file: File, fileName: string, userId: string): Promise<any> {
-  console.log('📱 ANDROID UPLOAD STARTING:', {
+  console.log('📱 Starting file upload...', {
     fileName,
     userId,
     originalFileType: file.type,
     originalFileName: file.name,
     fileSize: file.size,
-    isAndroid: isAndroid()
+    isMobile: isMobile()
   });
 
-  // STEP 1: Fix Android file if needed
+  // STEP 1: Fix mobile file if needed
   let uploadFile = file;
-  if (isAndroid()) {
-    console.log('🔄 Applying Android PDF fix...');
-    uploadFile = fixAndroidPDF(file);
+  if (isMobile()) {
+    console.log('🔄 Applying mobile PDF fix...');
+    uploadFile = fixMobilePDF(file);
   }
 
-  // STEP 2: Verify file is readable (Android specific)
-  if (isAndroid()) {
+  // STEP 2: Verify file is readable (mobile specific)
+  if (isMobile()) {
     try {
-      console.log('🔍 Testing file readability on Android...');
+      console.log('🔍 Testing file readability on mobile...');
       const testSlice = uploadFile.slice(0, Math.min(uploadFile.size, 1024)); // First 1KB
       await new Promise((resolve, reject) => {
         const reader = new FileReader();
@@ -193,45 +205,47 @@ async function uploadFileToStorage(file: File, fileName: string, userId: string)
         reader.onerror = () => reject(new Error('File cannot be read'));
         reader.readAsArrayBuffer(testSlice);
       });
-      console.log('✅ File readable on Android');
+      console.log('✅ File readable on mobile');
     } catch (readError) {
-      console.error('❌ Android file read error:', readError);
+      console.error('❌ Mobile file read error:', readError);
       throw new Error('File may be corrupted. Please try selecting it again.');
     }
   }
 
-  // STEP 3: Upload with mobile-friendly options
+  // STEP 3: Simple upload with only necessary options
   const uploadOptions: any = {
-    cacheControl: '3600',
-    upsert: false,
-    contentType: 'application/pdf'
+    contentType: 'application/pdf',  // CRITICAL for mobile
+    upsert: false
   };
-
-  // Add duplex for Android (helps with large files)
-  if (isAndroid()) {
-    uploadOptions.duplex = 'half';
-  }
 
   console.log('🚀 Starting upload with options:', uploadOptions);
 
-  // STEP 4: Upload with retry logic for mobile
-  let lastError = null;
-  for (let attempt = 1; attempt <= 3; attempt++) {
-    try {
-      console.log(`📤 Upload attempt ${attempt}/3...`);
-      
-      const { data, error } = await supabase.storage
-        .from('applications')
-        .upload(fileName, uploadFile, uploadOptions);
+  // STEP 4: Create upload promise with timeout
+  const uploadPromise = supabase.storage
+    .from('applications')
+    .upload(fileName, uploadFile, uploadOptions);
 
+  // Add timeout for mobile (30 seconds)
+  const timeoutPromise = new Promise((_, reject) => {
+    setTimeout(() => reject(new Error('Upload timeout after 30 seconds')), 30000);
+  });
+
+  let lastError = null;
+  
+  // Try up to 2 times (mobile networks can be flaky)
+  for (let attempt = 1; attempt <= 2; attempt++) {
+    try {
+      console.log(`📤 Upload attempt ${attempt}/2...`);
+      
+      const { data, error } = await Promise.race([uploadPromise, timeoutPromise]) as any;
+      
       if (error) {
         lastError = error;
         console.warn(`⚠️ Upload attempt ${attempt} failed:`, error.message);
         
-        // Wait before retry (exponential backoff)
-        if (attempt < 3) {
-          const delay = 1000 * attempt; // 1s, 2s, 3s
-          await new Promise(resolve => setTimeout(resolve, delay));
+        // Wait before retry (1 second)
+        if (attempt < 2) {
+          await new Promise(resolve => setTimeout(resolve, 1000));
           continue;
         }
       } else {
@@ -241,8 +255,8 @@ async function uploadFileToStorage(file: File, fileName: string, userId: string)
     } catch (error: any) {
       lastError = error;
       console.error(`❌ Upload attempt ${attempt} crashed:`, error);
-      if (attempt < 3) {
-        await new Promise(resolve => setTimeout(resolve, 1000 * attempt));
+      if (attempt < 2) {
+        await new Promise(resolve => setTimeout(resolve, 1000));
         continue;
       }
     }
@@ -251,13 +265,16 @@ async function uploadFileToStorage(file: File, fileName: string, userId: string)
   // STEP 5: If all retries failed
   console.error('❌ ALL UPLOAD ATTEMPTS FAILED:', lastError);
   
-  // User-friendly error messages for Android
-  if (isAndroid()) {
+  // User-friendly error messages for mobile
+  if (isMobile()) {
+    if (lastError?.message?.includes('timeout')) {
+      throw new Error('Upload timed out. Try a smaller file or use WiFi connection.');
+    }
     if (lastError?.message?.includes('network') || lastError?.message?.includes('fetch')) {
       throw new Error('Network issue. Please check your mobile internet connection and try again.');
     }
     if (lastError?.message?.includes('413') || lastError?.message?.includes('large')) {
-      throw new Error('File is too large for mobile upload. Try a smaller PDF or use WiFi.');
+      throw new Error('File is too large for mobile upload. Try a smaller PDF (under 20MB).');
     }
     if (lastError?.message?.includes('permission') || lastError?.message?.includes('policy')) {
       throw new Error('Please make sure you are logged in and have permission to upload.');
@@ -267,12 +284,12 @@ async function uploadFileToStorage(file: File, fileName: string, userId: string)
   throw lastError || new Error('Upload failed after multiple attempts. Please try again.');
 }
 
-/* ---------- Submit Application (ANDROID PROOF) ---------- */
+/* ---------- Submit Application ---------- */
 export async function submitApplication({ job_id, file, applicant_comment }: {
   job_id: string; file: File; applicant_comment: string;
 }): Promise<string> {
   try {
-    console.log('🚀 STARTING APPLICATION SUBMISSION (Android Safe)...');
+    console.log('🚀 STARTING APPLICATION SUBMISSION...');
     
     // 1. Get user
     const user = await getCurrentUser();
@@ -280,14 +297,14 @@ export async function submitApplication({ job_id, file, applicant_comment }: {
     
     console.log('👤 User authenticated:', user.email);
     
-    // 2. ALWAYS fix file for Android (even if it seems correct)
+    // 2. Always fix file for mobile
     let uploadFile = file;
-    if (isAndroid()) {
-      console.log('📱 Android device detected, applying PDF fix');
-      uploadFile = fixAndroidPDF(file);
+    if (isMobile()) {
+      console.log('📱 Mobile device detected, applying PDF fix');
+      uploadFile = fixMobilePDF(file);
     }
     
-    // 3. Validate file (NO SIZE LIMIT)
+    // 3. Validate file
     const validation = validateFile(uploadFile);
     if (!validation.valid) {
       console.error('❌ File validation failed:', validation.error);
@@ -300,7 +317,7 @@ export async function submitApplication({ job_id, file, applicant_comment }: {
       size: uploadFile.size
     });
     
-    // 4. Check job exists
+    // 4. Check job exists and is active
     const { data: job, error: jobError } = await supabase
       .from('job_postings')
       .select('id, job_title, status')
@@ -328,7 +345,7 @@ export async function submitApplication({ job_id, file, applicant_comment }: {
       throw new Error(`You have already applied for "${job.job_title}". You cannot apply again for the same position.`);
     }
     
-    // 6. Create filename
+    // 6. Create unique filename
     const timestamp = Date.now();
     const randomString = Math.random().toString(36).substring(2, 9);
     const fileName = `${user.id}-${job_id}-${timestamp}-${randomString}.pdf`;
@@ -340,7 +357,7 @@ export async function submitApplication({ job_id, file, applicant_comment }: {
       type: uploadFile.type 
     });
     
-    // 7. UPLOAD FILE (with Android-proof handling)
+    // 7. UPLOAD FILE (with mobile-proof handling)
     await uploadFileToStorage(uploadFile, fileName, user.id);
     
     // 8. Save to database
@@ -382,27 +399,29 @@ export async function submitApplication({ job_id, file, applicant_comment }: {
     console.error('❌ APPLICATION ERROR:', {
       message: error.message,
       stack: error.stack,
-      isAndroid: isAndroid()
+      isMobile: isMobile()
     });
     
-    // ANDROID-SPECIFIC ERROR MESSAGES
+    // MOBILE-SPECIFIC ERROR MESSAGES
     let userMessage = error.message;
     
-    if (isAndroid()) {
-      if (error.message.includes('network') || error.message.includes('fetch')) {
-        userMessage = '📶 Mobile network issue. Check your internet connection and try again.';
+    if (isMobile()) {
+      if (error.message.includes('timeout')) {
+        userMessage = '⏱️ Upload timed out. Try a smaller file or use WiFi.';
+      } else if (error.message.includes('network') || error.message.includes('fetch')) {
+        userMessage = '📶 Mobile network issue. Check internet and try again.';
       } else if (error.message.includes('corrupted') || error.message.includes('read')) {
-        userMessage = '📄 File issue on Android. Try selecting the PDF file again.';
+        userMessage = '📄 File issue on mobile. Try selecting the PDF again.';
       } else if (error.message.includes('too large')) {
-        userMessage = '📁 File too large for mobile. Try a smaller PDF or use WiFi.';
+        userMessage = '📁 File too large for mobile. Try a smaller PDF.';
       } else if (error.message.includes('already applied')) {
         userMessage = error.message; // Keep this message
       } else if (error.message.includes('sign in')) {
-        userMessage = '🔑 Please sign in again on your mobile device.';
+        userMessage = '🔑 Please sign in again.';
       } else if (error.message.includes('Job not found')) {
-        userMessage = '⚠️ This job is no longer available for applications.';
+        userMessage = '⚠️ This job is no longer available.';
       } else if (error.message.includes('PDF') || error.message.includes('pdf')) {
-        userMessage = '📄 Please select a valid PDF file on your Android device.';
+        userMessage = '📄 Please select a valid PDF file.';
       }
     }
     
@@ -535,7 +554,7 @@ export async function updateApplication(
     const fileName = `${user.id}-${existingApp.job_id}-${timestamp}-${randomString}.pdf`;
 
     let uploadFile = data.file;
-    if (isAndroid()) uploadFile = fixAndroidPDF(data.file);
+    if (isMobile()) uploadFile = fixMobilePDF(data.file);
     
     await uploadFileToStorage(uploadFile, fileName, user.id);
 
@@ -607,38 +626,37 @@ export async function checkAlreadyApplied(jobId: string): Promise<{ applied: boo
   }
 }
 
-/* ---------- Android Upload Test ---------- */
-export async function testAndroidUpload(): Promise<{ success: boolean; message: string; error?: string }> {
+/* ---------- Mobile Upload Test ---------- */
+export async function testMobileUpload(): Promise<{ success: boolean; message: string; error?: string }> {
   try {
     const user = await getCurrentUser();
     if (!user) throw new Error('Not authenticated');
 
-    const isAndroidDevice = isAndroid();
+    const isMobileDevice = isMobile();
     
-    console.log('🧪 Testing Android upload capabilities...', {
-      isAndroid: isAndroidDevice,
+    console.log('🧪 Testing mobile upload capabilities...', {
+      isMobile: isMobileDevice,
       userAgent: navigator.userAgent
     });
 
     // Create test content
-    const testContent = `Android Upload Test\nTime: ${new Date().toISOString()}\nUser: ${user.email}\nDevice: ${isAndroidDevice ? 'Android' : 'Other'}`;
+    const testContent = `Mobile Upload Test\nTime: ${new Date().toISOString()}\nUser: ${user.email}\nDevice: ${isMobileDevice ? 'Mobile' : 'Desktop'}`;
     const testBlob = new Blob([testContent], { type: 'text/plain' });
-    const testFileName = `android-test-${user.id}-${Date.now()}.txt`;
+    const testFileName = `mobile-test-${user.id}-${Date.now()}.txt`;
     
     console.log('Attempting test upload to storage...');
     
     const { error } = await supabase.storage
       .from('applications')
       .upload(testFileName, testBlob, {
-        contentType: 'text/plain',
-        cacheControl: '60'
+        contentType: 'text/plain'
       });
 
     if (error) {
-      console.error('Android test failed:', error);
+      console.error('Mobile test failed:', error);
       return { 
         success: false, 
-        message: 'Android upload test failed', 
+        message: 'Mobile upload test failed', 
         error: `Storage error: ${error.message}` 
       };
     }
@@ -648,14 +666,14 @@ export async function testAndroidUpload(): Promise<{ success: boolean; message: 
     
     return { 
       success: true, 
-      message: `✅ Android upload works! Device: ${isAndroidDevice ? 'Android' : 'Desktop'}` 
+      message: `✅ Mobile upload works! Device: ${isMobileDevice ? 'Mobile' : 'Desktop'}` 
     };
     
   } catch (error: any) {
-    console.error('Android test crashed:', error);
+    console.error('Mobile test crashed:', error);
     return { 
       success: false, 
-      message: 'Android test failed', 
+      message: 'Mobile test failed', 
       error: error.message 
     };
   }
