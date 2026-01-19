@@ -111,10 +111,17 @@ export function validateFile(file: File): { valid: boolean; error?: string } {
   
   if (file.size === 0) return { valid: false, error: 'File appears to be empty.' };
   
-  // Optional: Add size limit for mobile (20MB)
+  // Mobile-specific size recommendations
   const maxSize = 20 * 1024 * 1024; // 20MB
+  const mobileMaxSize = 5 * 1024 * 1024; // 5MB for mobile recommendation
+  
   if (file.size > maxSize) {
-    return { valid: false, error: `File size exceeds ${maxSize / (1024 * 1024)}MB limit.` };
+    const isMobileDevice = isMobile();
+    const errorMsg = isMobileDevice 
+      ? `File size exceeds ${maxSize / (1024 * 1024)}MB limit. For mobile uploads, we recommend files under ${mobileMaxSize / (1024 * 1024)}MB for better reliability.`
+      : `File size exceeds ${maxSize / (1024 * 1024)}MB limit.`;
+    
+    return { valid: false, error: errorMsg };
   }
   
   return { valid: true };
@@ -225,17 +232,17 @@ async function uploadFileToStorage(file: File, fileName: string, userId: string)
     .from('applications')
     .upload(fileName, uploadFile, uploadOptions);
 
-  // Add timeout for mobile (30 seconds)
+  // Add timeout for mobile (90 seconds)
   const timeoutPromise = new Promise((_, reject) => {
-    setTimeout(() => reject(new Error('Upload timeout after 30 seconds')), 30000);
+    setTimeout(() => reject(new Error('Upload timeout after 90 seconds')), 90000);
   });
 
   let lastError = null;
   
-  // Try up to 2 times (mobile networks can be flaky)
-  for (let attempt = 1; attempt <= 2; attempt++) {
+  // Try up to 3 times with longer delays for mobile networks
+  for (let attempt = 1; attempt <= 3; attempt++) {
     try {
-      console.log(`📤 Upload attempt ${attempt}/2...`);
+      console.log(`📤 Upload attempt ${attempt}/3...`);
       
       const { data, error } = await Promise.race([uploadPromise, timeoutPromise]) as any;
       
@@ -243,9 +250,11 @@ async function uploadFileToStorage(file: File, fileName: string, userId: string)
         lastError = error;
         console.warn(`⚠️ Upload attempt ${attempt} failed:`, error.message);
         
-        // Wait before retry (1 second)
-        if (attempt < 2) {
-          await new Promise(resolve => setTimeout(resolve, 1000));
+        // Wait before retry (2 seconds for better mobile recovery)
+        if (attempt < 3) {
+          const delayMs = 2000 * attempt; // Progressive delay: 2s, 4s
+          console.log(`⏳ Waiting ${delayMs/1000}s before retry...`);
+          await new Promise(resolve => setTimeout(resolve, delayMs));
           continue;
         }
       } else {
@@ -255,8 +264,10 @@ async function uploadFileToStorage(file: File, fileName: string, userId: string)
     } catch (error: any) {
       lastError = error;
       console.error(`❌ Upload attempt ${attempt} crashed:`, error);
-      if (attempt < 2) {
-        await new Promise(resolve => setTimeout(resolve, 1000));
+      if (attempt < 3) {
+        const delayMs = 2000 * attempt;
+        console.log(`⏳ Waiting ${delayMs/1000}s before retry...`);
+        await new Promise(resolve => setTimeout(resolve, delayMs));
         continue;
       }
     }
@@ -265,16 +276,16 @@ async function uploadFileToStorage(file: File, fileName: string, userId: string)
   // STEP 5: If all retries failed
   console.error('❌ ALL UPLOAD ATTEMPTS FAILED:', lastError);
   
-  // User-friendly error messages for mobile
+  // User-friendly error messages for mobile with specific guidance
   if (isMobile()) {
     if (lastError?.message?.includes('timeout')) {
-      throw new Error('Upload timed out. Try a smaller file or use WiFi connection.');
+      throw new Error('Upload timed out. For mobile uploads, keep files under 5MB and use WiFi for better reliability.');
     }
     if (lastError?.message?.includes('network') || lastError?.message?.includes('fetch')) {
-      throw new Error('Network issue. Please check your mobile internet connection and try again.');
+      throw new Error('Network issue detected. Mobile networks can be unstable. Try switching to WiFi or moving to an area with better signal.');
     }
     if (lastError?.message?.includes('413') || lastError?.message?.includes('large')) {
-      throw new Error('File is too large for mobile upload. Try a smaller PDF (under 20MB).');
+      throw new Error('File is too large for mobile upload. For best results on mobile, keep PDF files under 5MB. The maximum limit is 20MB.');
     }
     if (lastError?.message?.includes('permission') || lastError?.message?.includes('policy')) {
       throw new Error('Please make sure you are logged in and have permission to upload.');
@@ -407,13 +418,13 @@ export async function submitApplication({ job_id, file, applicant_comment }: {
     
     if (isMobile()) {
       if (error.message.includes('timeout')) {
-        userMessage = '⏱️ Upload timed out. Try a smaller file or use WiFi.';
+        userMessage = '⏱️ Upload timed out. For mobile: Keep files under 5MB and use WiFi for faster uploads.';
       } else if (error.message.includes('network') || error.message.includes('fetch')) {
-        userMessage = '📶 Mobile network issue. Check internet and try again.';
+        userMessage = '📶 Mobile network unstable. Switch to WiFi or check your connection.';
       } else if (error.message.includes('corrupted') || error.message.includes('read')) {
-        userMessage = '📄 File issue on mobile. Try selecting the PDF again.';
-      } else if (error.message.includes('too large')) {
-        userMessage = '📁 File too large for mobile. Try a smaller PDF.';
+        userMessage = '📄 File issue. Try selecting the PDF again or check file integrity.';
+      } else if (error.message.includes('too large') || error.message.includes('size')) {
+        userMessage = '📁 File too large for mobile upload. Recommended: under 5MB for reliable upload.';
       } else if (error.message.includes('already applied')) {
         userMessage = error.message; // Keep this message
       } else if (error.message.includes('sign in')) {
