@@ -464,52 +464,35 @@ function RequirementsContent() {
     setUploadProgress(0)
     setAlreadyAppliedCheck(null)
     
-    const isAndroidClient = typeof window !== 'undefined' && /Android/i.test(navigator.userAgent)
+    const isMobileClient = typeof window !== 'undefined' && (/Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) || window.innerWidth <= 768)
     
-    if (isAndroidClient) {
+    if (isMobileClient) {
       showMobileLoading('Processing PDF file...', 10)
     }
 
     try {
       let processedFile = f;
       
-      if (isAndroidClient && f.name.toLowerCase().endsWith('.pdf')) {
-        console.log('Android PDF detected, fixing MIME type...')
-        processedFile = new File([f], f.name, { 
-          type: 'application/pdf',
-          lastModified: f.lastModified
-        });
-      }
-
-      if (applicantFunctions?.validateFile) {
-        const validation = applicantFunctions.validateFile(processedFile)
-        if (!validation.valid) {
-          addError({
-            type: 'FILE',
-            message: validation.error || 'Invalid file',
-            retryable: true
-          })
-          setFile(null)
-          if (fileInputRef.current) {
-            fileInputRef.current.value = ''
-          }
-          return
+      // Fix for mobile browsers that don't set proper MIME types
+      const fileName = f.name.toLowerCase()
+      const isPDF = fileName.endsWith('.pdf')
+      const fileExtension = fileName.substring(fileName.lastIndexOf('.') + 1)
+      
+      // Check if it's a PDF file based on extension
+      if (isPDF) {
+        // Handle mobile-specific issues
+        if (f.type === '' || f.type === 'application/octet-stream') {
+          console.log('Mobile file detected, fixing MIME type...')
+          // Reconstruct the file with proper MIME type
+          const fileBlob = f.slice(0, f.size, 'application/pdf')
+          processedFile = new File([fileBlob], f.name, { 
+            type: 'application/pdf',
+            lastModified: f.lastModified
+          });
         }
-      } else {
-        if (processedFile.type !== 'application/pdf') {
-          addError({
-            type: 'FILE',
-            message: 'Only PDF files are allowed.',
-            retryable: false
-          })
-          setFile(null)
-          if (fileInputRef.current) {
-            fileInputRef.current.value = ''
-          }
-          return
-        }
-
-        if (processedFile.size === 0) {
+        
+        // Additional validation for mobile
+        if (f.size === 0) {
           addError({
             type: 'FILE',
             message: 'File appears to be empty.',
@@ -519,16 +502,46 @@ function RequirementsContent() {
           if (fileInputRef.current) {
             fileInputRef.current.value = ''
           }
+          hideMobileLoading()
           return
         }
+        
+        // Check if file size is reasonable (max 20MB for mobile)
+        const maxSizeMB = 20
+        const maxSizeBytes = maxSizeMB * 1024 * 1024
+        if (f.size > maxSizeBytes) {
+          addError({
+            type: 'FILE',
+            message: `File size exceeds ${maxSizeMB}MB limit. Please choose a smaller file.`,
+            retryable: false
+          })
+          setFile(null)
+          if (fileInputRef.current) {
+            fileInputRef.current.value = ''
+          }
+          hideMobileLoading()
+          return
+        }
+      } else {
+        addError({
+          type: 'FILE',
+          message: 'Only PDF files are allowed.',
+          retryable: false
+        })
+        setFile(null)
+        if (fileInputRef.current) {
+          fileInputRef.current.value = ''
+        }
+        hideMobileLoading()
+        return
       }
 
       setFile(processedFile)
       setUploadProgress(100)
       
-      if (isAndroidClient) {
+      if (isMobileClient) {
         showMobileLoading('✅ PDF ready for upload!', 100)
-        setTimeout(() => hideMobileLoading(), 500)
+        setTimeout(() => hideMobileLoading(), 1000)
       }
       
     } catch (error: any) {
@@ -542,15 +555,11 @@ function RequirementsContent() {
       if (fileInputRef.current) {
         fileInputRef.current.value = ''
       }
+      hideMobileLoading()
     } finally {
-      const isAndroidClient = typeof window !== 'undefined' && /Android/i.test(navigator.userAgent)
-      if (isAndroidClient && !file) {
-        hideMobileLoading()
-      }
-      
       setTimeout(() => {
         setUploadProgress(0)
-      }, 1000)
+      }, 1500)
     }
   }
 
@@ -671,22 +680,64 @@ function RequirementsContent() {
     try {
       setSubmitting(true)
       
-      const isAndroidClient = typeof window !== 'undefined' && /Android/i.test(navigator.userAgent)
+      const isMobileClient = typeof window !== 'undefined' && (/Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) || window.innerWidth <= 768)
       
-      if (isAndroidClient) {
+      if (isMobileClient) {
         showMobileLoading('Preparing upload...', 10)
       }
 
-      setUploadProgress(10)
+      setUploadProgress(20)
+
+      // Ensure file exists before using it
+      if (!file) {
+        addError({
+          type: 'FILE',
+          message: 'No file selected for upload',
+          retryable: false
+        })
+        setSubmitting(false)
+        if (isMobileClient) hideMobileLoading()
+        return
+      }
+
+      let uploadFile = file
+      
+      // Fix file type for mobile if needed
+      if (isMobileClient && (file.type === 'application/octet-stream' || file.type === '')) {
+        console.log('Fixing MIME type for mobile upload...')
+        const fileBlob = file.slice(0, file.size, 'application/pdf')
+        uploadFile = new File([fileBlob], file.name, { 
+          type: 'application/pdf',
+          lastModified: file.lastModified
+        })
+      }
+
+      setUploadProgress(40)
+      if (isMobileClient) showMobileLoading('Uploading file...', 40)
+
+      // Simulate progress for mobile
+      if (isMobileClient) {
+        const progressInterval = setInterval(() => {
+          setUploadProgress(prev => {
+            if (prev >= 90) {
+              clearInterval(progressInterval)
+              return prev
+            }
+            return prev + 10
+          })
+        }, 300)
+      }
 
       const result = await applicantFunctions.submitApplication({ 
         job_id: jobId!, 
-        file: file!, 
+        file: uploadFile, 
         applicant_comment: applicantComment
       })
       
+      if (isMobileClient) {
+        showMobileLoading('Finalizing...', 100)
+      }
       setUploadProgress(100)
-      if (isAndroidClient) showMobileLoading('Finalizing...', 100)
       
       setSuccess(`✅ Application submitted successfully! Reference: #${result}`)
       
@@ -700,14 +751,14 @@ function RequirementsContent() {
         if (fileInputRef.current) {
           fileInputRef.current.value = ''
         }
-        if (isAndroidClient) {
-          setTimeout(() => hideMobileLoading(), 500)
+        if (isMobileClient) {
+          setTimeout(() => hideMobileLoading(), 1500)
         }
-      }, 1000)
+      }, 2000)
       
       setTimeout(async () => {
         try {
-          if (isAndroidClient) showMobileLoading('Refreshing...', 0)
+          if (isMobileClient) showMobileLoading('Refreshing...', 0)
           
           const myApplications = await applicantFunctions.listMyApplications()
           const formattedApplications = (myApplications || []).map((app: any) => ({
@@ -730,19 +781,19 @@ function RequirementsContent() {
         } catch (refreshError) {
           console.error('Failed to refresh data:', refreshError)
         } finally {
-          if (isAndroidClient) {
-            setTimeout(() => hideMobileLoading(), 500)
+          if (isMobileClient) {
+            setTimeout(() => hideMobileLoading(), 1000)
           }
         }
-      }, 1500)
+      }, 2500)
       
     } catch (e: any) {
       console.error('Submission error:', e)
       setUploadProgress(0)
       
-      const isAndroidClient = typeof window !== 'undefined' && /Android/i.test(navigator.userAgent)
+      const isMobileClient = typeof window !== 'undefined' && (/Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) || window.innerWidth <= 768)
       
-      if (isAndroidClient) hideMobileLoading()
+      if (isMobileClient) hideMobileLoading()
       
       let errorType: AppError['type'] = 'SUBMISSION'
       let userMessage = e.message || 'An error occurred. Please try again.'
@@ -752,22 +803,26 @@ function RequirementsContent() {
         userMessage = e.message
         setAlreadyAppliedCheck({ applied: true, message: e.message })
       }
-      else if (isAndroidClient) {
-        if (e.message.includes('network') || e.message.includes('fetch')) {
+      else if (isMobileClient) {
+        if (e.message.includes('network') || e.message.includes('fetch') || e.message.includes('Network request failed')) {
           errorType = 'NETWORK'
           userMessage = '📶 Network issue. Check connection and try again.'
-        } else if (e.message.includes('type') || e.message.includes('pdf')) {
+        } else if (e.message.includes('type') || e.message.includes('pdf') || e.message.includes('Invalid file type')) {
           errorType = 'FILE'
           userMessage = '📄 Only PDF files allowed.'
-        } else if (e.message.includes('permission')) {
+        } else if (e.message.includes('permission') || e.message.includes('auth') || e.message.includes('Unauthorized')) {
           errorType = 'AUTH'
-          userMessage = '🔑 Permission error. Try logging out and back in.'
-        } else if (e.message.includes('bucket') || e.message.includes('storage')) {
+          userMessage = '🔑 Session expired. Please log in again.'
+          setTimeout(() => router.push('/login?next=/applicant/requirements'), 2000)
+        } else if (e.message.includes('bucket') || e.message.includes('storage') || e.message.includes('upload')) {
           errorType = 'FILE'
-          userMessage = '💾 Storage error. Please try again.'
+          userMessage = '💾 Upload failed. Please try a smaller file or check connection.'
+        } else if (e.message.includes('size') || e.message.includes('too large')) {
+          errorType = 'FILE'
+          userMessage = '📄 File too large. Please choose a file under 20MB.'
         }
       } else {
-        if (e.message.includes('authenticated')) {
+        if (e.message.includes('authenticated') || e.message.includes('Unauthorized')) {
           errorType = 'AUTH'
           userMessage = 'Session expired. Please sign in again.'
           setTimeout(() => router.push('/login?next=/applicant/requirements'), 2000)
@@ -804,9 +859,9 @@ function RequirementsContent() {
       try {
         setLoadingFunctions(true)
         
-        const isAndroidClient = typeof window !== 'undefined' && /Android/i.test(navigator.userAgent)
+        const isMobileClient = typeof window !== 'undefined' && (/Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) || window.innerWidth <= 768)
         
-        if (isAndroidClient) showMobileLoading('Loading application portal...')
+        if (isMobileClient) showMobileLoading('Loading application portal...')
         
         const functions = await loadApplicantFunctions()
         setApplicantFunctions(functions)
@@ -821,9 +876,9 @@ function RequirementsContent() {
       } finally {
         setLoadingFunctions(false)
         
-        const isAndroidClient = typeof window !== 'undefined' && /Android/i.test(navigator.userAgent)
+        const isMobileClient = typeof window !== 'undefined' && (/Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) || window.innerWidth <= 768)
         
-        if (isAndroidClient) hideMobileLoading()
+        if (isMobileClient) hideMobileLoading()
       }
     }
 
@@ -835,9 +890,9 @@ function RequirementsContent() {
 
     const checkAuth = async () => {
       try {
-        const isAndroidClient = typeof window !== 'undefined' && /Android/i.test(navigator.userAgent)
+        const isMobileClient = typeof window !== 'undefined' && (/Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) || window.innerWidth <= 768)
         
-        if (isAndroidClient) showMobileLoading('Checking authentication...')
+        if (isMobileClient) showMobileLoading('Checking authentication...')
         
         const user = await applicantFunctions.getCurrentUser()
         if (!user) {
@@ -861,9 +916,9 @@ function RequirementsContent() {
           retryable: true
         })
       } finally {
-        const isAndroidClient = typeof window !== 'undefined' && /Android/i.test(navigator.userAgent)
+        const isMobileClient = typeof window !== 'undefined' && (/Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) || window.innerWidth <= 768)
         
-        if (isAndroidClient) hideMobileLoading()
+        if (isMobileClient) hideMobileLoading()
       }
     }
 
@@ -877,19 +932,19 @@ function RequirementsContent() {
 
     const loadData = async () => {
       try {
-        const isAndroidClient = typeof window !== 'undefined' && /Android/i.test(navigator.userAgent)
+        const isMobileClient = typeof window !== 'undefined' && (/Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) || window.innerWidth <= 768)
         
-        if (isAndroidClient) showMobileLoading('Loading data...', 0)
+        if (isMobileClient) showMobileLoading('Loading data...', 0)
         
         setLoadingJobs(true)
         setLoadingTable(true)
         
-        if (isAndroidClient) showMobileLoading('Loading available jobs...', 30)
+        if (isMobileClient) showMobileLoading('Loading available jobs...', 30)
         const activeJobs = await applicantFunctions.listActiveJobs()
         
         if (!alive) return
         
-        if (isAndroidClient) showMobileLoading('Loading your applications...', 60)
+        if (isMobileClient) showMobileLoading('Loading your applications...', 60)
         const myApplications = await applicantFunctions.listMyApplications()
         
         if (!alive) return
@@ -921,7 +976,7 @@ function RequirementsContent() {
         
         if (!alive) return
 
-        if (isAndroidClient) showMobileLoading('Finalizing...', 90)
+        if (isMobileClient) showMobileLoading('Finalizing...', 90)
         
         setJobs(formattedJobs)
         setRows(formattedApplications)
@@ -948,10 +1003,10 @@ function RequirementsContent() {
           setLoadingJobs(false)
           setLoadingTable(false)
           
-          const isAndroidClient = typeof window !== 'undefined' && /Android/i.test(navigator.userAgent)
+          const isMobileClient = typeof window !== 'undefined' && (/Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) || window.innerWidth <= 768)
           
-          if (isAndroidClient) {
-            setTimeout(() => hideMobileLoading(), 500)
+          if (isMobileClient) {
+            setTimeout(() => hideMobileLoading(), 1000)
           }
         }
       }
@@ -985,13 +1040,13 @@ function RequirementsContent() {
     )
   }
 
-  const isAndroidClient = typeof window !== 'undefined' && /Android/i.test(navigator.userAgent)
+  const isMobileClient = typeof window !== 'undefined' && (/Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) || window.innerWidth <= 768)
 
   return (
     <div className="min-h-screen bg-gray-50">
       {mobileLoading.show && <MobileLoadingOverlay message={mobileLoading.message} progress={mobileLoading.progress} />}
 
-      {isAndroidClient && <MobileErrorToast errors={errors} onDismiss={removeError} />}
+      {isMobileClient && <MobileErrorToast errors={errors} onDismiss={removeError} />}
 
       <div className="bg-white border-b border-gray-200 sticky top-0 z-40">
         <div className="max-w-7xl mx-auto px-4">
@@ -1021,7 +1076,7 @@ function RequirementsContent() {
       </div>
 
       <div className="max-w-7xl mx-auto px-4 py-6 pb-24">
-        {!isAndroidClient && errors.length > 0 && (
+        {!isMobileClient && errors.length > 0 && (
           <div className="mb-4 space-y-2">
             {errors.map((error, index) => (
               <div key={index} className="bg-red-50 border border-red-200 rounded-lg p-3">
@@ -1111,7 +1166,7 @@ function RequirementsContent() {
             <div className="mb-4">
               <label className="block text-sm font-medium text-gray-700 mb-2">
                 Upload Resume (PDF) *
-                <span className="text-xs text-gray-500 ml-1">(Any size accepted)</span>
+                <span className="text-xs text-gray-500 ml-1">(Max 20MB)</span>
               </label>
               
               <label
@@ -1148,9 +1203,9 @@ function RequirementsContent() {
                   ) : (
                     <div className="text-center">
                       <p className="text-base text-gray-600 mb-1">
-                        {isAndroidClient ? 'Tap to select PDF' : 'Click to select PDF'}
+                        {isMobileClient ? 'Tap to select PDF' : 'Click to select PDF'}
                       </p>
-                      <p className="text-sm text-gray-500">No size limit</p>
+                      <p className="text-sm text-gray-500">Max 20MB</p>
                       <p className="text-xs text-gray-400 mt-2">Resume or CV in PDF format only</p>
                     </div>
                   )}
@@ -1216,9 +1271,9 @@ function RequirementsContent() {
               onClick={async () => {
                 setLoadingTable(true)
                 
-                const isAndroidClient = typeof window !== 'undefined' && /Android/i.test(navigator.userAgent)
+                const isMobileClient = typeof window !== 'undefined' && (/Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) || window.innerWidth <= 768)
                 
-                if (isAndroidClient) showMobileLoading('Refreshing applications...')
+                if (isMobileClient) showMobileLoading('Refreshing applications...')
                 
                 try {
                   const myApplications = await applicantFunctions.listMyApplications()
@@ -1241,9 +1296,9 @@ function RequirementsContent() {
                 } finally {
                   setLoadingTable(false)
                   
-                  const isAndroidClient = typeof window !== 'undefined' && /Android/i.test(navigator.userAgent)
+                  const isMobileClient = typeof window !== 'undefined' && (/Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) || window.innerWidth <= 768)
                   
-                  if (isAndroidClient) hideMobileLoading()
+                  if (isMobileClient) hideMobileLoading()
                 }
               }}
               disabled={loadingTable}
