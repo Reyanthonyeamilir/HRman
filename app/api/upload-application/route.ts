@@ -230,7 +230,8 @@ export async function POST(request: NextRequest): Promise<NextResponse<UploadRes
     
     console.log('Storage upload successful:', uploadData.path)
     
-    // Save to database
+    // Save to database using service role client (bypasses RLS)
+    // The service role key should allow INSERT without RLS restrictions
     const { data: application, error: dbError } = await supabase
       .from('applications')
       .insert({
@@ -241,14 +242,20 @@ export async function POST(request: NextRequest): Promise<NextResponse<UploadRes
         status: 'for_review',
         submitted_at: new Date().toISOString()
       })
-      .select()
+      .select('id')
       .single()
     
     if (dbError) {
       // Clean up uploaded file if DB insert fails
       await supabase.storage.from('applications').remove([uploadData.path])
       console.error('Database error:', dbError)
-      return NextResponse.json({ error: 'Failed to save application: ' + dbError.message }, { status: 500 })
+      console.error('Full error details:', JSON.stringify(dbError))
+      
+      // Return more detailed error for debugging
+      return NextResponse.json({ 
+        error: `Failed to save application: ${dbError.message}. If you're seeing RLS policy errors, the Supabase 'applications' table RLS policy needs to allow INSERT for authenticated users or service role.`,
+        details: dbError.message 
+      }, { status: 500 })
     }
     
     console.log('Application saved:', application.id)
