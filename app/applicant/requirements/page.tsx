@@ -326,32 +326,36 @@ function RequirementsContent() {
             </div>
 
             {/* Upload Method Toggle */}
-            <div className="flex gap-4 mb-4">
-              <label className="flex items-center gap-2 cursor-pointer">
-                <input
-                  type="radio"
-                  checked={!useGoogleDrive}
-                  onChange={() => setUseGoogleDrive(false)}
-                  className="w-4 h-4"
-                />
-                <span className="text-sm font-medium text-gray-700">📄 PDF File</span>
-              </label>
-              <label className="flex items-center gap-2 cursor-pointer">
-                <input
-                  type="radio"
-                  checked={useGoogleDrive}
-                  onChange={() => setUseGoogleDrive(true)}
-                  className="w-4 h-4"
-                />
-                <span className="text-sm font-medium text-gray-700">🔗 Google Drive Link</span>
-              </label>
+            <div className="mb-4">
+              <p className="text-sm font-medium text-gray-700 mb-3">Choose Your Submission Method *</p>
+              <div className="flex gap-4 mb-3">
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="radio"
+                    checked={!useGoogleDrive}
+                    onChange={() => setUseGoogleDrive(false)}
+                    className="w-4 h-4"
+                  />
+                  <span className="text-sm font-medium text-gray-700">📄 PDF File</span>
+                </label>
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="radio"
+                    checked={useGoogleDrive}
+                    onChange={() => setUseGoogleDrive(true)}
+                    className="w-4 h-4"
+                  />
+                  <span className="text-sm font-medium text-gray-700">🔗 Google Drive Link</span>
+                </label>
+              </div>
+              <p className="text-xs text-gray-600">💡 Choose either option - both are equally accepted. PDF uploads instantly, Google Drive links require no file transfer.</p>
             </div>
 
             {/* PDF File Upload */}
             {!useGoogleDrive && (
               <div>
                 <label className="block text-sm font-medium mb-2">Upload Resume (PDF) *</label>
-                <div className="border-2 border-dashed border-gray-300 rounded-lg p-6 text-center">
+                <div className="border-2 border-dashed border-gray-300 rounded-lg p-6 text-center hover:bg-gray-50 transition">
                   <input
                     ref={fileInputRef}
                     type="file"
@@ -365,16 +369,17 @@ function RequirementsContent() {
                     {file ? (
                       <div>
                         <p className="font-medium text-gray-900">{file.name}</p>
-                        <p className="text-sm text-green-600">Ready to upload</p>
+                        <p className="text-sm text-green-600">✓ Ready to upload</p>
                       </div>
                     ) : (
                       <div>
-                        <p className="text-gray-700">Click to select PDF file</p>
-                        <p className="text-sm text-gray-500">Max 50MB</p>
+                        <p className="text-gray-700 font-medium">Click or drag & drop your PDF</p>
+                        <p className="text-sm text-gray-500 mt-1">Max 50MB • Recommended: under 20MB</p>
                       </div>
                     )}
                   </label>
                 </div>
+                <p className="text-xs text-gray-600 mt-2">📌 Upload is instant and secure. HR will receive your file immediately.</p>
               </div>
             )}
 
@@ -382,16 +387,25 @@ function RequirementsContent() {
             {useGoogleDrive && (
               <div>
                 <label className="block text-sm font-medium mb-2">Google Drive Link *</label>
-                <div className="flex gap-2">
+                <div className="flex gap-2 mb-2">
                   <input
                     type="url"
                     value={googleDriveLink}
                     onChange={(e) => setGoogleDriveLink(e.target.value)}
-                    placeholder="https://drive.google.com/... or https://docs.google.com/..."
-                    className="flex-1 border rounded-lg px-3 py-2 text-sm"
+                    placeholder="https://drive.google.com/file/d/... or https://docs.google.com/..."
+                    className="flex-1 border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                   />
                 </div>
-                <p className="text-xs text-gray-500 mt-1">📌 Make sure the link is accessible to HR team</p>
+                <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 text-sm">
+                  <p className="text-blue-900 font-medium mb-2">📌 How to share your Google Drive link:</p>
+                  <ol className="text-blue-800 text-xs space-y-1 ml-4">
+                    <li>1. Right-click your file/folder in Google Drive</li>
+                    <li>2. Click "Share" and set to "Viewer" access</li>
+                    <li>3. Change from "Restricted" to "Anyone with the link can view"</li>
+                    <li>4. Copy the link and paste it above</li>
+                  </ol>
+                  <p className="text-blue-700 text-xs mt-2">✓ Works with: Files, Folders, Docs, Sheets, Slides</p>
+                </div>
               </div>
             )}
 
