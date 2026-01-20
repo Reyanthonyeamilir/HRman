@@ -1,107 +1,158 @@
-# Supabase RLS Policy Setup Guide
+# Supabase RLS Policy Fix - CRITICAL
 
-## Problem
-Your `applications` table has Row Level Security (RLS) policies that block the API from inserting records.
-
-## Error
+## 🔴 Problem
+Your `applications` table RLS policies are blocking uploads with error:
 ```
 new row violates row-level security policy
 ```
 
-## Solution
-
-### Option 1: RECOMMENDED - Fix RLS Policies (Secure)
-
-Go to Supabase Dashboard → Authentication → Policies
-
-#### For `applications` table:
-
-1. **DISABLE RLS temporarily** (to test):
-   - Go to Supabase Dashboard
-   - Click on `applications` table
-   - Click "Authentication" button at top
-   - Toggle OFF "Enable RLS"
-   - Click "Yes" to confirm
-
-2. **Test the upload** - it should work now
-
-3. **Enable RLS again and create proper policies**:
-   - Toggle RLS back ON
-   - Click "+ Create Policy"
-   - Create new policy:
-     - **Name**: "Applicants can insert own applications"
-     - **Type**: INSERT
-     - **Target role**: authenticated
-     - **Expression**:
-       ```sql
-       auth.uid() = applicant_id
-       ```
-   
-   - Create another policy:
-     - **Name**: "HR can read all applications"
-     - **Type**: SELECT
-     - **Target role**: authenticated
-     - **Expression**:
-       ```sql
-       (SELECT role FROM profiles WHERE id = auth.uid()) = 'hr' OR 
-       (SELECT role FROM profiles WHERE id = auth.uid()) = 'super_admin' OR
-       auth.uid() = applicant_id
-       ```
-
-### Option 2: Disable RLS (Simple - for development)
-
-If you're in development and trust server-side operations:
-
-1. Go to Supabase Dashboard
-2. Click `applications` table
-3. Click "Authentication"
-4. Toggle OFF "Enable RLS"
-
-This allows the API to insert without restrictions.
+## ✅ Solution (Choose ONE)
 
 ---
 
-## Verify Fix
+## 🚀 QUICKEST FIX (30 seconds) - OPTION A: Disable RLS
 
-After making changes:
+**For development/testing only:**
 
-1. **Rebuild locally**:
+1. Go to https://app.supabase.com → Select your project
+2. Go to **SQL Editor** (or use this: https://app.supabase.com/project/YOUR_PROJECT_ID/sql/new)
+3. Copy and paste this SQL:
+```sql
+ALTER TABLE public.applications DISABLE ROW LEVEL SECURITY;
+```
+4. Click **Execute** (Run button)
+5. ✅ Done! Try upload again
+
+**Now test locally:**
+```bash
+npm run dev
+# Go to http://localhost:3000/applicant/requirements
+# Try uploading a PDF on mobile or desktop
+```
+
+---
+
+## 🔒 SECURE FIX (2 minutes) - OPTION B: Proper RLS Policies
+
+**For production - allows users to upload their own apps, HR to manage all:**
+
+1. Go to https://app.supabase.com/project/YOUR_PROJECT_ID/sql/new
+2. Copy entire content from `supabase_rls_fix.sql` file in this repo
+3. Paste into SQL Editor
+4. Click **Execute**
+5. ✅ Done! Try upload again
+
+---
+
+## 🧪 Test the Fix
+
+### Local Testing (before pushing to GitHub):
+
+1. **Start dev server:**
    ```bash
-   npm run build
+   npm run dev
    ```
 
-2. **Test upload on mobile/desktop** - should work now
+2. **Open in browser:**
+   ```
+   http://localhost:3000/applicant/requirements
+   ```
 
-3. If error persists, check Supabase logs:
+3. **Try uploading:**
+   - Select a job position
+   - Pick a PDF file (test.pdf)
+   - Add optional notes
+   - Click "Submit Application"
+   - Watch progress bar: 40% → 50% → ... → 100%
+   - Should see ✅ success message
+
+4. **Check Supabase:**
+   - Go to https://app.supabase.com
+   - Select your project → Table Editor
+   - Click `applications` table
+   - Should see your new application row ✅
+
+---
+
+## 🚨 If Error Still Appears
+
+1. **Check RLS is actually disabled/fixed:**
+   ```sql
+   -- Run this to see current RLS status
+   SELECT schemaname, tablename, rowsecurity
+   FROM pg_tables
+   WHERE tablename = 'applications';
+   ```
+   Should show: `rowsecurity = false` OR policies should exist
+
+2. **Check Supabase logs for errors:**
    - Go to Supabase Dashboard
    - Logs → Recent logs
-   - Look for RLS policy errors
+   - Look for error details
+
+3. **Verify env variables locally:**
+   - Check `.env.local` has correct Supabase credentials
+   - Make sure `SUPABASE_SERVICE_ROLE_KEY` is set
 
 ---
 
-## Environment Variables Needed
+## 📋 Environment Variables Needed
 
-Make sure Netlify has these set:
+In `.env.local` (for local testing):
+```
+NEXT_PUBLIC_SUPABASE_URL=https://your-project.supabase.co
+NEXT_PUBLIC_SUPABASE_ANON_KEY=your_anon_key_here
+SUPABASE_SERVICE_ROLE_KEY=your_service_role_key_here
+```
 
-```
-NEXT_PUBLIC_SUPABASE_URL = https://your-project.supabase.co
-NEXT_PUBLIC_SUPABASE_ANON_KEY = eyJhbGc...
-SUPABASE_SERVICE_ROLE_KEY = eyJhbGc... (this bypasses RLS for server operations)
-```
+In Netlify Dashboard (for production):
+- Same 3 variables as above
 
 ---
 
-## After RLS Fix
+## ✅ After RLS Fix - Full Upload Flow
 
-The upload flow will:
-1. ✅ Authenticate user with Bearer token
-2. ✅ Bypass RLS with SERVICE_ROLE_KEY
-3. ✅ Insert application record
-4. ✅ Create HR notifications
-5. ✅ Log task action
+1. User selects PDF on mobile/desktop ✅
+2. Frontend detects device type ✅
+3. Sends file to API route with auth token ✅
+4. API verifies user is authenticated ✅
+5. **API uses SERVICE_ROLE_KEY to bypass RLS** ✅
+6. Uploads to `applications` storage bucket ✅
+7. Inserts record to `applications` table ✅
+8. Creates HR notifications ✅
+9. Returns success with ID ✅
+10. Frontend shows 100% progress & success message ✅
 
-Then test on:
-- Android mobile
-- iPhone mobile
-- Desktop Chrome
-- Desktop Safari
+---
+
+## 📱 Test on All Devices
+
+After fix verified locally:
+
+- [ ] Desktop Chrome - http://localhost:3000
+- [ ] Desktop Firefox - http://localhost:3000
+- [ ] Android Phone - http://YOUR_IP:3000 (e.g., http://192.168.1.100:3000)
+- [ ] iPhone - http://YOUR_IP:3000
+
+---
+
+## 🚀 After Local Testing - Push to GitHub
+
+Once uploads work locally:
+
+```bash
+# Verify all is working
+npm run build
+
+# Commit the RLS fix documentation
+git add .
+git commit -m "Docs: Add RLS policy fix guide"
+
+# Push to GitHub (auto-deploys to Netlify)
+git push origin main
+```
+
+Then in Netlify:
+- Set same 3 Supabase env variables
+- Deploys auto-trigger
+- Test on production URL
