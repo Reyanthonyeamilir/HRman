@@ -7,7 +7,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
-import { listActiveJobs, submitApplication, listMyApplications, updateApplication } from '@/lib/applicant'
+import { listActiveJobs, submitApplication, listMyApplications, updateApplication, getSignedUrl } from '@/lib/applicant'
 
 type Job = { id: string; job_title: string }
 
@@ -58,18 +58,40 @@ function RequirementsContent() {
   const [editComment, setEditComment] = React.useState('')
   const [editProgress, setEditProgress] = React.useState(0)
   const editFileInputRef = React.useRef<HTMLInputElement>(null)
+  const [pdfUrls, setPdfUrls] = React.useState<Record<string, string>>({})
+  const [isMobile, setIsMobile] = React.useState(false)
 
   // Load jobs and applications on mount
   React.useEffect(() => {
     const load = async () => {
       try {
         setLoading(true)
+        
+        // Detect mobile
+        const userAgent = navigator.userAgent
+        const mobile = /Android|iPhone|iPad|iPod|webOS/i.test(userAgent)
+        setIsMobile(mobile)
+        
         const [jobsList, appList] = await Promise.all([
           listActiveJobs(),
           listMyApplications()
         ])
         setJobs(jobsList || [])
         setApplications(appList || [])
+        
+        // Pre-fetch signed URLs for all PDFs
+        if (appList && appList.length > 0) {
+          const urls: Record<string, string> = {}
+          for (const app of appList) {
+            try {
+              const url = await getSignedUrl(app.pdf_path)
+              urls[app.id] = url
+            } catch (err) {
+              console.warn('Failed to get signed URL for', app.pdf_path)
+            }
+          }
+          setPdfUrls(urls)
+        }
       } catch (err: any) {
         setError(err.message || 'Failed to load data')
       } finally {
@@ -439,6 +461,36 @@ function RequirementsContent() {
                           </div>
                           <StatusBadge status={app.status} />
                         </div>
+
+                        {/* PDF Viewer - Mobile Safe */}
+                        {pdfUrls[app.id] && (
+                          <div className="mb-4 p-4 bg-gray-50 rounded-lg border border-gray-200">
+                            <div className="flex items-center justify-between mb-2">
+                              <label className="block text-sm font-medium text-gray-700">📄 Your PDF</label>
+                              <a
+                                href={pdfUrls[app.id]}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="text-blue-600 hover:text-blue-800 text-sm font-medium"
+                              >
+                                {isMobile ? 'Open PDF' : 'View'}
+                              </a>
+                            </div>
+                            {!isMobile && (
+                              <iframe
+                                src={pdfUrls[app.id]}
+                                width="100%"
+                                height="300"
+                                className="rounded border border-gray-300"
+                              />
+                            )}
+                            {isMobile && (
+                              <p className="text-sm text-gray-600">
+                                Tap "Open PDF" above to view your submitted resume in the PDF viewer
+                              </p>
+                            )}
+                          </div>
+                        )}
 
                         {app.status === 'for_review' && (
                           <Button
