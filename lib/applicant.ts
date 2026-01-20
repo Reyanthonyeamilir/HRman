@@ -30,6 +30,7 @@ export interface MyApplication {
   job_title: string
   job_status: string
   pdf_path: string
+  google_drive_link: string | null
   applicant_comment: string
   hr_comment: string
   submitted_at: string
@@ -285,10 +286,11 @@ async function uploadFileToStorage(file: File, fileName: string, userId: string,
 }
 
 /* ---------- Submit Application ---------- */
-export async function submitApplication({ job_id, file, applicant_comment, onProgress }: {
+export async function submitApplication({ job_id, file, applicant_comment, google_drive_link, onProgress }: {
   job_id: string; 
-  file: File; 
+  file: File | null; 
   applicant_comment: string;
+  google_drive_link?: string | null;
   onProgress?: (progress: number) => void;
 }): Promise<string> {
   try {
@@ -302,22 +304,52 @@ export async function submitApplication({ job_id, file, applicant_comment, onPro
     
     if (onProgress) onProgress(10);
     
-    // 2. Fix file for mobile if needed
-    let uploadFile = file;
-    if (isMobile()) {
-      console.log('📱 Mobile detected, applying PDF fix');
-      uploadFile = fixMobilePDF(file);
+    let pdf_path = '';
+    
+    // Handle PDF file upload
+    if (file) {
+      // 2. Fix file for mobile if needed
+      let uploadFile = file;
+      if (isMobile()) {
+        console.log('📱 Mobile detected, applying PDF fix');
+        uploadFile = fixMobilePDF(file);
+      }
+      
+      if (onProgress) onProgress(15);
+      
+      // 3. Basic file validation
+      const validation = validateFile(uploadFile);
+      if (!validation.valid) {
+        throw new Error(validation.error || 'Invalid PDF file');
+      }
+      
+      console.log('✅ File valid:', uploadFile.name);
+      
+      // 4. Create unique filename
+      const timestamp = Date.now();
+      const randomString = Math.random().toString(36).substring(2, 9);
+      pdf_path = `${user.id}-${job_id}-${timestamp}-${randomString}.pdf`;
+      
+      console.log('📤 Uploading file:', pdf_path);
+      
+      if (onProgress) onProgress(40);
+      
+      // 5. Upload file to storage with progress callback
+      await uploadFileToStorage(uploadFile, pdf_path, user.id, (progress) => {
+        // Map file upload progress (40-90%) to overall progress
+        const fileProgress = 40 + (progress / 100) * 50;
+        if (onProgress) onProgress(Math.round(fileProgress));
+      });
+      
+      if (onProgress) onProgress(90);
+      
+      console.log('✅ File uploaded, saving to database...');
+    } else if (google_drive_link) {
+      console.log('🔗 Using Google Drive link:', google_drive_link);
+      if (onProgress) onProgress(50);
+    } else {
+      throw new Error('Must provide either a PDF file or Google Drive link');
     }
-    
-    if (onProgress) onProgress(15);
-    
-    // 3. Basic file validation
-    const validation = validateFile(uploadFile);
-    if (!validation.valid) {
-      throw new Error(validation.error || 'Invalid PDF file');
-    }
-    
-    console.log('✅ File valid:', uploadFile.name);
     
     // 4. Check job exists
     const { data: job, error: jobError } = await supabase
@@ -349,22 +381,6 @@ export async function submitApplication({ job_id, file, applicant_comment, onPro
     
     if (onProgress) onProgress(30);
     
-    // 6. Create unique filename
-    const timestamp = Date.now();
-    const randomString = Math.random().toString(36).substring(2, 9);
-    const fileName = `${user.id}-${job_id}-${timestamp}-${randomString}.pdf`;
-    
-    console.log('📤 Uploading file:', fileName);
-    
-    if (onProgress) onProgress(40);
-    
-    // 7. Upload file to storage with progress callback
-    await uploadFileToStorage(uploadFile, fileName, user.id, (progress) => {
-      // Map file upload progress (40-90%) to overall progress
-      const fileProgress = 40 + (progress / 100) * 50;
-      if (onProgress) onProgress(Math.round(fileProgress));
-    });
-    
     if (onProgress) onProgress(90);
     
     console.log('✅ File uploaded, saving to database...');
@@ -375,7 +391,8 @@ export async function submitApplication({ job_id, file, applicant_comment, onPro
       .insert({
         job_id,
         applicant_id: user.id,
-        pdf_path: fileName,
+        pdf_path: pdf_path || null,
+        google_drive_link: google_drive_link || null,
         applicant_comment: applicant_comment || null,
         status: 'for_review',
         submitted_at: new Date().toISOString()
@@ -385,11 +402,13 @@ export async function submitApplication({ job_id, file, applicant_comment, onPro
     
     if (insertError) {
       console.error('Database error:', insertError);
-      // Try to clean up uploaded file
-      try {
-        await supabase.storage.from('applications').remove([fileName]);
-      } catch (e) {
-        console.warn('Could not clean up file');
+      // Try to clean up uploaded file if it exists
+      if (pdf_path) {
+        try {
+          await supabase.storage.from('applications').remove([pdf_path]);
+        } catch (e) {
+          console.warn('Could not clean up file');
+        }
       }
       throw new Error('Failed to save application.');
     }
