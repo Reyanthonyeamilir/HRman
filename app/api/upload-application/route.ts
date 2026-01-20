@@ -15,9 +15,28 @@ interface ErrorResponse {
   error: string;
 }
 
+// Client for auth operations (uses anon key)
+const supabaseAuth = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+  {
+    auth: {
+      autoRefreshToken: false,
+      persistSession: false
+    }
+  }
+)
+
+// Client for server operations (uses service role key for RLS bypass)
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+  process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+  {
+    auth: {
+      autoRefreshToken: false,
+      persistSession: false
+    }
+  }
 )
 
 // Helper to get Supabase auth token from cookies
@@ -50,7 +69,7 @@ async function getCurrentUserFromRequest(request: NextRequest) {
       const token = authHeader.substring(7)
       console.log('Token from Authorization header')
       
-      const { data: { user }, error } = await supabase.auth.getUser(token)
+      const { data: { user }, error } = await supabaseAuth.auth.getUser(token)
       
       if (!error && user) {
         console.log('User authenticated via header:', user.id)
@@ -67,7 +86,7 @@ async function getCurrentUserFromRequest(request: NextRequest) {
       return null
     }
     
-    const { data: { user }, error } = await supabase.auth.getUser(token)
+    const { data: { user }, error } = await supabaseAuth.auth.getUser(token)
     
     if (error || !user) {
       console.error('Auth error:', error)
