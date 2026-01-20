@@ -251,10 +251,16 @@ export async function POST(request: NextRequest): Promise<NextResponse<UploadRes
       console.error('Database error:', dbError)
       console.error('Full error details:', JSON.stringify(dbError))
       
+      // Check if it's an RLS policy error
+      const isRLSError = dbError.message?.includes('row-level security')
+      
       // Return more detailed error for debugging
       return NextResponse.json({ 
-        error: `Failed to save application: ${dbError.message}. If you're seeing RLS policy errors, the Supabase 'applications' table RLS policy needs to allow INSERT for authenticated users or service role.`,
-        details: dbError.message 
+        error: isRLSError 
+          ? `RLS Policy Error: The 'applications' table requires proper policies. Run the SQL from supabase_rls_fix.sql in Supabase SQL Editor.`
+          : `Failed to save application: ${dbError.message}`,
+        details: dbError.message,
+        isRLSError 
       }, { status: 500 })
     }
     

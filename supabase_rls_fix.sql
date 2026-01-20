@@ -1,55 +1,95 @@
 -- Supabase RLS Policy Fix for Applications Table
--- Run this SQL in Supabase SQL Editor to enable uploads
+-- This is the CORRECT and SECURE way to fix the RLS error
+-- Run this SQL in Supabase SQL Editor to enable authenticated user uploads
 
--- 1. First, check if RLS is enabled and disable it temporarily to see current policies
--- Go to Supabase Dashboard > SQL Editor and run this script
-
--- 2. OPTION A: Disable RLS completely (for development/testing)
--- Uncomment this if you just want to test uploads work
+-- ============================================================================
+-- OPTION 1: QUICK FIX (For Development/Testing - NOT secure for production)
+-- ============================================================================
+-- Uncomment to disable RLS completely:
 -- ALTER TABLE public.applications DISABLE ROW LEVEL SECURITY;
 
--- 3. OPTION B: Enable RLS with proper policies (RECOMMENDED for production)
+-- ============================================================================
+-- OPTION 2: PRODUCTION-SAFE FIX (Recommended - with proper RLS policies)
+-- ============================================================================
 
--- First enable RLS
+-- Step 1: Enable RLS on applications table
 ALTER TABLE public.applications ENABLE ROW LEVEL SECURITY;
 
--- Drop existing policies if they exist (replace with your actual policy names)
-DROP POLICY IF EXISTS "Applicants can insert own applications" ON public.applications;
-DROP POLICY IF EXISTS "Applicants can view own applications" ON public.applications;
+-- Step 2: Drop any existing policies (if upgrading from previous setup)
+DROP POLICY IF EXISTS "Applicants can insert their own applications" ON public.applications;
+DROP POLICY IF EXISTS "Applicants can view their own applications" ON public.applications;
+DROP POLICY IF EXISTS "HR and admins can view all applications" ON public.applications;
+DROP POLICY IF EXISTS "HR and admins can update applications" ON public.applications;
+DROP POLICY IF EXISTS "Users can insert applications" ON public.applications;
+DROP POLICY IF EXISTS "Users can view own applications" ON public.applications;
 DROP POLICY IF EXISTS "HR can view all applications" ON public.applications;
 DROP POLICY IF EXISTS "HR can update applications" ON public.applications;
-DROP POLICY IF EXISTS "Service role can do anything" ON public.applications;
+DROP POLICY IF EXISTS "Service role can insert applications" ON public.applications;
 
--- Policy 1: Allow authenticated users to INSERT their own applications
-CREATE POLICY "Users can insert applications"
-ON public.applications FOR INSERT
+-- Step 3: Create the correct policies for applicant uploads
+
+-- Policy 1: Allow applicants to create their own applications
+CREATE POLICY "Applicants can insert their own applications"
+ON applications
+FOR INSERT
+TO authenticated
 WITH CHECK (
-  auth.uid() = applicant_id
+  -- User can only create applications where applicant_id matches their own ID
+  applicant_id = auth.uid()
+  AND EXISTS (
+    SELECT 1 FROM profiles 
+    WHERE profiles.id = auth.uid() 
+    AND profiles.role = 'applicant'
+  )
 );
 
--- Policy 2: Allow users to SELECT (view) their own applications
-CREATE POLICY "Users can view own applications"
-ON public.applications FOR SELECT
+-- Policy 2: Allow applicants to view their own applications
+CREATE POLICY "Applicants can view their own applications"
+ON applications
+FOR SELECT
+TO authenticated
 USING (
-  auth.uid() = applicant_id OR
-  (SELECT role FROM public.profiles WHERE id = auth.uid()) IN ('hr', 'super_admin')
+  applicant_id = auth.uid()
 );
 
--- Policy 3: Allow HR/super_admin to UPDATE applications
-CREATE POLICY "HR can update applications"
-ON public.applications FOR UPDATE
+-- Policy 3: Allow HR and super_admin to view all applications
+CREATE POLICY "HR and admins can view all applications"
+ON applications
+FOR SELECT
+TO authenticated
 USING (
-  (SELECT role FROM public.profiles WHERE id = auth.uid()) IN ('hr', 'super_admin')
+  EXISTS (
+    SELECT 1 FROM profiles 
+    WHERE profiles.id = auth.uid() 
+    AND profiles.role IN ('hr', 'super_admin')
+  )
 );
 
--- Policy 4: Allow service role (API) to INSERT without restrictions
--- This is needed for the API route to work
-CREATE POLICY "Service role can insert applications"
-ON public.applications FOR INSERT
-WITH CHECK (true);
+-- Policy 4: Allow HR and super_admin to update applications (for status changes)
+CREATE POLICY "HR and admins can update applications"
+ON applications
+FOR UPDATE
+TO authenticated
+USING (
+  EXISTS (
+    SELECT 1 FROM profiles 
+    WHERE profiles.id = auth.uid() 
+    AND profiles.role IN ('hr', 'super_admin')
+  )
+)
+WITH CHECK (
+  EXISTS (
+    SELECT 1 FROM profiles 
+    WHERE profiles.id = auth.uid() 
+    AND profiles.role IN ('hr', 'super_admin')
+  )
+);
 
--- Verify policies are created
-SELECT schemaname, tablename, policyname, cmd, qual, with_check
-FROM pg_policies
-WHERE tablename = 'applications'
-ORDER BY policyname;
+-- ============================================================================
+-- VERIFY: Check that policies are created correctly
+-- ============================================================================
+-- Run this query to see all policies on the applications table:
+-- SELECT schemaname, tablename, policyname, cmd, qual, with_check
+-- FROM pg_policies
+-- WHERE tablename = 'applications'
+-- ORDER BY policyname;
