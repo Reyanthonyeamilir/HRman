@@ -16,6 +16,7 @@ type Application = {
   job_id: string
   job_title: string
   pdf_path: string
+  google_drive_link: string | null
   applicant_comment: string
   hr_comment: string
   submitted_at: string
@@ -60,6 +61,8 @@ function RequirementsContent() {
   const editFileInputRef = React.useRef<HTMLInputElement>(null)
   const [pdfUrls, setPdfUrls] = React.useState<Record<string, string>>({})
   const [isMobile, setIsMobile] = React.useState(false)
+  const [useGoogleDrive, setUseGoogleDrive] = React.useState(false)
+  const [googleDriveLink, setGoogleDriveLink] = React.useState('')
 
   // Load jobs and applications on mount
   React.useEffect(() => {
@@ -129,9 +132,25 @@ function RequirementsContent() {
   }
 
   const handleSubmit = async () => {
-    if (!jobId || !file) {
-      setError('Please select a job and file')
+    if (!jobId) {
+      setError('Please select a job position')
       return
+    }
+
+    if (useGoogleDrive) {
+      if (!googleDriveLink.trim()) {
+        setError('Please enter a Google Drive link')
+        return
+      }
+      if (!googleDriveLink.includes('drive.google.com') && !googleDriveLink.includes('docs.google.com')) {
+        setError('Invalid Google Drive link')
+        return
+      }
+    } else {
+      if (!file) {
+        setError('Please select a PDF file')
+        return
+      }
     }
 
     try {
@@ -140,18 +159,33 @@ function RequirementsContent() {
       setError(null)
       setUploadProgress(0)
 
-      await submitApplication({
-        job_id: jobId,
-        file,
-        applicant_comment: comment,
-        onProgress: (prog: number) => setUploadProgress(prog)
-      })
+      // For PDF file upload
+      if (!useGoogleDrive && file) {
+        await submitApplication({
+          job_id: jobId,
+          file,
+          applicant_comment: comment,
+          google_drive_link: null,
+          onProgress: (prog: number) => setUploadProgress(prog)
+        })
+      } else {
+        // For Google Drive link submission
+        await submitApplication({
+          job_id: jobId,
+          file: null,
+          applicant_comment: comment,
+          google_drive_link: googleDriveLink.trim(),
+          onProgress: (prog: number) => setUploadProgress(prog)
+        })
+      }
 
       setSuccess('✅ Application submitted successfully!')
       setFile(null)
+      setGoogleDriveLink('')
       setComment('')
       setJobId(null)
       setPosition('—')
+      setUseGoogleDrive(false)
       if (fileInputRef.current) fileInputRef.current.value = ''
 
       // Refresh list
@@ -291,50 +325,91 @@ function RequirementsContent() {
               </select>
             </div>
 
-            {/* File Upload */}
-            <div>
-              <label className="block text-sm font-medium mb-2">Resume (PDF) *</label>
-              <div className="border-2 border-dashed border-gray-300 rounded-lg p-6 text-center">
+            {/* Upload Method Toggle */}
+            <div className="flex gap-4 mb-4">
+              <label className="flex items-center gap-2 cursor-pointer">
                 <input
-                  ref={fileInputRef}
-                  type="file"
-                  accept="application/pdf"
-                  onChange={handleFileChange}
-                  className="hidden"
-                  id="file-input"
+                  type="radio"
+                  checked={!useGoogleDrive}
+                  onChange={() => setUseGoogleDrive(false)}
+                  className="w-4 h-4"
                 />
-                <label htmlFor="file-input" className="cursor-pointer">
-                  <div className="text-gray-400 text-3xl mb-2">📄</div>
-                  {file ? (
-                    <div>
-                      <p className="font-medium text-gray-900">{file.name}</p>
-                      <p className="text-sm text-green-600">Ready to upload</p>
-                    </div>
-                  ) : (
-                    <div>
-                      <p className="text-gray-700">Click to select PDF file</p>
-                      <p className="text-sm text-gray-500">Max 50MB</p>
-                    </div>
-                  )}
-                </label>
-              </div>
-
-              {/* Progress Bar */}
-              {uploadProgress > 0 && (
-                <div className="mt-4">
-                  <div className="flex justify-between text-sm mb-2">
-                    <span>Uploading...</span>
-                    <span>{uploadProgress}%</span>
-                  </div>
-                  <div className="w-full bg-gray-200 rounded-full h-2">
-                    <div
-                      className="bg-blue-600 h-2 rounded-full transition-all"
-                      style={{ width: `${uploadProgress}%` }}
-                    />
-                  </div>
-                </div>
-              )}
+                <span className="text-sm font-medium text-gray-700">📄 PDF File</span>
+              </label>
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input
+                  type="radio"
+                  checked={useGoogleDrive}
+                  onChange={() => setUseGoogleDrive(true)}
+                  className="w-4 h-4"
+                />
+                <span className="text-sm font-medium text-gray-700">🔗 Google Drive Link</span>
+              </label>
             </div>
+
+            {/* PDF File Upload */}
+            {!useGoogleDrive && (
+              <div>
+                <label className="block text-sm font-medium mb-2">Upload Resume (PDF) *</label>
+                <div className="border-2 border-dashed border-gray-300 rounded-lg p-6 text-center">
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept="application/pdf"
+                    onChange={handleFileChange}
+                    className="hidden"
+                    id="file-input"
+                  />
+                  <label htmlFor="file-input" className="cursor-pointer">
+                    <div className="text-gray-400 text-3xl mb-2">📄</div>
+                    {file ? (
+                      <div>
+                        <p className="font-medium text-gray-900">{file.name}</p>
+                        <p className="text-sm text-green-600">Ready to upload</p>
+                      </div>
+                    ) : (
+                      <div>
+                        <p className="text-gray-700">Click to select PDF file</p>
+                        <p className="text-sm text-gray-500">Max 50MB</p>
+                      </div>
+                    )}
+                  </label>
+                </div>
+              </div>
+            )}
+
+            {/* Google Drive Link Input */}
+            {useGoogleDrive && (
+              <div>
+                <label className="block text-sm font-medium mb-2">Google Drive Link *</label>
+                <div className="flex gap-2">
+                  <input
+                    type="url"
+                    value={googleDriveLink}
+                    onChange={(e) => setGoogleDriveLink(e.target.value)}
+                    placeholder="https://drive.google.com/... or https://docs.google.com/..."
+                    className="flex-1 border rounded-lg px-3 py-2 text-sm"
+                  />
+                </div>
+                <p className="text-xs text-gray-500 mt-1">📌 Make sure the link is accessible to HR team</p>
+              </div>
+            )}
+
+            {/* Progress Bar */}
+            {uploadProgress > 0 && (
+              <div className="mt-4">
+                <div className="flex justify-between text-sm mb-2">
+                  <span>Uploading...</span>
+                  <span>{uploadProgress}%</span>
+                </div>
+                <div className="w-full bg-gray-200 rounded-full h-2">
+                  <div
+                    className="bg-blue-600 h-2 rounded-full transition-all"
+                    style={{ width: `${uploadProgress}%` }}
+                  />
+                </div>
+              </div>
+            )}
 
             {/* Comment */}
             <div>
@@ -462,7 +537,7 @@ function RequirementsContent() {
                           <StatusBadge status={app.status} />
                         </div>
 
-                        {/* PDF Viewer - Mobile Safe */}
+                        {/* PDF or Google Drive Viewer - Mobile Safe */}
                         {pdfUrls[app.id] && (
                           <div className="mb-4 p-4 bg-gray-50 rounded-lg border border-gray-200">
                             <div className="flex items-center justify-between mb-2">
@@ -489,6 +564,23 @@ function RequirementsContent() {
                                 Tap "Open PDF" above to view your submitted resume in the PDF viewer
                               </p>
                             )}
+                          </div>
+                        )}
+
+                        {/* Google Drive Link */}
+                        {app.google_drive_link && (
+                          <div className="mb-4 p-4 bg-blue-50 rounded-lg border border-blue-200">
+                            <div className="flex items-center justify-between">
+                              <label className="block text-sm font-medium text-gray-700">🔗 Google Drive Link</label>
+                              <a
+                                href={app.google_drive_link}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="text-blue-600 hover:text-blue-800 text-sm font-medium"
+                              >
+                                Open in Google Drive
+                              </a>
+                            </div>
                           </div>
                         )}
 
