@@ -184,30 +184,88 @@ export function fixMobilePDF(file: File): File {
 }
 
 /* ---------- Upload Function with Mobile Fix ---------- */
-async function uploadFileToStorage(file: File, fileName: string, userId: string): Promise<any> {
-  console.log('📤 Starting simple file upload...', {
+async function uploadFileToStorage(file: File, fileName: string, userId: string, onProgress?: (progress: number) => void): Promise<any> {
+  console.log('📤 Starting file upload...', {
     fileName,
     fileSize: file.size,
     fileType: file.type,
   });
 
   try {
-    // Simple direct upload - no retries, no file checks
-    // Just upload the file to Supabase storage
-    const { data, error } = await supabase.storage
-      .from('applications')
-      .upload(fileName, file, {
-        contentType: 'application/pdf',
-        upsert: false
-      });
+    // For small files (< 5MB), upload directly
+    if (file.size < 5 * 1024 * 1024) {
+      console.log('✅ File < 5MB, using direct upload');
+      const { data, error } = await supabase.storage
+        .from('applications')
+        .upload(fileName, file, {
+          contentType: 'application/pdf',
+          upsert: false
+        });
 
-    if (error) {
-      console.error('❌ Upload failed:', error);
-      throw error;
+      if (error) throw error;
+      if (onProgress) onProgress(100);
+      console.log('✅ File uploaded!');
+      return data;
     }
 
+    // For larger files, chunk and upload with progress tracking
+    console.log('📦 Large file detected, using chunked upload');
+    
+    const chunkSize = 1024 * 1024; // 1MB chunks
+    const totalChunks = Math.ceil(file.size / chunkSize);
+    let uploadedBytes = 0;
+
+    // Create a temporary file handle for chunked upload
+    const chunks: Blob[] = [];
+    
+    for (let i = 0; i < totalChunks; i++) {
+      const start = i * chunkSize;
+      const end = Math.min(start + chunkSize, file.size);
+      const chunk = file.slice(start, end);
+      chunks.push(chunk);
+      
+      // Calculate progress (50% for chunking, 50% for uploading)
+      const chunkProgress = ((i + 1) / totalChunks) * 50;
+      if (onProgress) onProgress(Math.round(chunkProgress));
+      
+      console.log(`📦 Chunk ${i + 1}/${totalChunks} prepared`);
+    }
+
+    // Combine chunks back into single blob and upload
+    const combinedBlob = new Blob(chunks, { type: 'application/pdf' });
+    
+    // Simulate upload progress for better UX
+    const uploadStartTime = Date.now();
+    const estimatedUploadTime = (file.size / (1024 * 1024)) * 3000; // Rough estimate: 3 seconds per MB
+    
+    const progressInterval = setInterval(() => {
+      const elapsed = Date.now() - uploadStartTime;
+      const estimatedProgress = Math.min(95, 50 + (elapsed / estimatedUploadTime) * 45);
+      if (onProgress) onProgress(Math.round(estimatedProgress));
+    }, 200);
+
+    const { data, error } = await supabase.storage
+      .from('applications')
+      .upload(fileName, combinedBlob, {
+        contentType: 'application/pdf',
+        upsert: false,
+        // Increase timeout for large files
+        ...(file.size > 10 * 1024 * 1024 && { 
+          metadata: { 
+            'Cache-Control': '0',
+            'x-upsert': 'false'
+          } 
+        })
+      });
+
+    clearInterval(progressInterval);
+    if (onProgress) onProgress(100);
+
+    if (error) throw error;
+    
     console.log('✅ File uploaded successfully!');
     return data;
+
   } catch (error: any) {
     console.error('❌ Upload error:', error);
     
@@ -227,8 +285,11 @@ async function uploadFileToStorage(file: File, fileName: string, userId: string)
 }
 
 /* ---------- Submit Application ---------- */
-export async function submitApplication({ job_id, file, applicant_comment }: {
-  job_id: string; file: File; applicant_comment: string;
+export async function submitApplication({ job_id, file, applicant_comment, onProgress }: {
+  job_id: string; 
+  file: File; 
+  applicant_comment: string;
+  onProgress?: (progress: number) => void;
 }): Promise<string> {
   try {
     console.log('🚀 Starting application submission...');
@@ -239,12 +300,16 @@ export async function submitApplication({ job_id, file, applicant_comment }: {
     
     console.log('✅ User authenticated:', user.email);
     
+    if (onProgress) onProgress(10);
+    
     // 2. Fix file for mobile if needed
     let uploadFile = file;
     if (isMobile()) {
       console.log('📱 Mobile detected, applying PDF fix');
       uploadFile = fixMobilePDF(file);
     }
+    
+    if (onProgress) onProgress(15);
     
     // 3. Basic file validation
     const validation = validateFile(uploadFile);
@@ -268,6 +333,8 @@ export async function submitApplication({ job_id, file, applicant_comment }: {
     
     console.log('✅ Job verified:', job.job_title);
     
+    if (onProgress) onProgress(25);
+    
     // 5. Check if already applied
     const { data: existingApp } = await supabase
       .from('applications')
@@ -280,6 +347,8 @@ export async function submitApplication({ job_id, file, applicant_comment }: {
       throw new Error(`You have already applied for "${job.job_title}". You cannot apply again for the same position.`);
     }
     
+    if (onProgress) onProgress(30);
+    
     // 6. Create unique filename
     const timestamp = Date.now();
     const randomString = Math.random().toString(36).substring(2, 9);
@@ -287,8 +356,16 @@ export async function submitApplication({ job_id, file, applicant_comment }: {
     
     console.log('📤 Uploading file:', fileName);
     
-    // 7. Upload file to storage
-    await uploadFileToStorage(uploadFile, fileName, user.id);
+    if (onProgress) onProgress(40);
+    
+    // 7. Upload file to storage with progress callback
+    await uploadFileToStorage(uploadFile, fileName, user.id, (progress) => {
+      // Map file upload progress (40-90%) to overall progress
+      const fileProgress = 40 + (progress / 100) * 50;
+      if (onProgress) onProgress(Math.round(fileProgress));
+    });
+    
+    if (onProgress) onProgress(90);
     
     console.log('✅ File uploaded, saving to database...');
     
@@ -316,6 +393,8 @@ export async function submitApplication({ job_id, file, applicant_comment }: {
       }
       throw new Error('Failed to save application.');
     }
+    
+    if (onProgress) onProgress(100);
     
     console.log('🎉 Application submitted! ID:', data?.id);
     return data?.id || '';

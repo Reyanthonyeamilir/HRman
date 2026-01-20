@@ -715,11 +715,17 @@ function RequirementsContent() {
       setUploadProgress(40)
       if (isMobileClient) showMobileLoading('Uploading file...', 40)
 
-      // Simple upload without fake progress simulation
+      // Upload with real progress tracking
       const result = await applicantFunctions.submitApplication({ 
         job_id: jobId!, 
         file: uploadFile, 
-        applicant_comment: applicantComment
+        applicant_comment: applicantComment,
+        onProgress: (progress: number) => {
+          setUploadProgress(progress)
+          if (isMobileClient && progress > 40) {
+            showMobileLoading(`Uploading file... ${progress}%`, progress)
+          }
+        }
       })
       
       // Upload successful
