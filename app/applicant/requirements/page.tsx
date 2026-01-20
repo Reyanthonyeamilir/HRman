@@ -677,6 +677,8 @@ function RequirementsContent() {
       }
     }
 
+    let progressInterval: NodeJS.Timeout | undefined
+    
     try {
       setSubmitting(true)
       
@@ -715,77 +717,85 @@ function RequirementsContent() {
       setUploadProgress(40)
       if (isMobileClient) showMobileLoading('Uploading file...', 40)
 
-      // Simulate progress for mobile
+      // Simulate progress for mobile with better tracking
       if (isMobileClient) {
-        const progressInterval = setInterval(() => {
+        progressInterval = setInterval(() => {
           setUploadProgress(prev => {
-            if (prev >= 90) {
-              clearInterval(progressInterval)
-              return prev
+            if (prev >= 80) {
+              // Slow down progress as we approach completion
+              return prev + Math.random() * 3
             }
-            return prev + 10
+            return prev + Math.random() * 8 + 5
           })
-        }, 300)
+        }, 400)
       }
 
-      const result = await applicantFunctions.submitApplication({ 
-        job_id: jobId!, 
-        file: uploadFile, 
-        applicant_comment: applicantComment
-      })
-      
-      if (isMobileClient) {
-        showMobileLoading('Finalizing...', 100)
-      }
-      setUploadProgress(100)
-      
-      setSuccess(`✅ Application submitted successfully! Reference: #${result}`)
-      
-      setTimeout(() => {
-        setFile(null)
-        setApplicantComment('')
-        setUploadProgress(0)
-        setJobId(null)
-        setPosition('—')
-        setAlreadyAppliedCheck(null)
-        if (fileInputRef.current) {
-          fileInputRef.current.value = ''
-        }
+      try {
+        const result = await applicantFunctions.submitApplication({ 
+          job_id: jobId!, 
+          file: uploadFile, 
+          applicant_comment: applicantComment
+        })
+        
+        // Clear progress interval when upload completes
+        if (progressInterval) clearInterval(progressInterval)
+        
         if (isMobileClient) {
-          setTimeout(() => hideMobileLoading(), 1500)
+          showMobileLoading('Finalizing...', 100)
         }
-      }, 2000)
-      
-      setTimeout(async () => {
-        try {
-          if (isMobileClient) showMobileLoading('Refreshing...', 0)
-          
-          const myApplications = await applicantFunctions.listMyApplications()
-          const formattedApplications = (myApplications || []).map((app: any) => ({
-            id: app.id,
-            job_id: app.job_id,
-            job_title: app.job_title || 'Unknown Position',
-            pdf_path: app.pdf_path,
-            applicant_comment: app.applicant_comment || '',
-            hr_comment: app.hr_comment || '',
-            submitted_at: app.submitted_at,
-            status: app.status || 'for_review',
-            updated_at: app.updated_at,
-            hr_comment_at: app.hr_comment_at,
-            hr_comment_by: app.hr_comment_by,
-            applicant_id: app.applicant_id
-          }))
-          
-          setRows(formattedApplications)
-          
-        } catch (refreshError) {
-          console.error('Failed to refresh data:', refreshError)
-        } finally {
-          if (isMobileClient) {
-            setTimeout(() => hideMobileLoading(), 1000)
+        setUploadProgress(100)
+        
+        setSuccess(`✅ Application submitted successfully! Reference: #${result}`)
+        
+        setTimeout(() => {
+          setFile(null)
+          setApplicantComment('')
+          setUploadProgress(0)
+          setJobId(null)
+          setPosition('—')
+          setAlreadyAppliedCheck(null)
+          if (fileInputRef.current) {
+            fileInputRef.current.value = ''
           }
-        }
-      }, 2500)
+          if (isMobileClient) {
+            setTimeout(() => hideMobileLoading(), 1500)
+          }
+        }, 2000)
+        
+        setTimeout(async () => {
+          try {
+            if (isMobileClient) showMobileLoading('Refreshing...', 0)
+            
+            const myApplications = await applicantFunctions.listMyApplications()
+            const formattedApplications = (myApplications || []).map((app: any) => ({
+              id: app.id,
+              job_id: app.job_id,
+              job_title: app.job_title || 'Unknown Position',
+              pdf_path: app.pdf_path,
+              applicant_comment: app.applicant_comment || '',
+              hr_comment: app.hr_comment || '',
+              submitted_at: app.submitted_at,
+              status: app.status || 'for_review',
+              updated_at: app.updated_at,
+              hr_comment_at: app.hr_comment_at,
+              hr_comment_by: app.hr_comment_by,
+              applicant_id: app.applicant_id
+            }))
+            
+            setRows(formattedApplications)
+            
+          } catch (refreshError) {
+            console.error('Failed to refresh data:', refreshError)
+          } finally {
+            if (isMobileClient) {
+              setTimeout(() => hideMobileLoading(), 1000)
+            }
+          }
+        }, 2500)
+      } finally {
+        // Always clear the interval
+        if (progressInterval) clearInterval(progressInterval)
+      }
       
     } catch (e: any) {
       console.error('Submission error:', e)
@@ -793,6 +803,7 @@ function RequirementsContent() {
       
       const isMobileClient = typeof window !== 'undefined' && (/Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) || window.innerWidth <= 768)
       
+      if (progressInterval) clearInterval(progressInterval)
       if (isMobileClient) hideMobileLoading()
       
       let errorType: AppError['type'] = 'SUBMISSION'

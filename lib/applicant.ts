@@ -201,21 +201,28 @@ async function uploadFileToStorage(file: File, fileName: string, userId: string)
     uploadFile = fixMobilePDF(file);
   }
 
-  // STEP 2: Verify file is readable (mobile specific)
+  // STEP 2: Verify file is readable (mobile specific) - OPTIONAL, less blocking
   if (isMobile()) {
     try {
-      console.log('🔍 Testing file readability on mobile...');
-      const testSlice = uploadFile.slice(0, Math.min(uploadFile.size, 1024)); // First 1KB
-      await new Promise((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onload = () => resolve(true);
-        reader.onerror = () => reject(new Error('File cannot be read'));
-        reader.readAsArrayBuffer(testSlice);
-      });
+      console.log('🔍 Quick file readability check on mobile...');
+      // Timeout the readability check itself to avoid blocking mobile
+      await Promise.race([
+        new Promise<void>((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve();
+          reader.onerror = () => reject(new Error('File cannot be read'));
+          // Only read first 512 bytes instead of 1KB for faster check
+          reader.readAsArrayBuffer(uploadFile.slice(0, Math.min(uploadFile.size, 512)));
+        }),
+        new Promise<void>((_, reject) => {
+          setTimeout(() => reject(new Error('File check timeout')), 3000); // 3 second timeout for this check
+        })
+      ]);
       console.log('✅ File readable on mobile');
-    } catch (readError) {
-      console.error('❌ Mobile file read error:', readError);
-      throw new Error('File may be corrupted. Please try selecting it again.');
+    } catch (readError: any) {
+      // Don't fail the upload, just log warning - file may still be uploadable
+      console.warn('⚠️ Mobile file readability check skipped:', readError.message);
+      console.warn('Proceeding with upload anyway...');
     }
   }
 
@@ -232,9 +239,9 @@ async function uploadFileToStorage(file: File, fileName: string, userId: string)
     .from('applications')
     .upload(fileName, uploadFile, uploadOptions);
 
-  // Add timeout for mobile (90 seconds)
+  // Add timeout for mobile (120 seconds) - increased from 90 for slower networks
   const timeoutPromise = new Promise((_, reject) => {
-    setTimeout(() => reject(new Error('Upload timeout after 90 seconds')), 90000);
+    setTimeout(() => reject(new Error('Upload timeout after 120 seconds')), 120000);
   });
 
   let lastError = null;
@@ -250,9 +257,9 @@ async function uploadFileToStorage(file: File, fileName: string, userId: string)
         lastError = error;
         console.warn(`⚠️ Upload attempt ${attempt} failed:`, error.message);
         
-        // Wait before retry (2 seconds for better mobile recovery)
+        // Wait before retry (3 seconds for better mobile recovery)
         if (attempt < 3) {
-          const delayMs = 2000 * attempt; // Progressive delay: 2s, 4s
+          const delayMs = 3000 * attempt; // Progressive delay: 3s, 6s
           console.log(`⏳ Waiting ${delayMs/1000}s before retry...`);
           await new Promise(resolve => setTimeout(resolve, delayMs));
           continue;
@@ -265,7 +272,7 @@ async function uploadFileToStorage(file: File, fileName: string, userId: string)
       lastError = error;
       console.error(`❌ Upload attempt ${attempt} crashed:`, error);
       if (attempt < 3) {
-        const delayMs = 2000 * attempt;
+        const delayMs = 3000 * attempt;
         console.log(`⏳ Waiting ${delayMs/1000}s before retry...`);
         await new Promise(resolve => setTimeout(resolve, delayMs));
         continue;
@@ -279,20 +286,20 @@ async function uploadFileToStorage(file: File, fileName: string, userId: string)
   // User-friendly error messages for mobile with specific guidance
   if (isMobile()) {
     if (lastError?.message?.includes('timeout')) {
-      throw new Error('Upload timed out. For mobile uploads, keep files under 5MB and use WiFi for better reliability.');
+      throw new Error('Upload took too long (network may be slow). Try: 1) Use WiFi instead of mobile data, 2) Reduce file size, 3) Try again with a stable connection.');
     }
     if (lastError?.message?.includes('network') || lastError?.message?.includes('fetch')) {
-      throw new Error('Network issue detected. Mobile networks can be unstable. Try switching to WiFi or moving to an area with better signal.');
+      throw new Error('Network connection unstable. This is common on mobile. Try: 1) Switch to WiFi, 2) Move to area with better signal, 3) Close other apps using data.');
     }
     if (lastError?.message?.includes('413') || lastError?.message?.includes('large')) {
-      throw new Error('File is too large for mobile upload. For best results on mobile, keep PDF files under 5MB. The maximum limit is 20MB.');
+      throw new Error('File too large for upload. Compress your PDF or try a smaller file (under 5MB recommended for mobile, max 20MB).');
     }
     if (lastError?.message?.includes('permission') || lastError?.message?.includes('policy')) {
-      throw new Error('Please make sure you are logged in and have permission to upload.');
+      throw new Error('Upload permission denied. Please ensure you are logged in with the correct account.');
     }
   }
   
-  throw lastError || new Error('Upload failed after multiple attempts. Please try again.');
+  throw lastError || new Error('Upload failed after 3 attempts. Please check your connection and try again.');
 }
 
 /* ---------- Submit Application ---------- */
