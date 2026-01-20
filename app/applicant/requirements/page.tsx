@@ -440,7 +440,7 @@ function RequirementsContent() {
             {/* Submit Button */}
             <Button
               onClick={handleSubmit}
-              disabled={!jobId || !file || submitting}
+              disabled={!jobId || (!file && !googleDriveLink.trim()) || submitting}
               className="w-full bg-blue-600 hover:bg-blue-700 text-white py-3"
             >
               {submitting ? 'Uploading...' : 'Submit Application'}
