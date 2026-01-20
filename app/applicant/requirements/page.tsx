@@ -28,7 +28,7 @@ export default function RequirementsPage() {
 }
 
 type AppError = {
-  type: 'AUTH' | 'NETWORK' | 'VALIDATION' | 'SUBMISSION' | 'LOADING' | 'FILE';
+  type: 'AUTH' | 'NETWORK' | 'VALIDATION' | 'SUBMISSION' | 'LOADING' | 'FILE' | 'TIMEOUT';
   message: string;
   details?: string;
   retryable?: boolean;
@@ -72,6 +72,7 @@ const loadApplicantFunctions = async () => {
     return {
       listActiveJobs: async () => [],
       submitApplication: async () => { throw new Error('Not available during SSR') },
+      submitApplicationViaAPI: async () => { throw new Error('Not available during SSR') },
       listMyApplications: async () => [],
       getSignedUrl: async () => '',
       getCurrentUser: async () => null,
@@ -110,6 +111,7 @@ const MobileErrorToast = ({ errors, onDismiss }: { errors: AppError[], onDismiss
                 {error.type === 'NETWORK' ? 'Connection Issue' : 
                  error.type === 'AUTH' ? 'Sign In Required' : 
                  error.type === 'FILE' ? 'File Error' :
+                 error.type === 'TIMEOUT' ? 'Timeout' :
                  'Error'}
               </p>
               <p className="text-xs text-red-700 mt-1 line-clamp-2">{error.message}</p>
@@ -186,7 +188,7 @@ const MobileLoadingOverlay = ({ message, progress }: { message: string, progress
   </div>
 )
 
-// Edit Form Component for Inline Editing
+// Edit Form Component
 const EditApplicationForm = ({ 
   application, 
   onCancel, 
@@ -214,8 +216,7 @@ const EditApplicationForm = ({
 
     const f = files[0]
     
-    // Basic validation
-    if (f.type !== 'application/pdf') {
+    if (f.type !== 'application/pdf' && !f.name.toLowerCase().endsWith('.pdf')) {
       setLocalError('Only PDF files are allowed.')
       setFile(null)
       if (fileInputRef.current) {
@@ -226,6 +227,16 @@ const EditApplicationForm = ({
 
     if (f.size === 0) {
       setLocalError('File appears to be empty.')
+      setFile(null)
+      if (fileInputRef.current) {
+        fileInputRef.current.value = ''
+      }
+      return
+    }
+
+    const maxSize = 20 * 1024 * 1024
+    if (f.size > maxSize) {
+      setLocalError('File size exceeds 20MB limit.')
       setFile(null)
       if (fileInputRef.current) {
         fileInputRef.current.value = ''
@@ -398,8 +409,7 @@ function RequirementsContent() {
     progress: 0
   })
   const [uploadProgress, setUploadProgress] = useState<number>(0)
-
-  const [selectedJobPreview, setSelectedJobPreview] = useState<Job | null>(null)
+  const [uploadTimeout, setUploadTimeout] = useState<NodeJS.Timeout | null>(null)
 
   const [rowUploadProgress, setRowUploadProgress] = useState<number>(0)
   const [rowSubmitting, setRowSubmitting] = useState<boolean>(false)
@@ -435,6 +445,8 @@ function RequirementsContent() {
     })
   }, [])
 
+  const isMobileClient = typeof window !== 'undefined' && (/Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) || window.innerWidth <= 768)
+
   const handleJobSelect = (e: React.ChangeEvent<HTMLSelectElement>) => {
     const selectedJobId = e.target.value || null
     setJobId(selectedJobId)
@@ -450,7 +462,7 @@ function RequirementsContent() {
     }
   }
 
-  const onPick = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  const onPick = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files
     if (!files || files.length === 0) {
       setFile(null)
@@ -464,102 +476,64 @@ function RequirementsContent() {
     setUploadProgress(0)
     setAlreadyAppliedCheck(null)
     
-    const isMobileClient = typeof window !== 'undefined' && (/Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) || window.innerWidth <= 768)
-    
-    if (isMobileClient) {
-      showMobileLoading('Processing PDF file...', 10)
-    }
-
-    try {
-      let processedFile = f;
-      
-      // Fix for mobile browsers that don't set proper MIME types
-      const fileName = f.name.toLowerCase()
-      const isPDF = fileName.endsWith('.pdf')
-      const fileExtension = fileName.substring(fileName.lastIndexOf('.') + 1)
-      
-      // Check if it's a PDF file based on extension
-      if (isPDF) {
-        // Handle mobile-specific issues
-        if (f.type === '' || f.type === 'application/octet-stream') {
-          console.log('Mobile file detected, fixing MIME type...')
-          // Reconstruct the file with proper MIME type
-          const fileBlob = f.slice(0, f.size, 'application/pdf')
-          processedFile = new File([fileBlob], f.name, { 
-            type: 'application/pdf',
-            lastModified: f.lastModified
-          });
-        }
-        
-        // Additional validation for mobile
-        if (f.size === 0) {
-          addError({
-            type: 'FILE',
-            message: 'File appears to be empty.',
-            retryable: true
-          })
-          setFile(null)
-          if (fileInputRef.current) {
-            fileInputRef.current.value = ''
-          }
-          hideMobileLoading()
-          return
-        }
-        
-        // Check if file size is reasonable (max 20MB for mobile)
-        const maxSizeMB = 20
-        const maxSizeBytes = maxSizeMB * 1024 * 1024
-        if (f.size > maxSizeBytes) {
-          addError({
-            type: 'FILE',
-            message: `File size exceeds ${maxSizeMB}MB limit. Please choose a smaller file.`,
-            retryable: false
-          })
-          setFile(null)
-          if (fileInputRef.current) {
-            fileInputRef.current.value = ''
-          }
-          hideMobileLoading()
-          return
-        }
-      } else {
-        addError({
-          type: 'FILE',
-          message: 'Only PDF files are allowed.',
-          retryable: false
-        })
-        setFile(null)
-        if (fileInputRef.current) {
-          fileInputRef.current.value = ''
-        }
-        hideMobileLoading()
-        return
-      }
-
-      setFile(processedFile)
-      setUploadProgress(100)
-      
-      if (isMobileClient) {
-        showMobileLoading('✅ PDF ready for upload!', 100)
-        setTimeout(() => hideMobileLoading(), 1000)
-      }
-      
-    } catch (error: any) {
-      console.error('File pick error:', error)
+    // Validate file
+    const fileName = f.name.toLowerCase()
+    if (f.type !== 'application/pdf' && !fileName.endsWith('.pdf')) {
       addError({
         type: 'FILE',
-        message: 'Failed to process file. Please try again.',
+        message: 'Only PDF files are allowed.',
+        retryable: false
+      })
+      setFile(null)
+      if (fileInputRef.current) {
+        fileInputRef.current.value = ''
+      }
+      return
+    }
+
+    if (f.size === 0) {
+      addError({
+        type: 'FILE',
+        message: 'File appears to be empty.',
         retryable: true
       })
       setFile(null)
       if (fileInputRef.current) {
         fileInputRef.current.value = ''
       }
-      hideMobileLoading()
-    } finally {
-      setTimeout(() => {
-        setUploadProgress(0)
-      }, 1500)
+      return
+    }
+    
+    const maxSizeMB = 20
+    const maxSizeBytes = maxSizeMB * 1024 * 1024
+    if (f.size > maxSizeBytes) {
+      addError({
+        type: 'FILE',
+        message: `File size exceeds ${maxSizeMB}MB limit. Please choose a smaller file.`,
+        retryable: false
+      })
+      setFile(null)
+      if (fileInputRef.current) {
+        fileInputRef.current.value = ''
+      }
+      return
+    }
+
+    // Fix MIME type for mobile
+    let processedFile = f
+    if ((f.type === '' || f.type === 'application/octet-stream') && fileName.endsWith('.pdf')) {
+      const fileBlob = f.slice(0, f.size, 'application/pdf')
+      processedFile = new File([fileBlob], f.name, { 
+        type: 'application/pdf',
+        lastModified: f.lastModified
+      })
+    }
+
+    setFile(processedFile)
+    
+    if (isMobileClient) {
+      showMobileLoading('✅ PDF ready for upload!', 100)
+      setTimeout(() => hideMobileLoading(), 1000)
     }
   }
 
@@ -642,7 +616,7 @@ function RequirementsContent() {
     }
   }
 
-  async function onSubmit() {
+  const handleSubmit = async () => {
     if (!applicantFunctions) {
       addError({
         type: 'LOADING',
@@ -657,84 +631,67 @@ function RequirementsContent() {
     setUploadProgress(0)
     setAlreadyAppliedCheck(null)
 
-    if (!editingApplicationId) {
-      if (!jobId) {
-        addError({
-          type: 'VALIDATION',
-          message: 'Please select a job position',
-          retryable: false
-        })
-        return
-      }
-      
-      if (!file) {
-        addError({
-          type: 'VALIDATION',
-          message: 'Please select a PDF file',
-          retryable: false
-        })
-        return
-      }
+    if (!jobId) {
+      addError({
+        type: 'VALIDATION',
+        message: 'Please select a job position',
+        retryable: false
+      })
+      return
+    }
+    
+    if (!file) {
+      addError({
+        type: 'VALIDATION',
+        message: 'Please select a PDF file',
+        retryable: false
+      })
+      return
     }
 
     try {
       setSubmitting(true)
       
-      const isMobileClient = typeof window !== 'undefined' && (/Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) || window.innerWidth <= 768)
-      
       if (isMobileClient) {
         showMobileLoading('Preparing upload...', 10)
       }
 
-      setUploadProgress(20)
-
-      // Ensure file exists before using it
-      if (!file) {
-        addError({
-          type: 'FILE',
-          message: 'No file selected for upload',
-          retryable: false
-        })
-        setSubmitting(false)
-        if (isMobileClient) hideMobileLoading()
-        return
-      }
-
-      let uploadFile = file
+      // Set timeout for upload
+      const timeoutId = setTimeout(() => {
+        if (submitting) {
+          addError({
+            type: 'TIMEOUT',
+            message: 'Upload taking too long. Try with WiFi or smaller file.',
+            retryable: true
+          })
+          setSubmitting(false)
+          hideMobileLoading()
+        }
+      }, 120000) // 2 minutes timeout
       
-      // Fix file type for mobile if needed
-      if (isMobileClient && (file.type === 'application/octet-stream' || file.type === '')) {
-        console.log('Fixing MIME type for mobile upload...')
-        const fileBlob = file.slice(0, file.size, 'application/pdf')
-        uploadFile = new File([fileBlob], file.name, { 
-          type: 'application/pdf',
-          lastModified: file.lastModified
-        })
-      }
+      setUploadTimeout(timeoutId)
 
-      setUploadProgress(40)
-      if (isMobileClient) showMobileLoading('Uploading file...', 40)
-
-      // Upload with real progress tracking
-      const result = await applicantFunctions.submitApplication({ 
-        job_id: jobId!, 
-        file: uploadFile, 
+      // ALWAYS use API route for upload - better for mobile and handles auth properly
+      const result = await applicantFunctions.submitApplicationViaAPI({
+        job_id: jobId,
+        file,
         applicant_comment: applicantComment,
         onProgress: (progress: number) => {
           setUploadProgress(progress)
-          if (isMobileClient && progress > 40) {
-            showMobileLoading(`Uploading file... ${progress}%`, progress)
+          if (isMobileClient) {
+            showMobileLoading(`Uploading... ${progress}%`, progress)
           }
         }
       })
-      
-      // Upload successful
+
+      clearTimeout(timeoutId)
+      setUploadTimeout(null)
+
       setUploadProgress(100)
       if (isMobileClient) {
         showMobileLoading('Success!', 100)
       }
         
-      
       setSuccess(`✅ Application submitted successfully! Reference: #${result}`)
       
       // Reset form
@@ -753,7 +710,7 @@ function RequirementsContent() {
         }
       }, 1000)
       
-      // Refresh applications list in background
+      // Refresh applications
       setTimeout(async () => {
         try {
           if (isMobileClient) showMobileLoading('Refreshing...', 0)
@@ -789,6 +746,11 @@ function RequirementsContent() {
       setUploadProgress(0)
       if (isMobileClient) hideMobileLoading()
       
+      if (uploadTimeout) {
+        clearTimeout(uploadTimeout)
+        setUploadTimeout(null)
+      }
+      
       let errorType: AppError['type'] = 'SUBMISSION'
       let userMessage = e.message || 'An error occurred. Please try again.'
       
@@ -797,30 +759,29 @@ function RequirementsContent() {
         userMessage = e.message
         setAlreadyAppliedCheck({ applied: true, message: e.message })
       }
-      else if (isMobileClient) {
-        if (e.message.includes('network') || e.message.includes('fetch') || e.message.includes('Network request failed')) {
-          errorType = 'NETWORK'
-          userMessage = '📶 Network issue. Check connection and try again.'
-        } else if (e.message.includes('type') || e.message.includes('pdf') || e.message.includes('Invalid file type')) {
-          errorType = 'FILE'
-          userMessage = '📄 Only PDF files allowed.'
-        } else if (e.message.includes('permission') || e.message.includes('auth') || e.message.includes('Unauthorized')) {
-          errorType = 'AUTH'
-          userMessage = '🔑 Session expired. Please log in again.'
-          setTimeout(() => router.push('/login?next=/applicant/requirements'), 2000)
-        } else if (e.message.includes('bucket') || e.message.includes('storage') || e.message.includes('upload')) {
-          errorType = 'FILE'
-          userMessage = '💾 Upload failed. Please try a smaller file or check connection.'
-        } else if (e.message.includes('size') || e.message.includes('too large')) {
-          errorType = 'FILE'
-          userMessage = '📄 File too large. Please choose a file under 20MB.'
-        }
-      } else {
-        if (e.message.includes('authenticated') || e.message.includes('Unauthorized')) {
-          errorType = 'AUTH'
-          userMessage = 'Session expired. Please sign in again.'
-          setTimeout(() => router.push('/login?next=/applicant/requirements'), 2000)
-        }
+      else if (e.message.includes('timeout') || e.message.includes('Timeout')) {
+        errorType = 'TIMEOUT'
+        userMessage = 'Upload timed out. Try with WiFi or a smaller file.'
+      }
+      else if (e.message.includes('network') || e.message.includes('fetch') || e.message.includes('Network')) {
+        errorType = 'NETWORK'
+        userMessage = '📶 Network issue. Check connection and try again.'
+      } else if (e.message.includes('type') || e.message.includes('pdf') || e.message.includes('Invalid file type')) {
+        errorType = 'FILE'
+        userMessage = '📄 Only PDF files allowed.'
+      } else if (e.message.includes('permission') || e.message.includes('auth') || e.message.includes('Unauthorized')) {
+        errorType = 'AUTH'
+        userMessage = '🔑 Session expired. Please log in again.'
+        setTimeout(() => router.push('/login?next=/applicant/requirements'), 2000)
+      } else if (e.message.includes('bucket') || e.message.includes('storage') || e.message.includes('upload')) {
+        errorType = 'FILE'
+        userMessage = '💾 Upload failed. Please try a smaller file or check connection.'
+      } else if (e.message.includes('size') || e.message.includes('too large')) {
+        errorType = 'FILE'
+        userMessage = '📄 File too large. Please choose a file under 20MB.'
+      } else if (e.message.includes('500') || e.message.includes('Internal Server')) {
+        errorType = 'NETWORK'
+        userMessage = 'Server error. Please try again in a moment.'
       }
       
       addError({
@@ -835,6 +796,11 @@ function RequirementsContent() {
   }
 
   function clearForm() {
+    if (uploadTimeout) {
+      clearTimeout(uploadTimeout)
+      setUploadTimeout(null)
+    }
+    
     setFile(null)
     setApplicantComment('')
     setErrors([])
@@ -853,8 +819,6 @@ function RequirementsContent() {
       try {
         setLoadingFunctions(true)
         
-        const isMobileClient = typeof window !== 'undefined' && (/Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) || window.innerWidth <= 768)
-        
         if (isMobileClient) showMobileLoading('Loading application portal...')
         
         const functions = await loadApplicantFunctions()
@@ -870,22 +834,18 @@ function RequirementsContent() {
       } finally {
         setLoadingFunctions(false)
         
-        const isMobileClient = typeof window !== 'undefined' && (/Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) || window.innerWidth <= 768)
-        
         if (isMobileClient) hideMobileLoading()
       }
     }
 
     loadFunctions()
-  }, [addError])
+  }, [addError, isMobileClient])
 
   useEffect(() => {
     if (!applicantFunctions || loadingFunctions) return
 
     const checkAuth = async () => {
       try {
-        const isMobileClient = typeof window !== 'undefined' && (/Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) || window.innerWidth <= 768)
-        
         if (isMobileClient) showMobileLoading('Checking authentication...')
         
         const user = await applicantFunctions.getCurrentUser()
@@ -900,6 +860,17 @@ function RequirementsContent() {
           }, 2000)
           return
         }
+        
+        if (user.role !== 'applicant') {
+          addError({
+            type: 'AUTH',
+            message: 'Access restricted to applicants only',
+            retryable: false
+          })
+          setTimeout(() => router.push('/'), 2000)
+          return
+        }
+        
         setAuthChecked(true)
       } catch (error: any) {
         console.error('Auth check failed:', error)
@@ -910,14 +881,12 @@ function RequirementsContent() {
           retryable: true
         })
       } finally {
-        const isMobileClient = typeof window !== 'undefined' && (/Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) || window.innerWidth <= 768)
-        
         if (isMobileClient) hideMobileLoading()
       }
     }
 
     checkAuth()
-  }, [applicantFunctions, loadingFunctions, router, addError])
+  }, [applicantFunctions, loadingFunctions, router, addError, isMobileClient])
 
   useEffect(() => {
     if (!authChecked || !applicantFunctions) return
@@ -926,8 +895,6 @@ function RequirementsContent() {
 
     const loadData = async () => {
       try {
-        const isMobileClient = typeof window !== 'undefined' && (/Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) || window.innerWidth <= 768)
-        
         if (isMobileClient) showMobileLoading('Loading data...', 0)
         
         setLoadingJobs(true)
@@ -997,8 +964,6 @@ function RequirementsContent() {
           setLoadingJobs(false)
           setLoadingTable(false)
           
-          const isMobileClient = typeof window !== 'undefined' && (/Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) || window.innerWidth <= 768)
-          
           if (isMobileClient) {
             setTimeout(() => hideMobileLoading(), 1000)
           }
@@ -1011,7 +976,7 @@ function RequirementsContent() {
     return () => {
       alive = false
     }
-  }, [authChecked, applicantFunctions, initPos, addError])
+  }, [authChecked, applicantFunctions, initPos, addError, isMobileClient])
 
   useEffect(() => {
     if (errors.length > 0) {
@@ -1021,6 +986,14 @@ function RequirementsContent() {
       return () => clearTimeout(timer)
     }
   }, [errors])
+
+  useEffect(() => {
+    return () => {
+      if (uploadTimeout) {
+        clearTimeout(uploadTimeout)
+      }
+    }
+  }, [uploadTimeout])
 
   if (!authChecked || !applicantFunctions || loadingFunctions) {
     return (
@@ -1033,8 +1006,6 @@ function RequirementsContent() {
       </div>
     )
   }
-
-  const isMobileClient = typeof window !== 'undefined' && (/Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) || window.innerWidth <= 768)
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -1057,8 +1028,8 @@ function RequirementsContent() {
             <button
               onClick={async () => {
                 if (applicantFunctions?.signOut) {
-                  await applicantFunctions.signOut();
-                  router.push('/login');
+                  await applicantFunctions.signOut()
+                  router.push('/login')
                 }
               }}
               className="text-sm text-red-600 hover:text-red-800"
@@ -1084,7 +1055,8 @@ function RequirementsContent() {
                        error.type === 'NETWORK' ? 'Connection Error' :
                        error.type === 'VALIDATION' ? 'Validation Error' :
                        error.type === 'SUBMISSION' ? 'Submission Failed' :
-                       error.type === 'LOADING' ? 'Loading Error' : 'File Error'}
+                       error.type === 'LOADING' ? 'Loading Error' : 
+                       error.type === 'TIMEOUT' ? 'Timeout Error' : 'File Error'}
                     </p>
                     <p className="text-sm text-red-700 break-words">{error.message}</p>
                   </div>
@@ -1218,6 +1190,13 @@ function RequirementsContent() {
                       style={{ width: `${uploadProgress}%` }}
                     ></div>
                   </div>
+                  {isMobileClient && uploadProgress < 100 && (
+                    <p className="text-xs text-gray-500 mt-2">
+                      {uploadProgress < 30 ? 'Starting upload...' : 
+                       uploadProgress < 70 ? 'Uploading your file...' : 
+                       'Finalizing...'}
+                    </p>
+                  )}
                 </div>
               )}
             </div>
@@ -1236,7 +1215,7 @@ function RequirementsContent() {
             </div>
 
             <button
-              onClick={onSubmit}
+              onClick={handleSubmit}
               disabled={submitting || !file || !jobId || alreadyAppliedCheck?.applied}
               className="w-full bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white font-medium py-4 rounded-xl disabled:opacity-50 disabled:cursor-not-allowed text-base transition-colors touch-manipulation"
             >
@@ -1265,8 +1244,6 @@ function RequirementsContent() {
               onClick={async () => {
                 setLoadingTable(true)
                 
-                const isMobileClient = typeof window !== 'undefined' && (/Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) || window.innerWidth <= 768)
-                
                 if (isMobileClient) showMobileLoading('Refreshing applications...')
                 
                 try {
@@ -1289,8 +1266,6 @@ function RequirementsContent() {
                   setRows(formattedApplications)
                 } finally {
                   setLoadingTable(false)
-                  
-                  const isMobileClient = typeof window !== 'undefined' && (/Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) || window.innerWidth <= 768)
                   
                   if (isMobileClient) hideMobileLoading()
                 }
@@ -1368,7 +1343,6 @@ function RequirementsContent() {
                       </div>
                     </div>
 
-                    {/* EDIT FORM - Visible only for this application when in edit mode */}
                     {editingApplicationId === row.id && editingApplication && (
                       <EditApplicationForm
                         application={editingApplication}
