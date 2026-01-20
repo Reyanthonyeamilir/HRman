@@ -467,6 +467,7 @@ export async function listMyApplications(): Promise<MyApplication[]> {
       job_title: app.job_postings?.job_title || 'Unknown Job',
       job_status: app.job_postings?.status || 'unknown',
       pdf_path: app.pdf_path,
+      google_drive_link: app.google_drive_link || null,
       applicant_comment: app.applicant_comment || '',
       hr_comment: app.hr_comment || '',
       submitted_at: app.submitted_at,
