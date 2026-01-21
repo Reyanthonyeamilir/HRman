@@ -82,15 +82,18 @@ function RequirementsContent() {
         setJobs(jobsList || [])
         setApplications(appList || [])
         
-        // Pre-fetch signed URLs for all PDFs
+        // Pre-fetch signed URLs for all PDFs (only for actual PDF files)
         if (appList && appList.length > 0) {
           const urls: Record<string, string> = {}
           for (const app of appList) {
-            try {
-              const url = await getSignedUrl(app.pdf_path)
-              urls[app.id] = url
-            } catch (err) {
-              console.warn('Failed to get signed URL for', app.pdf_path)
+            // Only fetch URL if there's an actual PDF file (not Google Drive)
+            if (app.pdf_path && app.pdf_path.trim()) {
+              try {
+                const url = await getSignedUrl(app.pdf_path)
+                urls[app.id] = url
+              } catch (err) {
+                console.warn('Failed to get signed URL for', app.pdf_path)
+              }
             }
           }
           setPdfUrls(urls)
@@ -159,24 +162,30 @@ function RequirementsContent() {
       setError(null)
       setUploadProgress(0)
 
-      // For PDF file upload
-      if (!useGoogleDrive && file) {
-        await submitApplication({
-          job_id: jobId,
-          file,
-          applicant_comment: comment,
-          google_drive_link: null,
-          onProgress: (prog: number) => setUploadProgress(prog)
-        })
-      } else {
-        // For Google Drive link submission
-        await submitApplication({
-          job_id: jobId,
-          file: null,
-          applicant_comment: comment,
-          google_drive_link: googleDriveLink.trim(),
-          onProgress: (prog: number) => setUploadProgress(prog)
-        })
+      // For Google Drive submissions, simulate progress
+      if (useGoogleDrive) {
+        const interval = setInterval(() => {
+          setUploadProgress(prev => {
+            if (prev >= 90) {
+              clearInterval(interval)
+              return 90
+            }
+            return prev + 30
+          })
+        }, 200)
+      }
+
+      // Submit application with appropriate parameters
+      await submitApplication({
+        job_id: jobId,
+        file: useGoogleDrive ? null : file,
+        applicant_comment: comment,
+        google_drive_link: useGoogleDrive ? googleDriveLink.trim() : null,
+        onProgress: (prog: number) => setUploadProgress(prog)
+      })
+
+      if (useGoogleDrive) {
+        setUploadProgress(100)
       }
 
       setSuccess('✅ Application submitted successfully!')
@@ -413,7 +422,7 @@ function RequirementsContent() {
             {uploadProgress > 0 && (
               <div className="mt-4">
                 <div className="flex justify-between text-sm mb-2">
-                  <span>Uploading...</span>
+                  <span>Processing...</span>
                   <span>{uploadProgress}%</span>
                 </div>
                 <div className="w-full bg-gray-200 rounded-full h-2">
@@ -443,7 +452,7 @@ function RequirementsContent() {
               disabled={!jobId || (!file && !googleDriveLink.trim()) || submitting}
               className="w-full bg-blue-600 hover:bg-blue-700 text-white py-3"
             >
-              {submitting ? 'Uploading...' : 'Submit Application'}
+              {submitting ? 'Processing...' : 'Submit Application'}
             </Button>
           </CardContent>
         </Card>
@@ -551,8 +560,8 @@ function RequirementsContent() {
                           <StatusBadge status={app.status} />
                         </div>
 
-                        {/* PDF or Google Drive Viewer - Mobile Safe */}
-                        {pdfUrls[app.id] && (
+                        {/* PDF Viewer - Only show if PDF exists and has a URL */}
+                        {app.pdf_path && pdfUrls[app.id] && (
                           <div className="mb-4 p-4 bg-gray-50 rounded-lg border border-gray-200">
                             <div className="flex items-center justify-between mb-2">
                               <label className="block text-sm font-medium text-gray-700">📄 Your PDF</label>
@@ -581,7 +590,7 @@ function RequirementsContent() {
                           </div>
                         )}
 
-                        {/* Google Drive Link */}
+                        {/* Google Drive Link - Only show if Google Drive link exists */}
                         {app.google_drive_link && (
                           <div className="mb-4 p-4 bg-blue-50 rounded-lg border border-blue-200">
                             <div className="flex items-center justify-between">
@@ -595,10 +604,12 @@ function RequirementsContent() {
                                 Open in Google Drive
                               </a>
                             </div>
+                            <p className="text-xs text-gray-600 mt-2">This application was submitted via Google Drive</p>
                           </div>
                         )}
 
-                        {app.status === 'for_review' && (
+                        {/* Edit button - Only show for file-based applications that are still in review */}
+                        {app.status === 'for_review' && app.pdf_path && !app.google_drive_link && (
                           <Button
                             onClick={() => {
                               setEditingId(app.id)

@@ -103,6 +103,7 @@ interface Application {
   job_id: string
   applicant_id: string
   pdf_path: string
+  google_drive_link?: string
   applicant_comment?: string
   hr_comment?: string
   hr_comment_by?: string
@@ -313,6 +314,7 @@ export default function HRTagPage() {
             
             return {
               ...app,
+              google_drive_link: app.google_drive_link || undefined,
               applicant: applicantResult.data || {
                 id: app.applicant_id,
                 email: 'Unknown Email',
@@ -418,7 +420,8 @@ export default function HRTagPage() {
           id: app.id,
           job_id: app.job_id,
           applicant_id: app.applicant_id,
-          pdf_path: app.pdf_path,
+          pdf_path: app.pdf_path || '',
+          google_drive_link: app.google_drive_link || undefined,
           applicant_comment: app.applicant_comment || undefined,
           hr_comment: app.hr_comment || undefined,
           hr_comment_by: app.hr_comment_by || undefined,
@@ -517,7 +520,7 @@ export default function HRTagPage() {
     }
   }
 
-  const fetchApplicantDetails = async (applicantId: string, pdfPath?: string) => {
+  const fetchApplicantDetails = async (applicantId: string, application?: Application) => {
     try {
       setLoadingDetails(true)
       
@@ -555,11 +558,12 @@ export default function HRTagPage() {
       // Fetch additional files from storage
       let files: ApplicantFile[] = []
       
-      if (pdfPath) {
+      // Handle PDF file
+      if (application?.pdf_path) {
         try {
           const { data: resumeData, error: resumeError } = await supabase.storage
             .from('applications')
-            .createSignedUrl(pdfPath, 3600)
+            .createSignedUrl(application.pdf_path, 3600)
           
           if (!resumeError && resumeData) {
             files.push({
@@ -572,6 +576,16 @@ export default function HRTagPage() {
         } catch (fileErr) {
           console.error('Error fetching resume:', fileErr)
         }
+      }
+      
+      // Handle Google Drive link
+      if (application?.google_drive_link) {
+        files.push({
+          name: 'Google Drive Link',
+          url: application.google_drive_link,
+          type: 'link',
+          size: 'Google Drive'
+        })
       }
 
       setApplicantDetails({
@@ -663,7 +677,7 @@ export default function HRTagPage() {
     setSelectedApplicant(application.applicant)
     setSelectedApplication(application)
     setActiveTab('profile')
-    await fetchApplicantDetails(application.applicant_id, application.pdf_path)
+    await fetchApplicantDetails(application.applicant_id, application)
   }
 
   const sendEmailNotification = async (application: Application, newStatus: Application['status'], hrComment?: string) => {
@@ -991,31 +1005,45 @@ export default function HRTagPage() {
     }
   }
 
-  const downloadResume = async (pdfPath: string) => {
+  const downloadResume = async (application: Application) => {
     try {
-      console.log('📥 Downloading resume:', pdfPath)
-      const { data, error } = await supabase.storage
-        .from('applications')
-        .download(pdfPath)
-
-      if (error) {
-        console.error('Storage error:', error)
-        throw error
-      }
-
-      // Create a blob URL for the file
-      const url = window.URL.createObjectURL(data)
-      const a = document.createElement('a')
-      a.href = url
-      a.download = pdfPath.split('/').pop() || 'resume.pdf'
-      document.body.appendChild(a)
-      a.click()
-      document.body.removeChild(a)
-      window.URL.revokeObjectURL(url)
+      console.log('📥 Downloading resume for application:', application.id)
       
+      // If it's a Google Drive link, open in new tab
+      if (application.google_drive_link) {
+        console.log('🔗 Opening Google Drive link:', application.google_drive_link)
+        window.open(application.google_drive_link, '_blank')
+        return
+      }
+      
+      // If it's a PDF file, download from storage
+      if (application.pdf_path) {
+        const { data, error } = await supabase.storage
+          .from('applications')
+          .download(application.pdf_path)
+
+        if (error) {
+          console.error('Storage error:', error)
+          throw error
+        }
+
+        // Create a blob URL for the file
+        const url = window.URL.createObjectURL(data)
+        const a = document.createElement('a')
+        a.href = url
+        a.download = application.pdf_path.split('/').pop() || 'resume.pdf'
+        document.body.appendChild(a)
+        a.click()
+        document.body.removeChild(a)
+        window.URL.revokeObjectURL(url)
+        return
+      }
+      
+      throw new Error('No resume file or Google Drive link found')
+        
     } catch (err) {
       console.error('Error downloading resume:', err)
-      setError('Failed to download resume: ' + (err instanceof Error ? err.message : 'Unknown error'))
+      setError('Failed to open resume: ' + (err instanceof Error ? err.message : 'Unknown error'))
     }
   }
 
@@ -1136,6 +1164,8 @@ export default function HRTagPage() {
       case 'png':
       case 'gif':
         return '🖼️'
+      case 'link':
+        return '🔗'
       default:
         return '📎'
     }
@@ -1150,7 +1180,7 @@ export default function HRTagPage() {
       const csvData = [[
         'Applicant ID', 'Full Name', 'Email', 'Phone', 'Date of Birth', 'Age', 'Address',
         'Job Applied', 'Department', 'Location', 'Application Status', 'Date Applied', 
-        'HR Comment', 'Interview Date', 'Interview Status', 'Interview Notes', 'Resume Path',
+        'Resume Type', 'HR Comment', 'Interview Date', 'Interview Status', 'Interview Notes',
         // Education
         'Highest Education Level', 'Education Institution', 'Course/Qualification', 
         'Degree Name', 'Year Graduated', 'GPA', 'Honors/Awards', 'Expected Finish',
@@ -1171,6 +1201,10 @@ export default function HRTagPage() {
       for (const application of jobWithApps.applications) {
         // Fetch all detailed information for this applicant
         const applicantData = await fetchApplicantFullData(application.applicant_id)
+        
+        // Determine resume type
+        const resumeType = application.google_drive_link ? 'Google Drive Link' : 
+                          application.pdf_path ? 'PDF File' : 'No Resume'
         
         // Format education information
         const highestEducation = applicantData.educations.length > 0 ? applicantData.educations[0] : null
@@ -1231,11 +1265,11 @@ export default function HRTagPage() {
           application.job_posting.location,
           application.status,
           formatDate(application.submitted_at),
+          resumeType,
           application.hr_comment || 'No comment',
           application.interview_date ? formatDateTime(application.interview_date) : 'Not scheduled',
           application.interview_status || 'Not scheduled',
           application.interview_notes || 'No notes',
-          application.pdf_path,
           // Education
           educationLevel,
           educationInstitution,
@@ -1313,11 +1347,14 @@ export default function HRTagPage() {
       const csvData = [[
         'Applicant ID', 'Full Name', 'Email', 'Phone', 'Date of Birth', 'Age', 'Address',
         'Job Applied', 'Department', 'Location', 'Application Status', 'Date Applied', 
-        'HR Comment', 'Interview Date', 'Interview Status', 'Interview Notes', 'Resume Path'
+        'Resume Type', 'HR Comment', 'Interview Date', 'Interview Status', 'Interview Notes'
       ]]
       
       for (const jobWithApps of jobsWithApplications) {
         for (const application of jobWithApps.applications) {
+          const resumeType = application.google_drive_link ? 'Google Drive Link' : 
+                            application.pdf_path ? 'PDF File' : 'No Resume'
+          
           const row = [
             application.applicant.id.substring(0, 8),
             getApplicantFullName(application.applicant),
@@ -1331,11 +1368,11 @@ export default function HRTagPage() {
             application.job_posting.location,
             application.status,
             formatDate(application.submitted_at),
+            resumeType,
             application.hr_comment || 'No comment',
             application.interview_date ? formatDateTime(application.interview_date) : 'Not scheduled',
             application.interview_status || 'Not scheduled',
-            application.interview_notes || 'No notes',
-            application.pdf_path
+            application.interview_notes || 'No notes'
           ]
           csvData.push(row)
         }
@@ -1807,14 +1844,20 @@ export default function HRTagPage() {
                               </Button>
                               
                               <Button
-                                onClick={() => downloadResume(application.pdf_path)}
-                                className="bg-blue-600 hover:bg-blue-700 text-white"
+                                onClick={() => downloadResume(application)}
+                                className={`${application.google_drive_link ? 'bg-green-600 hover:bg-green-700' : 'bg-blue-600 hover:bg-blue-700'} text-white`}
                                 size="sm"
-                                title="Download Resume"
+                                title={application.google_drive_link ? "Open Google Drive Link" : "Download PDF"}
                               >
-                                <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-                                </svg>
+                                {application.google_drive_link ? (
+                                  <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                                  </svg>
+                                ) : (
+                                  <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                                  </svg>
+                                )}
                               </Button>
                               
                               <Button
@@ -1840,6 +1883,32 @@ export default function HRTagPage() {
                               </Button>
                             </div>
                           </div>
+                        </div>
+
+                        {/* Resume Type Badge */}
+                        <div className="mt-3">
+                          {application.google_drive_link ? (
+                            <span className="inline-flex items-center px-2 py-1 text-xs font-semibold rounded-full bg-green-100 text-green-800 border border-green-200">
+                              <svg className="h-3 w-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" />
+                              </svg>
+                              Submitted via Google Drive
+                            </span>
+                          ) : application.pdf_path ? (
+                            <span className="inline-flex items-center px-2 py-1 text-xs font-semibold rounded-full bg-blue-100 text-blue-800 border border-blue-200">
+                              <svg className="h-3 w-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                              </svg>
+                              Submitted as PDF
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center px-2 py-1 text-xs font-semibold rounded-full bg-gray-100 text-gray-800 border border-gray-200">
+                              <svg className="h-3 w-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                              </svg>
+                              No resume attached
+                            </span>
+                          )}
                         </div>
 
                         {/* Interview Details */}
@@ -2401,7 +2470,7 @@ export default function HRTagPage() {
                                         onClick={(e) => {
                                           e.preventDefault();
                                           if (elig.document_path) {
-                                            downloadResume(elig.document_path);
+                                            downloadResume(selectedApplication);
                                           }
                                         }}
                                         className="text-blue-600 hover:underline"
@@ -2458,7 +2527,7 @@ export default function HRTagPage() {
                                         onClick={(e) => {
                                           e.preventDefault();
                                           if (training.certificate_path) {
-                                            downloadResume(training.certificate_path);
+                                            downloadResume(selectedApplication);
                                           }
                                         }}
                                         className="text-blue-600 hover:underline"
@@ -2511,26 +2580,28 @@ export default function HRTagPage() {
                                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
                                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
                                   </svg>
-                                  View File
+                                  {file.type === 'link' ? 'Open Link' : 'View File'}
                                 </Button>
-                                <Button
-                                  onClick={() => {
-                                    const link = document.createElement('a')
-                                    link.href = file.url
-                                    link.download = file.name
-                                    document.body.appendChild(link)
-                                    link.click()
-                                    document.body.removeChild(link)
-                                  }}
-                                  variant="outline"
-                                  size="sm"
-                                  className="w-full mt-2"
-                                >
-                                  <svg className="h-4 w-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-                                  </svg>
-                                  Download
-                                </Button>
+                                {file.type !== 'link' && (
+                                  <Button
+                                    onClick={() => {
+                                      const link = document.createElement('a')
+                                      link.href = file.url
+                                      link.download = file.name
+                                      document.body.appendChild(link)
+                                      link.click()
+                                      document.body.removeChild(link)
+                                    }}
+                                    variant="outline"
+                                    size="sm"
+                                    className="w-full mt-2"
+                                  >
+                                    <svg className="h-4 w-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                                    </svg>
+                                    Download
+                                  </Button>
+                                )}
                               </div>
                             </div>
                           ))}
@@ -2673,29 +2744,68 @@ export default function HRTagPage() {
 
                       {/* Resume Section */}
                       <div className="bg-white rounded-lg border border-gray-200 p-6">
-                        <h4 className="text-lg font-semibold text-gray-900 mb-4">Submitted Resume</h4>
-                        <div className="flex items-center justify-between">
-                          <div className="flex items-center">
-                            <div className="bg-blue-100 p-3 rounded-lg mr-4">
-                              <svg className="h-8 w-8 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                        <h4 className="text-lg font-semibold text-gray-900 mb-4">Submitted Application</h4>
+                        
+                        {selectedApplication.google_drive_link ? (
+                          // Google Drive Link Section
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center">
+                              <div className="bg-green-100 p-3 rounded-lg mr-4">
+                                <svg className="h-8 w-8 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" />
+                                </svg>
+                              </div>
+                              <div>
+                                <p className="font-medium text-gray-900">Google Drive Link</p>
+                                <p className="text-sm text-gray-500">Submitted via Google Drive</p>
+                                <p className="text-xs text-blue-600 mt-1 truncate max-w-md">
+                                  {selectedApplication.google_drive_link}
+                                </p>
+                              </div>
+                            </div>
+                            <Button
+                              onClick={() => window.open(selectedApplication.google_drive_link, '_blank')}
+                              className="bg-green-600 hover:bg-green-700 text-white"
+                            >
+                              <svg className="h-4 w-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
                               </svg>
-                            </div>
-                            <div>
-                              <p className="font-medium text-gray-900">Resume.pdf</p>
-                              <p className="text-sm text-gray-500">Submitted application document</p>
-                            </div>
+                              Open in Google Drive
+                            </Button>
                           </div>
-                          <Button
-                            onClick={() => downloadResume(selectedApplication.pdf_path)}
-                            className="bg-blue-600 hover:bg-blue-700 text-white"
-                          >
-                            <svg className="h-4 w-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                        ) : selectedApplication.pdf_path ? (
+                          // PDF File Section
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center">
+                              <div className="bg-blue-100 p-3 rounded-lg mr-4">
+                                <svg className="h-8 w-8 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                                </svg>
+                              </div>
+                              <div>
+                                <p className="font-medium text-gray-900">Resume.pdf</p>
+                                <p className="text-sm text-gray-500">Submitted PDF document</p>
+                              </div>
+                            </div>
+                            <Button
+                              onClick={() => downloadResume(selectedApplication)}
+                              className="bg-blue-600 hover:bg-blue-700 text-white"
+                            >
+                              <svg className="h-4 w-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                              </svg>
+                              Download PDF
+                            </Button>
+                          </div>
+                        ) : (
+                          // No resume section
+                          <div className="text-center py-8 bg-gray-50 rounded-lg">
+                            <svg className="h-12 w-12 text-gray-400 mx-auto mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
                             </svg>
-                            Download Resume
-                          </Button>
-                        </div>
+                            <p className="text-gray-500">No resume or Google Drive link provided</p>
+                          </div>
+                        )}
                       </div>
                     </div>
                   )}
@@ -2728,13 +2838,24 @@ export default function HRTagPage() {
                     Update Status
                   </Button>
                   <Button
-                    onClick={() => downloadResume(selectedApplication.pdf_path)}
-                    className="bg-blue-600 hover:bg-blue-700 text-white"
+                    onClick={() => downloadResume(selectedApplication)}
+                    className={`${selectedApplication.google_drive_link ? 'bg-green-600 hover:bg-green-700' : 'bg-blue-600 hover:bg-blue-700'} text-white`}
                   >
-                    <svg className="h-4 w-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-                    </svg>
-                    Download Resume
+                    {selectedApplication.google_drive_link ? (
+                      <>
+                        <svg className="h-4 w-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                        </svg>
+                        Open Google Drive
+                      </>
+                    ) : (
+                      <>
+                        <svg className="h-4 w-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                        </svg>
+                        Download PDF
+                      </>
+                    )}
                   </Button>
                 </div>
               </div>

@@ -294,7 +294,12 @@ export async function submitApplication({ job_id, file, applicant_comment, googl
   onProgress?: (progress: number) => void;
 }): Promise<string> {
   try {
-    console.log('🚀 Starting application submission...');
+    console.log('🚀 Starting application submission...', {
+      job_id,
+      hasFile: !!file,
+      hasGoogleDriveLink: !!google_drive_link,
+      google_drive_link: google_drive_link || 'null or empty'
+    });
     
     // 1. Get current user
     const user = await getCurrentUser();
@@ -304,7 +309,7 @@ export async function submitApplication({ job_id, file, applicant_comment, googl
     
     if (onProgress) onProgress(10);
     
-    let pdf_path = '';
+    let pdf_path: string | null = null;
     
     // Handle PDF file upload
     if (file) {
@@ -344,7 +349,7 @@ export async function submitApplication({ job_id, file, applicant_comment, googl
       if (onProgress) onProgress(90);
       
       console.log('✅ File uploaded, saving to database...');
-    } else if (google_drive_link) {
+    } else if (google_drive_link && google_drive_link.trim()) {
       console.log('🔗 Using Google Drive link:', google_drive_link);
       if (onProgress) onProgress(50);
     } else {
@@ -381,22 +386,36 @@ export async function submitApplication({ job_id, file, applicant_comment, googl
     
     if (onProgress) onProgress(30);
     
+    // Prepare data for insertion
+    const applicationData: any = {
+      job_id,
+      applicant_id: user.id,
+      applicant_comment: applicant_comment.trim() || null,
+      status: 'for_review',
+      submitted_at: new Date().toISOString()
+    };
+    
+    // Handle file vs Google Drive link logic
+    if (file) {
+      // If uploading a file
+      applicationData.pdf_path = pdf_path;
+      applicationData.google_drive_link = null; // Explicitly set to null
+    } else if (google_drive_link && google_drive_link.trim()) {
+      // If using Google Drive link
+      applicationData.pdf_path = null; // Explicitly set to null
+      applicationData.google_drive_link = google_drive_link.trim();
+    }
+    
+    console.log('📝 Application data to save:', JSON.stringify(applicationData, null, 2));
+    
     if (onProgress) onProgress(90);
     
-    console.log('✅ File uploaded, saving to database...');
+    console.log('✅ Saving to database...');
     
     // 8. Save application to database
     const { data, error: insertError } = await supabase
       .from('applications')
-      .insert({
-        job_id,
-        applicant_id: user.id,
-        pdf_path: pdf_path || null,
-        google_drive_link: google_drive_link || null,
-        applicant_comment: applicant_comment || null,
-        status: 'for_review',
-        submitted_at: new Date().toISOString()
-      })
+      .insert(applicationData)
       .select()
       .single();
     
@@ -461,6 +480,7 @@ export async function listMyApplications(): Promise<MyApplication[]> {
         id,
         job_id,
         pdf_path,
+        google_drive_link,
         applicant_comment,
         hr_comment,
         hr_comment_by,
@@ -491,8 +511,8 @@ export async function listMyApplications(): Promise<MyApplication[]> {
       job_id: app.job_id,
       job_title: app.job_postings?.job_title || 'Unknown Job',
       job_status: app.job_postings?.status || 'unknown',
-      pdf_path: app.pdf_path,
-      google_drive_link: app.google_drive_link || null,
+      pdf_path: app.pdf_path || '', // Handle null
+      google_drive_link: app.google_drive_link || null, // Handle null
       applicant_comment: app.applicant_comment || '',
       hr_comment: app.hr_comment || '',
       submitted_at: app.submitted_at,
@@ -528,7 +548,7 @@ export async function listActiveJobs(): Promise<any[]> {
   }
 }
 
-/* ---------- Get Signed URL ---------- */
+/* ---------- Get Signed Url ---------- */
 export async function getSignedUrl(filePath: string): Promise<string> {
   try {
     if (!filePath) throw new Error('No file path provided');
