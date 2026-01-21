@@ -405,7 +405,9 @@ export async function submitApplication({ job_id, file, applicant_comment, googl
         message: insertError.message,
         code: insertError.code,
         details: insertError.details,
-        hint: insertError.hint
+        hint: insertError.hint,
+        status: insertError.status,
+        fullError: JSON.stringify(insertError)
       });
       
       // Try to clean up uploaded file if it exists
