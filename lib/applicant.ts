@@ -406,7 +406,6 @@ export async function submitApplication({ job_id, file, applicant_comment, googl
         code: insertError.code,
         details: insertError.details,
         hint: insertError.hint,
-        status: insertError.status,
         fullError: JSON.stringify(insertError)
       });
       
@@ -433,11 +432,6 @@ export async function submitApplication({ job_id, file, applicant_comment, googl
       // Check if it's a constraint error
       if (insertError.message?.includes('violates') || insertError.message?.includes('constraint') || insertError.message?.includes('check')) {
         throw new Error('Application data invalid: Ensure you provide either a PDF file OR Google Drive link (not both required).');
-      }
-      
-      // Check for 400/403 status codes
-      if (insertError.status === 400 || insertError.status === 403) {
-        throw new Error(`Database access error (${insertError.status}). Ensure RLS policies are configured correctly.`);
       }
       
       // Generic error with actual message
