@@ -416,7 +416,17 @@ export async function submitApplication({ job_id, file, applicant_comment, googl
         throw new Error('Database is not yet configured for Google Drive links. Please contact support or try again in a few moments. If the error persists, use PDF upload instead.');
       }
       
-      throw new Error('Failed to save application.');
+      // Check if it's an RLS policy error (403 or 400 with policy message)
+      if (insertError.message?.includes('policy') || insertError.message?.includes('permission') || insertError.code === 'PGRST301') {
+        throw new Error('Permission denied. Your role may not have access to submit applications. Please contact support.');
+      }
+      
+      // Check if it's a constraint error
+      if (insertError.message?.includes('violates') || insertError.message?.includes('constraint')) {
+        throw new Error('Application data is incomplete. Please ensure you provide either a PDF file or Google Drive link.');
+      }
+      
+      throw new Error('Failed to save application. ' + (insertError.message || ''));
     }
     
     if (onProgress) onProgress(100);
