@@ -410,6 +410,12 @@ export async function submitApplication({ job_id, file, applicant_comment, googl
           console.warn('Could not clean up file');
         }
       }
+      
+      // Check if it's a column not found error
+      if (insertError.message?.includes('google_drive_link') || insertError.message?.includes('column')) {
+        throw new Error('Database is not yet configured for Google Drive links. Please contact support or try again in a few moments. If the error persists, use PDF upload instead.');
+      }
+      
       throw new Error('Failed to save application.');
     }
     
