@@ -401,7 +401,13 @@ export async function submitApplication({ job_id, file, applicant_comment, googl
       .single();
     
     if (insertError) {
-      console.error('Database error:', insertError);
+      console.error('Database error details:', {
+        message: insertError.message,
+        code: insertError.code,
+        details: insertError.details,
+        hint: insertError.hint
+      });
+      
       // Try to clean up uploaded file if it exists
       if (pdf_path) {
         try {
@@ -413,20 +419,27 @@ export async function submitApplication({ job_id, file, applicant_comment, googl
       
       // Check if it's a column not found error
       if (insertError.message?.includes('google_drive_link') || insertError.message?.includes('column')) {
-        throw new Error('Database is not yet configured for Google Drive links. Please contact support or try again in a few moments. If the error persists, use PDF upload instead.');
+        throw new Error('Database column missing. Run the migration SQL or contact support.');
       }
       
-      // Check if it's an RLS policy error (403 or 400 with policy message)
-      if (insertError.message?.includes('policy') || insertError.message?.includes('permission') || insertError.code === 'PGRST301') {
-        throw new Error('Permission denied. Your role may not have access to submit applications. Please contact support.');
+      // Check if it's an RLS policy error
+      if (insertError.message?.includes('policy') || insertError.message?.includes('permission') || insertError.code === 'PGRST301' || insertError.code?.includes('policy')) {
+        console.error('RLS Policy Error - You likely need to run the RLS cleanup SQL');
+        throw new Error('Access denied by security policy. Please ensure RLS policies are properly configured.');
       }
       
       // Check if it's a constraint error
-      if (insertError.message?.includes('violates') || insertError.message?.includes('constraint')) {
-        throw new Error('Application data is incomplete. Please ensure you provide either a PDF file or Google Drive link.');
+      if (insertError.message?.includes('violates') || insertError.message?.includes('constraint') || insertError.message?.includes('check')) {
+        throw new Error('Application data invalid: Ensure you provide either a PDF file OR Google Drive link (not both required).');
       }
       
-      throw new Error('Failed to save application. ' + (insertError.message || ''));
+      // Check for 400/403 status codes
+      if (insertError.status === 400 || insertError.status === 403) {
+        throw new Error(`Database access error (${insertError.status}). Ensure RLS policies are configured correctly.`);
+      }
+      
+      // Generic error with actual message
+      throw new Error(`Failed to save application: ${insertError.message || 'Unknown error'}`);
     }
     
     if (onProgress) onProgress(100);
