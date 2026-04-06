@@ -4,7 +4,7 @@
 import { useState, useEffect } from 'react'
 import { createClient } from '@supabase/supabase-js'
 import { useRouter } from 'next/navigation'
-import { AdminLayout } from '@/components/adminhrsidebar' // Import the layout wrapper
+import { AdminLayout } from '@/components/adminhrsidebar'
 import { 
   Search, 
   Filter, 
@@ -40,10 +40,11 @@ import {
   X,
   ChevronDown,
   ChevronUp,
-  Plus
+  MessageCircle,
+  Bot,
+  Send
 } from 'lucide-react'
 
-// Initialize Supabase client
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
 const supabase = createClient(supabaseUrl, supabaseAnonKey)
@@ -87,6 +88,18 @@ interface Stats {
   entitiesByType: Record<string, number>
 }
 
+interface ChatMessage {
+  id: string
+  user_id: string | null
+  user_email: string
+  user_name: string
+  role: 'user' | 'assistant' | 'admin'
+  content: string
+  admin_name: string | null
+  created_at: string
+  is_guest: boolean
+}
+
 export default function TaskLogsPage() {
   const router = useRouter()
   const [logs, setLogs] = useState<TaskLog[]>([])
@@ -115,13 +128,16 @@ export default function TaskLogsPage() {
   })
   const [showFilters, setShowFilters] = useState(false)
   const [isMobile, setIsMobile] = useState(false)
+  
+  // Chat states
+  const [showChatModal, setShowChatModal] = useState(false)
+  const [selectedUserEmail, setSelectedUserEmail] = useState<string>('')
+  const [selectedUserName, setSelectedUserName] = useState<string>('')
+  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([])
+  const [loadingChat, setLoadingChat] = useState(false)
 
-  // Check if mobile
   useEffect(() => {
-    const checkMobile = () => {
-      setIsMobile(window.innerWidth < 768)
-    }
-    
+    const checkMobile = () => setIsMobile(window.innerWidth < 768)
     checkMobile()
     window.addEventListener('resize', checkMobile)
     return () => window.removeEventListener('resize', checkMobile)
@@ -141,31 +157,23 @@ export default function TaskLogsPage() {
   const checkUserAndRedirect = async () => {
     try {
       setLoadingUser(true)
-      
       const { data: { user } } = await supabase.auth.getUser()
-      
       if (!user) {
         router.push('/auth/login')
         return
       }
-
       const { data: profile, error } = await supabase
         .from('profiles')
         .select('id, role, email, first_name, last_name')
         .eq('id', user.id)
         .single()
-
       if (error) throw error
-
       setCurrentUser(profile)
-
       if (!isSuperAdmin(profile)) {
         setAccessDenied(true)
-        setLoadingUser(false)
-        return
       }
     } catch (error) {
-      console.error('Error checking user:', error)
+      console.error('Error:', error)
       router.push('/auth/login')
     } finally {
       setLoadingUser(false)
@@ -179,70 +187,22 @@ export default function TaskLogsPage() {
 
   const fetchTaskLogs = async () => {
     if (!currentUser || !isSuperAdmin()) return
-
     try {
       setLoading(true)
-      
-      let query = supabase
-        .from('task_logs')
-        .select('*', { count: 'exact' })
-        .order('created_at', { ascending: false })
-
+      let query = supabase.from('task_logs').select('*', { count: 'exact' }).order('created_at', { ascending: false })
       if (search) {
         query = query.or(`user_email.ilike.%${search}%,action.ilike.%${search}%,entity_type.ilike.%${search}%,entity_name.ilike.%${search}%`)
       }
-
-      if (actionFilter !== 'all') {
-        query = query.eq('action', actionFilter)
-      }
-
-      if (entityFilter !== 'all') {
-        query = query.eq('entity_type', entityFilter)
-      }
-
-      const now = new Date()
-      let startDate = new Date()
+      if (actionFilter !== 'all') query = query.eq('action', actionFilter)
+      if (entityFilter !== 'all') query = query.eq('entity_type', entityFilter)
       
-      switch (dateRange) {
-        case 'today':
-          startDate.setHours(0, 0, 0, 0)
-          query = query.gte('created_at', startDate.toISOString())
-          break
-        case 'yesterday':
-          startDate.setDate(startDate.getDate() - 1)
-          startDate.setHours(0, 0, 0, 0)
-          const endDate = new Date(startDate)
-          endDate.setHours(23, 59, 59, 999)
-          query = query.gte('created_at', startDate.toISOString()).lte('created_at', endDate.toISOString())
-          break
-        case '7days':
-          startDate.setDate(startDate.getDate() - 7)
-          query = query.gte('created_at', startDate.toISOString())
-          break
-        case '30days':
-          startDate.setDate(startDate.getDate() - 30)
-          query = query.gte('created_at', startDate.toISOString())
-          break
-        case '90days':
-          startDate.setDate(startDate.getDate() - 90)
-          query = query.gte('created_at', startDate.toISOString())
-          break
-      }
-
       const from = (pagination.page - 1) * pagination.perPage
       const to = from + pagination.perPage - 1
       query = query.range(from, to)
-
       const { data, error, count } = await query
-
       if (error) throw error
-
       setLogs(data || [])
-      setPagination(prev => ({
-        ...prev,
-        total: count || 0,
-        totalPages: Math.ceil((count || 0) / prev.perPage)
-      }))
+      setPagination(prev => ({ ...prev, total: count || 0, totalPages: Math.ceil((count || 0) / prev.perPage) }))
     } catch (error) {
       console.error('Error fetching task logs:', error)
       alert('Failed to fetch task logs')
@@ -253,55 +213,40 @@ export default function TaskLogsPage() {
 
   const fetchStats = async () => {
     if (!currentUser || !isSuperAdmin()) return
-
     try {
-      const { count: total } = await supabase
-        .from('task_logs')
-        .select('*', { count: 'exact', head: true })
-
+      const { count: total } = await supabase.from('task_logs').select('*', { count: 'exact', head: true })
       const today = new Date()
       today.setHours(0, 0, 0, 0)
-      const { count: todayCount } = await supabase
-        .from('task_logs')
-        .select('*', { count: 'exact', head: true })
-        .gte('created_at', today.toISOString())
-
-      const { data: uniqueUsers } = await supabase
-        .from('task_logs')
-        .select('user_email')
-        .limit(5000)
-
+      const { count: todayCount } = await supabase.from('task_logs').select('*', { count: 'exact', head: true }).gte('created_at', today.toISOString())
+      const { data: uniqueUsers } = await supabase.from('task_logs').select('user_email').limit(5000)
       const uniqueUserCount = new Set(uniqueUsers?.map(u => u.user_email)).size
-
-      const { data: allLogs } = await supabase
-        .from('task_logs')
-        .select('action, entity_type')
-        .limit(5000)
-
-      const actionCounts = allLogs?.reduce((acc: Record<string, number>, curr) => {
-        acc[curr.action] = (acc[curr.action] || 0) + 1
-        return acc
-      }, {}) || {}
-
-      const entityCounts = allLogs?.reduce((acc: Record<string, number>, curr) => {
-        acc[curr.entity_type] = (acc[curr.entity_type] || 0) + 1
-        return acc
-      }, {}) || {}
-
-      const topAction = Object.entries(actionCounts).sort((a, b) => b[1] - a[1])[0]?.[0] || 'N/A'
-      const topEntity = Object.entries(entityCounts).sort((a, b) => b[1] - a[1])[0]?.[0] || 'N/A'
-
-      setStats({
-        total: total || 0,
-        today: todayCount || 0,
-        uniqueUsers: uniqueUserCount,
-        topAction,
-        topEntity,
-        actionsByType: actionCounts,
-        entitiesByType: entityCounts
-      })
+      setStats({ total: total || 0, today: todayCount || 0, uniqueUsers: uniqueUserCount, topAction: '', topEntity: '', actionsByType: {}, entitiesByType: {} })
     } catch (error) {
       console.error('Error fetching stats:', error)
+    }
+  }
+
+  const fetchChatHistory = async (userEmail: string, userName: string) => {
+    try {
+      setLoadingChat(true)
+      setSelectedUserEmail(userEmail)
+      setSelectedUserName(userName)
+      
+      const { data, error } = await supabase
+        .from('chat_messages')
+        .select('*')
+        .eq('user_email', userEmail)
+        .order('created_at', { ascending: true })
+      
+      if (error) throw error
+      
+      setChatMessages(data || [])
+      setShowChatModal(true)
+    } catch (error) {
+      console.error('Error fetching chat history:', error)
+      alert('Failed to load chat history')
+    } finally {
+      setLoadingChat(false)
     }
   }
 
@@ -627,7 +572,6 @@ export default function TaskLogsPage() {
     document.body.appendChild(modalDiv)
   }
 
-  // Options
   const actionOptions = [
     { value: 'all', label: 'All Actions' },
     { value: 'create', label: 'Create' },
@@ -669,7 +613,6 @@ export default function TaskLogsPage() {
     { value: 'all', label: 'All Time' }
   ]
 
-  // UI Components
   const Button = ({ children, onClick, variant = 'default', disabled = false, className = '', size = 'default' }: any) => (
     <button
       onClick={onClick}
@@ -735,7 +678,6 @@ export default function TaskLogsPage() {
     </div>
   )
 
-  // Show loading state
   if (loadingUser) {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
@@ -747,7 +689,6 @@ export default function TaskLogsPage() {
     )
   }
 
-  // Show access denied
   if (accessDenied || !isSuperAdmin()) {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
@@ -788,10 +729,8 @@ export default function TaskLogsPage() {
     )
   }
 
-  // Use the AdminLayout wrapper which includes the sidebar
   return (
     <AdminLayout>
-      {/* Main Content Area */}
       <div className="p-4 md:p-6 overflow-auto">
         <div className="max-w-7xl mx-auto space-y-4 md:space-y-6">
           {/* Header */}
@@ -1163,17 +1102,27 @@ export default function TaskLogsPage() {
                             )}
                           </div>
                           
-                          <div className="flex items-center justify-between">
-                            <div className="text-xs text-gray-500 bg-gray-50 px-2 py-1 rounded border border-gray-200 truncate max-w-[120px]">
+                          <div className="flex items-center justify-between gap-2">
+                            <div className="text-xs text-gray-500 bg-gray-50 px-2 py-1 rounded border border-gray-200 truncate max-w-[100px]">
                               {log.ip_address || 'No IP'}
                             </div>
-                            <button
-                              onClick={() => handleViewDetails(log)}
-                              className="text-blue-600 hover:text-blue-700 text-xs flex items-center gap-1"
-                            >
-                              <Eye className="h-3 w-3" />
-                              View
-                            </button>
+                            <div className="flex gap-1">
+                              <button
+                                onClick={() => fetchChatHistory(log.user_email, log.user_email)}
+                                className="text-purple-600 hover:text-purple-700 text-xs flex items-center gap-1"
+                                title="View Chat History"
+                              >
+                                <MessageCircle className="h-3 w-3" />
+                                Chat
+                              </button>
+                              <button
+                                onClick={() => handleViewDetails(log)}
+                                className="text-blue-600 hover:text-blue-700 text-xs flex items-center gap-1"
+                              >
+                                <Eye className="h-3 w-3" />
+                                View
+                              </button>
+                            </div>
                           </div>
                         </div>
                       )
@@ -1240,13 +1189,23 @@ export default function TaskLogsPage() {
                                 </div>
                               </td>
                               <td className="py-3 px-4">
-                                <button
-                                  onClick={() => handleViewDetails(log)}
-                                  className="text-blue-600 hover:text-blue-700 text-sm flex items-center gap-1"
-                                >
-                                  <Eye className="h-4 w-4" />
-                                  View
-                                </button>
+                                <div className="flex gap-2">
+                                  <button
+                                    onClick={() => fetchChatHistory(log.user_email, log.user_email)}
+                                    className="text-purple-600 hover:text-purple-700 text-sm flex items-center gap-1"
+                                    title="View Chat History"
+                                  >
+                                    <MessageCircle className="h-4 w-4" />
+                                    View Chat
+                                  </button>
+                                  <button
+                                    onClick={() => handleViewDetails(log)}
+                                    className="text-blue-600 hover:text-blue-700 text-sm flex items-center gap-1"
+                                  >
+                                    <Eye className="h-4 w-4" />
+                                    View Details
+                                  </button>
+                                </div>
                               </td>
                             </tr>
                           )
@@ -1339,6 +1298,67 @@ export default function TaskLogsPage() {
           </Card>
         </div>
       </div>
+
+      {/* Chat History Modal */}
+      {showChatModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[10000] p-4" onClick={() => setShowChatModal(false)}>
+          <div className="bg-white rounded-xl w-full max-w-3xl max-h-[80vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
+            <div className="p-4 border-b border-gray-200 flex justify-between items-center">
+              <div>
+                <h3 className="text-lg font-semibold">Chat History</h3>
+                <p className="text-sm text-gray-600">
+                  User: <span className="font-medium">{selectedUserName}</span>
+                  <span className="text-xs text-gray-400 ml-2">{selectedUserEmail}</span>
+                </p>
+              </div>
+              <button onClick={() => setShowChatModal(false)} className="text-gray-400 hover:text-gray-600">
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <div className="flex-1 overflow-y-auto p-4 space-y-3 bg-gray-50">
+              {loadingChat ? (
+                <div className="flex justify-center py-8">
+                  <Loader2 className="h-8 w-8 animate-spin text-blue-600" />
+                </div>
+              ) : chatMessages.length === 0 ? (
+                <div className="text-center py-8 text-gray-500">
+                  <MessageCircle className="h-12 w-12 mx-auto mb-2 text-gray-300" />
+                  <p>No chat messages found for this user</p>
+                </div>
+              ) : (
+                chatMessages.map((msg) => (
+                  <div key={msg.id} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+                    <div className={`max-w-[80%] rounded-lg px-4 py-2 ${
+                      msg.role === 'user' 
+                        ? 'bg-blue-600 text-white' 
+                        : msg.role === 'admin' 
+                        ? 'bg-orange-500 text-white' 
+                        : 'bg-white border border-gray-200 text-gray-800'
+                    }`}>
+                      <div className="flex items-center gap-2 mb-1">
+                        {msg.role === 'user' && <User className="h-3 w-3" />}
+                        {msg.role === 'assistant' && <Bot className="h-3 w-3" />}
+                        {msg.role === 'admin' && <Shield className="h-3 w-3" />}
+                        <span className="text-xs font-semibold capitalize">
+                          {msg.role === 'admin' && msg.admin_name ? msg.admin_name : msg.role}
+                        </span>
+                        {msg.is_guest && (
+                          <span className="text-[10px] bg-gray-200 text-gray-600 px-1 rounded">Guest</span>
+                        )}
+                      </div>
+                      <p className="text-sm whitespace-pre-wrap">{msg.content}</p>
+                      <p className="text-[10px] opacity-70 mt-1">
+                        {new Date(msg.created_at).toLocaleString()}
+                      </p>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </AdminLayout>
   )
 }

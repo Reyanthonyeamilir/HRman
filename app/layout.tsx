@@ -7,6 +7,7 @@ import { usePathname, useRouter } from "next/navigation"
 import "./globals.css"
 import { NotificationBell } from "@/components/NotificationBell"
 import { supabase } from "@/lib/applicant"
+import { ChatBot } from "@/components/ChatBot"
 
 export default function RootLayout({
   children,
@@ -528,7 +529,10 @@ export default function RootLayout({
           {children}
         </main>
 
-        {/* FOOTER - Visible on both desktop and mobile */}
+        {/* CHAT BOT - Positioned near footer */}
+        <ChatBot />
+
+        {/* FOOTER */}
         <footer className="bg-slate-900 text-slate-400 mt-auto">
           <div className="mx-auto w-full max-w-6xl px-4 py-8">
             <div className="grid grid-cols-1 gap-8 text-sm md:grid-cols-4">

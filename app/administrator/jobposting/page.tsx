@@ -1,4 +1,3 @@
-
 // app/administrator/jobposting/page.tsx
 'use client'
 
@@ -77,6 +76,7 @@ export default function JobPostingsPage() {
   const [selectedJobs, setSelectedJobs] = useState<string[]>([])
   const [bulkAction, setBulkAction] = useState<string>('')
   const [accessDenied, setAccessDenied] = useState(false)
+  const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' | 'warning' } | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   const [addFormData, setAddFormData] = useState({
@@ -99,6 +99,11 @@ export default function JobPostingsPage() {
     image_file: null,
     image_preview: null
   })
+
+  const showToast = (message: string, type: 'success' | 'error' | 'warning' = 'success') => {
+    setToast({ message, type })
+    setTimeout(() => setToast(null), 3000)
+  }
 
   useEffect(() => {
     setIsClient(true)
@@ -198,7 +203,7 @@ export default function JobPostingsPage() {
       setSelectedJobs([])
     } catch (error) {
       console.error('Error fetching jobs:', error)
-      alert('Error fetching job postings')
+      showToast('Error fetching job postings', 'error')
     } finally {
       setLoading(false)
     }
@@ -299,11 +304,11 @@ export default function JobPostingsPage() {
       })
       setShowAddForm(false)
       
-      alert('Job posting created successfully!')
+      showToast(`Job posting "${addFormData.job_title}" created successfully!`, 'success')
 
     } catch (error: any) {
       console.error('Error creating job posting:', error)
-      alert('Error creating job posting: ' + error.message)
+      showToast('Error creating job posting: ' + error.message, 'error')
     } finally {
       setFormLoading(false)
     }
@@ -370,11 +375,11 @@ export default function JobPostingsPage() {
       })
       setEditingJobId(null)
       
-      alert('Job posting updated successfully!')
+      showToast(`Job posting "${editFormData.job_title}" updated successfully!`, 'success')
 
     } catch (error: any) {
       console.error('Error updating job posting:', error)
-      alert('Error updating job posting: ' + error.message)
+      showToast('Error updating job posting: ' + error.message, 'error')
     } finally {
       setFormLoading(false)
     }
@@ -382,7 +387,7 @@ export default function JobPostingsPage() {
 
   const startEditJob = (job: JobPosting) => {
     if (!hasAccess()) {
-      alert('Access denied. You do not have permission to edit job postings.')
+      showToast('Access denied. You do not have permission to edit job postings.', 'error')
       return
     }
 
@@ -415,7 +420,7 @@ export default function JobPostingsPage() {
 
   const toggleJobStatus = async (jobId: string, currentStatus: JobStatus, jobTitle: string) => {
     if (!hasAccess()) {
-      alert('Access denied. You do not have permission to update job status.')
+      showToast('Access denied. You do not have permission to update job status.', 'error')
       return
     }
 
@@ -437,16 +442,16 @@ export default function JobPostingsPage() {
         job.id === jobId ? { ...job, status: newStatus } : job
       ))
       
-      alert(`Job "${jobTitle}" ${newStatus === 'active' ? 'reopened' : 'closed'} successfully!`)
+      showToast(`Job "${jobTitle}" ${newStatus === 'active' ? 'reopened' : 'closed'} successfully!`, 'success')
     } catch (error) {
       console.error('Error updating job status:', error)
-      alert('Error updating job status')
+      showToast('Error updating job status', 'error')
     }
   }
 
   const deleteJob = async (jobId: string, jobTitle: string) => {
     if (!hasAccess()) {
-      alert('Access denied. You do not have permission to delete job postings.')
+      showToast('Access denied. You do not have permission to delete job postings.', 'error')
       return
     }
 
@@ -455,9 +460,9 @@ export default function JobPostingsPage() {
     if (!job?.can_delete) {
       if (currentUser?.role === 'hr' && job) {
         if (job.applications_count && job.applications_count > 0) {
-          alert(`Cannot delete "${jobTitle}" because it has ${job.applications_count} application(s).\n\nOnly Super Admin can delete jobs with applications.`)
+          showToast(`Cannot delete "${jobTitle}" because it has ${job.applications_count} application(s). Only Super Admin can delete jobs with applications.`, 'warning')
         } else if (job.created_by !== currentUser.id) {
-          alert(`You can only delete job postings you created.\n\nThis job was created by: ${job.creator_name}`)
+          showToast(`You can only delete job postings you created. This job was created by: ${job.creator_name}`, 'warning')
         }
       }
       return
@@ -481,10 +486,10 @@ export default function JobPostingsPage() {
 
       setJobs((prev: JobPosting[]) => prev.filter(job => job.id !== jobId))
       setEditingJobId(null)
-      alert('Job posting deleted successfully!')
+      showToast(`Job posting "${jobTitle}" deleted successfully!`, 'success')
     } catch (error) {
       console.error('Error deleting job:', error)
-      alert('Error deleting job posting')
+      showToast('Error deleting job posting', 'error')
     }
   }
 
@@ -517,7 +522,7 @@ export default function JobPostingsPage() {
 
   const handleJobSelection = (jobId: string) => {
     if (!hasAccess()) {
-      alert('Access denied. You do not have permission to select jobs.')
+      showToast('Access denied. You do not have permission to select jobs.', 'error')
       return
     }
     setSelectedJobs((prev: string[]) => 
@@ -529,7 +534,7 @@ export default function JobPostingsPage() {
 
   const handleBulkAction = async () => {
     if (!hasAccess()) {
-      alert('Access denied. You do not have permission to perform bulk actions.')
+      showToast('Access denied. You do not have permission to perform bulk actions.', 'error')
       return
     }
 
@@ -546,7 +551,7 @@ export default function JobPostingsPage() {
               `• "${job.job_title}" (${job.applications_count || 0} applications)`
             ).join('\n')
             
-            alert(`Cannot delete the following jobs:\n\n${jobList}\n\nOnly Super Admin can delete jobs with applications.`)
+            showToast(`Cannot delete the following jobs:\n${jobList}\n\nOnly Super Admin can delete jobs with applications.`, 'warning')
             return
           }
         }
@@ -560,6 +565,7 @@ export default function JobPostingsPage() {
             .from('job_postings')
             .update({ status: 'active' })
             .in('id', selectedJobs)
+          showToast(`${selectedJobs.length} job(s) activated successfully!`, 'success')
           break
 
         case 'close':
@@ -567,6 +573,7 @@ export default function JobPostingsPage() {
             .from('job_postings')
             .update({ status: 'closed' })
             .in('id', selectedJobs)
+          showToast(`${selectedJobs.length} job(s) closed successfully!`, 'success')
           break
 
         case 'delete':
@@ -580,6 +587,7 @@ export default function JobPostingsPage() {
             .from('job_postings')
             .delete()
             .in('id', selectedJobs)
+          showToast(`${selectedJobs.length} job(s) deleted successfully!`, 'success')
           break
       }
 
@@ -590,16 +598,15 @@ export default function JobPostingsPage() {
 
       await fetchJobs()
       setBulkAction('')
-      alert(`Bulk action completed successfully!`)
     } catch (error) {
       console.error('Error performing bulk action:', error)
-      alert('Error performing bulk action')
+      showToast('Error performing bulk action', 'error')
     }
   }
 
   const exportToCSV = () => {
     if (!hasAccess()) {
-      alert('Access denied. You do not have permission to export data.')
+      showToast('Access denied. You do not have permission to export data.', 'error')
       return
     }
 
@@ -627,6 +634,8 @@ export default function JobPostingsPage() {
     a.download = `job-postings-${new Date().toISOString().split('T')[0]}.csv`
     a.click()
     window.URL.revokeObjectURL(url)
+    
+    showToast('Job postings exported successfully!', 'success')
   }
 
   const handleAddFormChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
@@ -649,12 +658,12 @@ export default function JobPostingsPage() {
     const file = e.target.files?.[0]
     if (file) {
       if (!file.type.startsWith('image/')) {
-        alert('Please select an image file')
+        showToast('Please select an image file', 'warning')
         return
       }
 
       if (file.size > 5 * 1024 * 1024) {
-        alert('Image size should be less than 5MB')
+        showToast('Image size should be less than 5MB', 'warning')
         return
       }
 
@@ -670,12 +679,12 @@ export default function JobPostingsPage() {
     const file = e.target.files?.[0]
     if (file) {
       if (!file.type.startsWith('image/')) {
-        alert('Please select an image file')
+        showToast('Please select an image file', 'warning')
         return
       }
 
       if (file.size > 5 * 1024 * 1024) {
-        alert('Image size should be less than 5MB')
+        showToast('Image size should be less than 5MB', 'warning')
         return
       }
 
@@ -780,6 +789,23 @@ export default function JobPostingsPage() {
 
   return (
     <div className="min-h-screen bg-gray-50">
+      {/* Toast Notification */}
+      {toast && (
+        <div className="fixed top-4 right-4 z-50 animate-slide-in-right">
+          <div className={cn(
+            "flex items-center gap-3 px-4 py-3 rounded-lg shadow-lg",
+            toast.type === 'success' && "bg-green-50 border border-green-200 text-green-800",
+            toast.type === 'error' && "bg-red-50 border border-red-200 text-red-800",
+            toast.type === 'warning' && "bg-yellow-50 border border-yellow-200 text-yellow-800"
+          )}>
+            {toast.type === 'success' && <Check className="h-5 w-5" />}
+            {toast.type === 'error' && <AlertCircle className="h-5 w-5" />}
+            {toast.type === 'warning' && <AlertCircle className="h-5 w-5" />}
+            <p className="text-sm">{toast.message}</p>
+          </div>
+        </div>
+      )}
+
       <AdminHRSidebar 
         mobileOpen={sidebarOpen} 
         onMobileClose={() => setSidebarOpen(false)} 
@@ -1196,7 +1222,7 @@ function JobCard({
   const isSuperAdmin = currentUser?.role === 'super_admin'
 
   return (
-    <div className={`bg-white rounded-lg border p-6 hover:shadow-md transition-shadow ${selected ? 'ring-2 ring-blue-500' : ''} ${isEditing ? 'ring-2 ring-blue-500 bg-blue-50' : ''}`}>
+    <div className={`bg-white rounded-lg border p-6 hover:shadow-md transition-shadow relative ${selected ? 'ring-2 ring-blue-500' : ''} ${isEditing ? 'ring-2 ring-blue-500 bg-blue-50' : ''}`}>
       {/* Selection Checkbox */}
       <div className="absolute top-4 left-4">
         <input
