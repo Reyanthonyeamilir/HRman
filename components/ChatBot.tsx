@@ -1,9 +1,9 @@
-// components/ChatBot.tsx
 "use client"
 
 import * as React from "react"
 import { supabase } from "@/lib/applicant"
-import { Send, X, MessageCircle, Minimize2, Maximize2, Bot, User, Sparkles, Briefcase, Users, FileText, AlertTriangle, Shield, Mail, Clock, Search, Loader2 } from "lucide-react"
+import Image from "next/image"
+import { Send, X, MessageCircle, Minimize2, Maximize2, User, Sparkles, Briefcase, Users, FileText, AlertTriangle, Shield, Mail, Clock, Search, Loader2 } from "lucide-react"
 
 interface Message {
   id: string
@@ -43,6 +43,17 @@ interface ChatUser {
   role?: string
 }
 
+// Helper function to generate unique ID (works in all environments)
+const generateUniqueId = (): string => {
+  // Try using crypto.randomUUID first (modern browsers)
+  if (typeof crypto !== 'undefined' && crypto.randomUUID) {
+    return crypto.randomUUID()
+  }
+  
+  // Fallback for older browsers and environments
+  return 'id_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9) + '_' + performance.now()
+}
+
 export function ChatBot() {
   // ALL HOOKS MUST BE CALLED FIRST
   const [isOpen, setIsOpen] = React.useState(false)
@@ -59,13 +70,14 @@ export function ChatBot() {
   const [searchTerm, setSearchTerm] = React.useState('')
   const [loading, setLoading] = React.useState(false)
   const [loadingUser, setLoadingUser] = React.useState(true)
+  const [isLoggedIn, setIsLoggedIn] = React.useState(false)
   const messagesEndRef = React.useRef<HTMLDivElement>(null)
   const inputRef = React.useRef<HTMLInputElement>(null)
   const replyInputRef = React.useRef<HTMLTextAreaElement>(null)
 
   // All useEffect hooks
   React.useEffect(() => {
-    fetchCurrentUser()
+    checkAuthStatus()
     fetchJobData()
   }, [])
 
@@ -88,15 +100,39 @@ export function ChatBot() {
       } else if (isApplicant()) {
         loadUserMessages(currentUser.email)
       }
-    } else if (loadingUser === false) {
-      loadGuestMessages()
     }
-  }, [currentUser, selectedUser, loadingUser])
+  }, [currentUser, selectedUser])
 
   // Helper functions
   const isSuperAdmin = () => currentUser?.role === 'super_admin'
   const isApplicant = () => currentUser?.role === 'applicant'
   const isHR = () => currentUser?.role === 'hr'
+
+  const checkAuthStatus = async () => {
+    try {
+      setLoadingUser(true)
+      const { data: { user } } = await supabase.auth.getUser()
+      
+      if (user) {
+        setIsLoggedIn(true)
+        const { data: profile } = await supabase
+          .from('profiles')
+          .select('id, role, email, first_name, last_name')
+          .eq('id', user.id)
+          .single()
+        setCurrentUser(profile)
+      } else {
+        setIsLoggedIn(false)
+        setCurrentUser(null)
+      }
+    } catch (error) {
+      console.error('Error:', error)
+      setIsLoggedIn(false)
+      setCurrentUser(null)
+    } finally {
+      setLoadingUser(false)
+    }
+  }
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" })
@@ -106,25 +142,6 @@ export function ChatBot() {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault()
       handleSendMessage()
-    }
-  }
-
-  const fetchCurrentUser = async () => {
-    try {
-      setLoadingUser(true)
-      const { data: { user } } = await supabase.auth.getUser()
-      if (user) {
-        const { data: profile } = await supabase
-          .from('profiles')
-          .select('id, role, email, first_name, last_name')
-          .eq('id', user.id)
-          .single()
-        setCurrentUser(profile)
-      }
-    } catch (error) {
-      console.error('Error:', error)
-    } finally {
-      setLoadingUser(false)
     }
   }
 
@@ -189,7 +206,7 @@ export function ChatBot() {
         })))
       } else {
         setMessages([{
-          id: 'welcome',
+          id: generateUniqueId(),
           role: 'assistant',
           content: 'Hello! I\'m your NORSU HR assistant. I can help you with job vacancies, application requirements, and the application process.',
           created_at: new Date()
@@ -197,49 +214,6 @@ export function ChatBot() {
       }
     } catch (error) {
       console.error('Error:', error)
-    }
-  }
-
-  const loadGuestMessages = async () => {
-    const guestId = localStorage.getItem('guest_chat_id')
-    if (!guestId) {
-      const newGuestId = `guest_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
-      localStorage.setItem('guest_chat_id', newGuestId)
-    }
-    
-    const storedGuestId = localStorage.getItem('guest_chat_id')
-    
-    try {
-      const { data, error } = await supabase
-        .from('chat_messages')
-        .select('*')
-        .eq('user_email', `guest_${storedGuestId}`)
-        .order('created_at', { ascending: true })
-      
-      if (error) throw error
-      
-      if (data && data.length > 0) {
-        setMessages(data.map((msg: any) => ({
-          id: msg.id,
-          role: msg.role,
-          content: msg.content,
-          created_at: new Date(msg.created_at),
-          adminName: msg.admin_name,
-          userId: msg.user_id,
-          userEmail: msg.user_email,
-          userName: msg.user_name,
-          isGuest: msg.is_guest
-        })))
-      } else {
-        setMessages([{
-          id: 'welcome',
-          role: 'assistant',
-          content: 'Hello! I\'m your NORSU HR assistant. I can help you with job vacancies, application requirements, and the application process.',
-          created_at: new Date()
-        }])
-      }
-    } catch (error) {
-      console.error('Error loading guest messages:', error)
     }
   }
 
@@ -327,7 +301,7 @@ export function ChatBot() {
     const targetName = selectedUser ? selectedUser.user_name : null
 
     const userMessage: Message = {
-      id: crypto.randomUUID(),
+      id: generateUniqueId(),
       role: 'user',
       content: inputMessage,
       created_at: new Date(),
@@ -347,7 +321,7 @@ export function ChatBot() {
     try {
       const response = await generateResponse(inputMessage)
       const assistantMessage: Message = {
-        id: crypto.randomUUID(),
+        id: generateUniqueId(),
         role: 'assistant',
         content: response,
         created_at: new Date()
@@ -366,7 +340,7 @@ export function ChatBot() {
     if (!adminReply.trim() || !selectedUser) return
 
     const adminMessage: Message = {
-      id: crypto.randomUUID(),
+      id: generateUniqueId(),
       role: 'admin',
       content: adminReply,
       created_at: new Date(),
@@ -389,11 +363,82 @@ export function ChatBot() {
   }
 
   // ============================================
-  // SMARTER GENERATE RESPONSE FUNCTION
-  // Based on your database schema
+  // SECONDARY AGENT: GROQ API FOR NON-JOB QUESTIONS
+  // ============================================
+  const callGroqAPI = async (question: string): Promise<string> => {
+    try {
+      const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${process.env.NEXT_PUBLIC_GROQ_API_KEY}`
+        },
+        body: JSON.stringify({
+          model: 'llama-3.3-70b-versatile',
+          messages: [
+            {
+              role: 'system',
+              content: `You are a helpful assistant for NORSU (Negros Oriental State University) applicants and employees. 
+              You can answer general questions, provide information, and have friendly conversations. 
+              Be professional, helpful, and concise. Keep responses under 150 words unless detailed information is needed.
+              If asked about jobs, applications, or HR matters, politely redirect to the HR assistant features.
+              Always be respectful and maintain a positive tone.`
+            },
+            {
+              role: 'user',
+              content: question
+            }
+          ],
+          temperature: 0.7,
+          max_tokens: 500,
+          top_p: 1,
+          stream: false
+        })
+      });
+
+      if (!response.ok) {
+        throw new Error(`Groq API error: ${response.status}`);
+      }
+
+      const data = await response.json();
+      return data.choices[0]?.message?.content || "I'm having trouble processing that request. Please try again.";
+    } catch (error) {
+      console.error('Groq API Error:', error);
+      return "I'm experiencing technical difficulties. Please try again in a moment or contact HR directly at hr@norsu.edu.ph";
+    }
+  };
+
+  // Helper function to detect if question is job/HR related
+  const isJobRelatedQuestion = (question: string): boolean => {
+    const q = question.toLowerCase().trim();
+    
+    const jobKeywords = [
+      'job', 'vacanc', 'position', 'openings', 'hiring', 'apply', 'application',
+      'requirement', 'document', 'resume', 'cv', 'interview', 'exam', 'test',
+      'salary', 'benefit', 'compensation', 'hr', 'human resource', 'recruit',
+      'profile', 'education', 'experience', 'license', 'eligibility', 'skill',
+      'training', 'status', 'shortlisted', 'for_review', 'for_interview',
+      'contact hr', 'email hr', 'phone hr', 'office hour', 'norsu hr',
+      'application status', 'my application', 'submit application'
+    ];
+    
+    return jobKeywords.some(keyword => q.includes(keyword));
+  };
+
+  // ============================================
+  // PRIMARY AGENT: JOB/HR RELATED RESPONSES
+  // All your original functions remain UNCHANGED
   // ============================================
   const generateResponse = async (question: string) => {
     const q = question.toLowerCase().trim()
+    
+    // Check if this is job/HR related first
+    const isJobRelated = isJobRelatedQuestion(q);
+    
+    // If NOT job related, use Groq API as secondary agent
+    if (!isJobRelated) {
+      return await callGroqAPI(question);
+    }
     
     // Helper function to check multiple patterns
     const hasIntent = (patterns: string[]) => patterns.some(pattern => q.includes(pattern))
@@ -436,7 +481,7 @@ I'm here to help with your NORSU application journey! 🚀
 Would you like to know more about anything else?`
     }
 
-    // ========== 3. REQUIREMENTS (Based on your schema) ==========
+    // ========== 3. REQUIREMENTS ==========
     if (hasIntent(['requirement', 'need to prepare', 'documents', 'what do i need', 'what are the requirements', 'required documents'])) {
       await fetchJobData()
       
@@ -1116,28 +1161,45 @@ What specific information are you looking for?`
     return null
   }
 
-  // HR users should not see the chat bot
+  // CHAT BOT VISIBILITY RULES:
+  // 1. NOT visible for users who are NOT logged in (guests)
+  // 2. NOT visible for HR users
+  // 3. Visible for logged-in applicants
+  // 4. Visible for super admins
+  
+  // Hide chat bot for non-logged in users (guests)
+  if (!isLoggedIn) {
+    return null
+  }
+  
+  // Hide chat bot for HR users
   if (isHR()) {
     return null
   }
 
-  // REGULAR USER BUTTON (Applicant or Guest)
-  if ((isApplicant() || !currentUser) && !isOpen) {
+  // REGULAR USER BUTTON (Applicant only - logged in)
+  if (isApplicant() && !isOpen) {
     return (
       <button
         onClick={() => setIsOpen(true)}
-        className="fixed bottom-6 right-4 md:bottom-8 md:right-6 z-[9999] group"
+        className="fixed bottom-20 right-4 sm:bottom-24 sm:right-6 z-[9999] group"
       >
         <div className="relative">
           <div className="absolute inset-0 rounded-full bg-blue-400 opacity-30 animate-ping"></div>
-          <div className="relative flex items-center justify-center w-14 h-14 rounded-full shadow-xl bg-gradient-to-r from-blue-600 to-purple-600 hover:scale-110 transition-transform">
-            <MessageCircle className="w-6 h-6 text-white" />
+          <div className="relative flex items-center justify-center w-12 h-12 sm:w-14 sm:h-14 rounded-full shadow-xl bg-gradient-to-r from-blue-600 to-purple-600 hover:scale-110 transition-transform active:scale-95">
+            <Image 
+              src="/images/norsu.png" 
+              alt="NORSU" 
+              width={28} 
+              height={28}
+              className="w-7 h-7 sm:w-8 sm:h-8 object-contain"
+            />
           </div>
           {jobData?.activeJobs && jobData.activeJobs > 0 && (
             <span className="absolute -top-1 -right-1 flex h-5 w-5">
               <span className="absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75 animate-ping"></span>
               <span className="relative inline-flex items-center justify-center rounded-full h-5 w-5 bg-red-600 text-white text-[10px] font-bold border-2 border-white">
-                {jobData.activeJobs}
+                {jobData.activeJobs > 9 ? '9+' : jobData.activeJobs}
               </span>
             </span>
           )}
@@ -1146,30 +1208,38 @@ What specific information are you looking for?`
     )
   }
 
-  // REGULAR USER CHAT WINDOW
-  if ((isApplicant() || !currentUser) && isOpen) {
+  // REGULAR USER CHAT WINDOW (Applicant only)
+  if (isApplicant() && isOpen) {
     return (
-      <div className="fixed bottom-6 right-4 md:bottom-8 md:right-6 z-[9999] w-[380px]">
+      <div className="fixed bottom-20 right-4 sm:bottom-24 sm:right-6 z-[9999] w-[calc(100vw-2rem)] sm:w-[380px] max-w-[380px]">
         <div className={`flex flex-col bg-white rounded-xl shadow-xl border border-gray-200 overflow-hidden transition-all duration-300 ${
-          isMinimized ? 'h-12' : 'h-[520px]'
+          isMinimized ? 'h-12' : 'h-[480px] sm:h-[520px]'
         }`}>
           <div 
             className="flex items-center justify-between px-3 py-2 cursor-pointer bg-gradient-to-r from-blue-600 to-purple-600 text-white"
             onClick={() => setIsMinimized(!isMinimized)}
           >
             <div className="flex items-center gap-2">
-              <Bot className="w-5 h-5" />
+              <div className="w-6 h-6 bg-white rounded-full flex items-center justify-center p-0.5 shadow-sm">
+                <Image 
+                  src="/images/norsu.png" 
+                  alt="NORSU" 
+                  width={20} 
+                  height={20}
+                  className="w-full h-full object-contain"
+                />
+              </div>
               <div>
-                <h3 className="text-sm font-semibold">NORSU HR Assistant</h3>
-                <p className="text-[10px] text-white/80">Online • {jobData?.activeJobs || 0} jobs</p>
+                <h3 className="text-xs sm:text-sm font-semibold">NORSU HR Assistant</h3>
+                <p className="text-[8px] sm:text-[10px] text-white/80">Online • {jobData?.activeJobs || 0} jobs</p>
               </div>
             </div>
             <div className="flex items-center gap-1">
               <button onClick={(e) => { e.stopPropagation(); setIsMinimized(!isMinimized) }} className="p-1.5 hover:bg-white/20 rounded-md">
-                {isMinimized ? <Maximize2 className="w-3.5 h-3.5" /> : <Minimize2 className="w-3.5 h-3.5" />}
+                {isMinimized ? <Maximize2 className="w-3 h-3 sm:w-3.5 sm:h-3.5" /> : <Minimize2 className="w-3 h-3 sm:w-3.5 sm:h-3.5" />}
               </button>
               <button onClick={(e) => { e.stopPropagation(); setIsOpen(false) }} className="p-1.5 hover:bg-white/20 rounded-md">
-                <X className="w-3.5 h-3.5" />
+                <X className="w-3 h-3 sm:w-3.5 sm:h-3.5" />
               </button>
             </div>
           </div>
@@ -1180,22 +1250,30 @@ What specific information are you looking for?`
                 {messages.map((msg) => (
                   <div key={msg.id} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
                     <div className={`flex items-start gap-1.5 max-w-[85%] ${msg.role === 'user' ? 'flex-row-reverse' : ''}`}>
-                      <div className={`w-6 h-6 rounded-full flex items-center justify-center ${
+                      <div className={`w-6 h-6 rounded-full flex items-center justify-center flex-shrink-0 ${
                         msg.role === 'user' ? 'bg-blue-100' : 
                         msg.role === 'admin' ? 'bg-orange-500' : 'bg-purple-600'
                       }`}>
                         {msg.role === 'user' ? <User className="w-3 h-3 text-blue-600" /> :
                          msg.role === 'admin' ? <Shield className="w-3 h-3 text-white" /> :
-                         <Bot className="w-3 h-3 text-white" />}
+                         <div className="w-5 h-5 bg-white rounded-full flex items-center justify-center p-0.5">
+                           <Image 
+                             src="/images/norsu.png" 
+                             alt="NORSU" 
+                             width={16} 
+                             height={16}
+                             className="w-full h-full object-contain"
+                           />
+                         </div>}
                       </div>
-                      <div className={`rounded-lg px-3 py-1.5 text-xs ${
+                      <div className={`rounded-lg px-3 py-1.5 text-xs sm:text-sm ${
                         msg.role === 'user' ? 'bg-blue-600 text-white' :
                         msg.role === 'admin' ? 'bg-orange-500 text-white' : 'bg-white border border-gray-200'
                       }`}>
                         {msg.role === 'admin' && msg.adminName && (
                           <div className="text-[10px] font-semibold mb-0.5">{msg.adminName} (Admin)</div>
                         )}
-                        <p className="whitespace-pre-wrap">{msg.content}</p>
+                        <p className="whitespace-pre-wrap break-words">{msg.content}</p>
                         <p className="text-[8px] opacity-70 mt-0.5">
                           {new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                         </p>
@@ -1219,9 +1297,9 @@ What specific information are you looking for?`
 
               <div className="p-3 bg-white border-t border-gray-200">
                 <div className="flex gap-1.5 mb-2 flex-wrap">
-                  <button onClick={() => setInputMessage("Requirements?")} className="text-[10px] bg-gray-100 px-2 py-0.5 rounded-full">Requirements</button>
-                  <button onClick={() => setInputMessage("Jobs available?")} className="text-[10px] bg-gray-100 px-2 py-0.5 rounded-full">Jobs</button>
-                  <button onClick={() => setInputMessage("Contact HR")} className="text-[10px] bg-gray-100 px-2 py-0.5 rounded-full">Contact</button>
+                  <button onClick={() => setInputMessage("Requirements?")} className="text-[10px] bg-gray-100 px-2 py-0.5 rounded-full active:bg-gray-200">Requirements</button>
+                  <button onClick={() => setInputMessage("Jobs available?")} className="text-[10px] bg-gray-100 px-2 py-0.5 rounded-full active:bg-gray-200">Jobs</button>
+                  <button onClick={() => setInputMessage("Contact HR")} className="text-[10px] bg-gray-100 px-2 py-0.5 rounded-full active:bg-gray-200">Contact</button>
                 </div>
                 <div className="flex gap-2">
                   <input
@@ -1236,7 +1314,7 @@ What specific information are you looking for?`
                   <button
                     onClick={handleSendMessage}
                     disabled={!inputMessage.trim() || isLoading}
-                    className="px-3 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50"
+                    className="px-3 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 active:bg-blue-700"
                   >
                     <Send className="w-4 h-4" />
                   </button>
@@ -1254,18 +1332,24 @@ What specific information are you looking for?`
     return (
       <button
         onClick={() => setIsOpen(true)}
-        className="fixed bottom-6 right-4 md:bottom-8 md:right-6 z-[9999] group"
+        className="fixed bottom-20 right-4 sm:bottom-24 sm:right-6 z-[9999] group"
       >
         <div className="relative">
           <div className="absolute inset-0 rounded-full bg-purple-400 opacity-30 animate-ping"></div>
-          <div className="relative flex items-center justify-center w-14 h-14 rounded-full shadow-xl bg-gradient-to-r from-purple-600 to-pink-600 hover:scale-110 transition-transform">
-            <Shield className="w-6 h-6 text-white" />
+          <div className="relative flex items-center justify-center w-12 h-12 sm:w-14 sm:h-14 rounded-full shadow-xl bg-gradient-to-r from-purple-600 to-pink-600 hover:scale-110 transition-transform active:scale-95">
+            <Image 
+              src="/images/norsu.png" 
+              alt="NORSU" 
+              width={28} 
+              height={28}
+              className="w-7 h-7 sm:w-8 sm:h-8 object-contain"
+            />
           </div>
           {jobData?.activeJobs && jobData.activeJobs > 0 && (
             <span className="absolute -top-1 -right-1 flex h-5 w-5">
               <span className="absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75 animate-ping"></span>
               <span className="relative inline-flex items-center justify-center rounded-full h-5 w-5 bg-red-600 text-white text-[10px] font-bold border-2 border-white">
-                {jobData.activeJobs}
+                {jobData.activeJobs > 9 ? '9+' : jobData.activeJobs}
               </span>
             </span>
           )}
@@ -1277,19 +1361,27 @@ What specific information are you looking for?`
   // SUPER ADMIN CHAT WINDOW
   if (isSuperAdmin() && isOpen) {
     return (
-      <div className="fixed bottom-6 right-4 md:bottom-8 md:right-6 z-[9999] w-[450px]">
+      <div className="fixed bottom-20 right-4 sm:bottom-24 sm:right-6 z-[9999] w-[calc(100vw-2rem)] sm:w-[450px] max-w-[450px]">
         <div className={`flex flex-col bg-white rounded-xl shadow-xl border border-gray-200 overflow-hidden transition-all duration-300 ${
-          isMinimized ? 'h-12' : 'h-[550px]'
+          isMinimized ? 'h-12' : 'h-[500px] sm:h-[550px]'
         }`}>
           <div 
             className="flex items-center justify-between px-3 py-2 cursor-pointer bg-gradient-to-r from-purple-600 to-pink-600 text-white"
             onClick={() => setIsMinimized(!isMinimized)}
           >
             <div className="flex items-center gap-2">
-              <Shield className="w-5 h-5" />
+              <div className="w-6 h-6 bg-white rounded-full flex items-center justify-center p-0.5 shadow-sm">
+                <Image 
+                  src="/images/norsu.png" 
+                  alt="NORSU" 
+                  width={20} 
+                  height={20}
+                  className="w-full h-full object-contain"
+                />
+              </div>
               <div>
-                <h3 className="text-sm font-semibold">Admin Assistant</h3>
-                <p className="text-[10px] text-white/80">Helping users • {jobData?.activeJobs || 0} jobs</p>
+                <h3 className="text-xs sm:text-sm font-semibold">Admin Assistant</h3>
+                <p className="text-[8px] sm:text-[10px] text-white/80">Helping users • {jobData?.activeJobs || 0} jobs</p>
               </div>
             </div>
             <div className="flex items-center gap-1">
@@ -1302,20 +1394,20 @@ What specific information are you looking for?`
                 className="p-1.5 hover:bg-white/20 rounded-md"
                 title="View Users"
               >
-                <Users className="w-3.5 h-3.5" />
+                <Users className="w-3 h-3 sm:w-3.5 sm:h-3.5" />
               </button>
               <button onClick={(e) => { e.stopPropagation(); setIsMinimized(!isMinimized) }} className="p-1.5 hover:bg-white/20 rounded-md">
-                {isMinimized ? <Maximize2 className="w-3.5 h-3.5" /> : <Minimize2 className="w-3.5 h-3.5" />}
+                {isMinimized ? <Maximize2 className="w-3 h-3 sm:w-3.5 sm:h-3.5" /> : <Minimize2 className="w-3 h-3 sm:w-3.5 sm:h-3.5" />}
               </button>
               <button onClick={(e) => { e.stopPropagation(); setIsOpen(false) }} className="p-1.5 hover:bg-white/20 rounded-md">
-                <X className="w-3.5 h-3.5" />
+                <X className="w-3 h-3 sm:w-3.5 sm:h-3.5" />
               </button>
             </div>
           </div>
 
           {!isMinimized && (
             <>
-              <div className="flex flex-1 overflow-hidden">
+              <div className="flex flex-1 overflow-hidden flex-col sm:flex-row">
                 <div className={`flex-1 flex flex-col ${showUserList ? 'border-r border-gray-200' : ''}`}>
                   {/* Helping Banner */}
                   {selectedUser && (
@@ -1341,22 +1433,30 @@ What specific information are you looking for?`
                     {messages.map((msg) => (
                       <div key={msg.id} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
                         <div className={`flex items-start gap-1.5 max-w-[85%] ${msg.role === 'user' ? 'flex-row-reverse' : ''}`}>
-                          <div className={`w-6 h-6 rounded-full flex items-center justify-center ${
+                          <div className={`w-6 h-6 rounded-full flex items-center justify-center flex-shrink-0 ${
                             msg.role === 'user' ? 'bg-blue-100' : 
                             msg.role === 'admin' ? 'bg-purple-500' : 'bg-gray-600'
                           }`}>
                             {msg.role === 'user' ? <User className="w-3 h-3 text-blue-600" /> :
                              msg.role === 'admin' ? <Shield className="w-3 h-3 text-white" /> :
-                             <Bot className="w-3 h-3 text-white" />}
+                             <div className="w-5 h-5 bg-white rounded-full flex items-center justify-center p-0.5">
+                               <Image 
+                                 src="/images/norsu.png" 
+                                 alt="NORSU" 
+                                 width={16} 
+                                 height={16}
+                                 className="w-full h-full object-contain"
+                               />
+                             </div>}
                           </div>
-                          <div className={`rounded-lg px-3 py-1.5 text-xs ${
+                          <div className={`rounded-lg px-3 py-1.5 text-xs sm:text-sm ${
                             msg.role === 'user' ? 'bg-blue-600 text-white' :
                             msg.role === 'admin' ? 'bg-purple-500 text-white' : 'bg-white border border-gray-200'
                           }`}>
                             {msg.role === 'admin' && msg.adminName && (
                               <div className="text-[10px] font-semibold mb-0.5">{msg.adminName} (Admin)</div>
                             )}
-                            <p className="whitespace-pre-wrap">{msg.content}</p>
+                            <p className="whitespace-pre-wrap break-words">{msg.content}</p>
                             <p className="text-[8px] opacity-70 mt-0.5">
                               {new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                             </p>
@@ -1395,7 +1495,7 @@ What specific information are you looking for?`
                           <button
                             onClick={handleAdminReply}
                             disabled={!adminReply.trim()}
-                            className="mt-2 w-full bg-purple-600 text-white py-2 rounded-lg text-sm font-medium hover:bg-purple-700 disabled:opacity-50 flex items-center justify-center gap-2"
+                            className="mt-2 w-full bg-purple-600 text-white py-2 rounded-lg text-sm font-medium hover:bg-purple-700 disabled:opacity-50 flex items-center justify-center gap-2 active:bg-purple-700"
                           >
                             <Send className="w-4 h-4" />
                             Send as Admin
@@ -1418,7 +1518,7 @@ What specific information are you looking for?`
                             <button
                               onClick={handleSendMessage}
                               disabled={!inputMessage.trim() || isLoading}
-                              className="px-3 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50"
+                              className="px-3 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 active:bg-blue-700"
                             >
                               <Send className="w-4 h-4" />
                             </button>
@@ -1443,7 +1543,7 @@ What specific information are you looking for?`
                           <button
                             onClick={handleSendMessage}
                             disabled={!inputMessage.trim() || isLoading}
-                            className="px-3 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50"
+                            className="px-3 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 active:bg-blue-700"
                           >
                             <Send className="w-4 h-4" />
                           </button>
@@ -1455,7 +1555,7 @@ What specific information are you looking for?`
 
                 {/* User List - Super Admin Only */}
                 {showUserList && (
-                  <div className="w-64 bg-gray-50 flex flex-col">
+                  <div className="w-full sm:w-64 bg-gray-50 flex flex-col border-t sm:border-t-0 sm:border-l border-gray-200">
                     <div className="p-2 border-b bg-white">
                       <div className="flex justify-between items-center mb-1">
                         <span className="text-xs font-semibold">Users to Help ({users.length})</span>
@@ -1472,7 +1572,7 @@ What specific information are you looking for?`
                         />
                       </div>
                     </div>
-                    <div className="flex-1 overflow-y-auto">
+                    <div className="flex-1 overflow-y-auto max-h-[200px] sm:max-h-none">
                       {loading ? (
                         <div className="flex justify-center py-4"><Loader2 className="w-5 h-5 animate-spin" /></div>
                       ) : filteredUsers.map((user) => (
