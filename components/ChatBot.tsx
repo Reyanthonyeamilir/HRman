@@ -117,6 +117,7 @@ export function ChatBot() {
   const [isLoggedIn, setIsLoggedIn] = React.useState(false)
   const [newRequestNotification, setNewRequestNotification] = React.useState(false)
   const [currentChatMode, setCurrentChatMode] = React.useState<'ai' | 'human'>('ai')
+  const [hasShownHumanNotification, setHasShownHumanNotification] = React.useState(false)
   
   const messagesEndRef = React.useRef<HTMLDivElement>(null)
   const inputRef = React.useRef<HTMLInputElement>(null)
@@ -129,9 +130,10 @@ export function ChatBot() {
   const isApplicant = () => currentUser?.role === 'applicant'
   const isHR = () => currentUser?.role === 'hr'
   
+  // Admin can reply ONLY when user is in HUMAN mode
   const canReplyToUser = () => {
     if (!isSuperAdmin() || !selectedUser) return false
-    return selectedUser.hasPendingRequest === true
+    return selectedUser.chatMode === 'human'
   }
 
   const checkAuthStatus = async () => {
@@ -247,27 +249,25 @@ export function ChatBot() {
         }))
         setMessages(formattedMessages)
         
-        // Restore chat mode from last user message
+        // Get the LAST user's chat mode
         const lastUserMessage = [...formattedMessages].reverse().find(m => m.role === 'user')
-        if (lastUserMessage) {
-          const lastMsg = lastUserMessage.content.toLowerCase().trim()
-          if (lastMsg === 'talk to human') {
-            setCurrentChatMode('human')
-          } else if (lastMsg === 'talk to chatbot' || lastMsg === 'back to ai' || lastMsg === 'switch to ai') {
-            setCurrentChatMode('ai')
-          }
+        if (lastUserMessage && lastUserMessage.chatMode) {
+          setCurrentChatMode(lastUserMessage.chatMode as 'ai' | 'human')
+          setHasShownHumanNotification(false)
         }
       } else {
         console.log('No existing messages, showing welcome')
         const welcomeMessage: Message = {
           id: generateUniqueId(),
           role: 'assistant',
-          content: `Hello! 👋 I'm your NORSU HR assistant. I can help you with job vacancies, application requirements, and the application process.\n\n📱 **Device:** ${deviceInfo}\n🆔 **Visitor ID:** ${visitorId.slice(-8)}\n\n💡 **Need help from a real person?** Type "talk to human" and an admin will assist you!\n\n⚠️ **Note:** Once you request human help, I will stop responding until you type "talk to chatbot" to switch back to me.\n\nPlease log in to apply for jobs or track your applications.`,
-          created_at: new Date()
+          content: `Hello! 👋 I'm your NORSU HR assistant. I can help you with job vacancies, application requirements, and the application process.\n\n📱 **Device:** ${deviceInfo}\n🆔 **Visitor ID:** ${visitorId.slice(-8)}\n\n💡 **Need help from a real person?** Type "talk to human" and an admin will assist you!\n\nPlease log in to apply for jobs or track your applications.`,
+          created_at: new Date(),
+          chatMode: 'ai'
         }
         setMessages([welcomeMessage])
         await saveMessage(welcomeMessage, identifier)
         setCurrentChatMode('ai')
+        setHasShownHumanNotification(false)
       }
     } catch (error) {
       console.error('Error loading messages:', error)
@@ -300,6 +300,7 @@ export function ChatBot() {
           key = msg.user_email || 'unknown'
         }
         
+        // Check for pending request (for notification ONLY)
         const hasPending = msg.is_human_request === true && msg.human_request_status === 'pending'
         
         if (!userMap.has(key)) {
@@ -328,6 +329,7 @@ export function ChatBot() {
           if (new Date(msg.created_at) > new Date(existing.last_message_time)) {
             existing.last_message = msg.content
             existing.last_message_time = msg.created_at
+            existing.chatMode = msg.chat_mode || 'ai'
           }
           if (hasPending) {
             existing.hasPendingRequest = true
@@ -337,7 +339,10 @@ export function ChatBot() {
 
       const usersList = Array.from(userMap.values())
       
+      // Sort: Human mode users first, then by pending request, then by last message time
       usersList.sort((a, b) => {
+        if (a.chatMode === 'human' && b.chatMode !== 'human') return -1
+        if (a.chatMode !== 'human' && b.chatMode === 'human') return 1
         if (a.hasPendingRequest && !b.hasPendingRequest) return -1
         if (!a.hasPendingRequest && b.hasPendingRequest) return 1
         return new Date(b.last_message_time).getTime() - new Date(a.last_message_time).getTime()
@@ -345,10 +350,9 @@ export function ChatBot() {
       
       setUsers(usersList)
       
-      const pendingCount = usersList.filter(u => u.hasPendingRequest).length
+      const pendingCount = usersList.filter(u => u.hasPendingRequest === true).length
       if (pendingCount > 0) {
         setNewRequestNotification(true)
-        console.log(`📢 ${pendingCount} pending requests!`)
       }
     } catch (error) {
       console.error('Error loading users:', error)
@@ -379,6 +383,16 @@ export function ChatBot() {
           ? `${currentUser?.first_name} ${currentUser?.last_name || ''}`.trim()
           : currentUser?.email?.split('@')[0] || (isGuestUser ? `Visitor` : 'User'))
 
+      // Determine chat_mode for this message
+      let messageChatMode = message.chatMode
+      if (!messageChatMode) {
+        if (message.role === 'admin') {
+          messageChatMode = 'human'
+        } else {
+          messageChatMode = currentChatMode
+        }
+      }
+
       const messageToSave: any = {
         user_email: userEmail,
         user_name: userName,
@@ -386,7 +400,7 @@ export function ChatBot() {
         content: message.content,
         is_guest: isGuestUser,
         created_at: message.created_at.toISOString(),
-        chat_mode: message.chatMode || currentChatMode || 'ai'
+        chat_mode: messageChatMode
       }
 
       if (currentUser?.id && message.role !== 'admin') {
@@ -414,7 +428,7 @@ export function ChatBot() {
         messageToSave.human_request_status = message.humanRequestStatus || 'pending'
       }
 
-      console.log(`Saving ${message.role} message to:`, userEmail)
+      console.log(`Saving ${message.role} message with chat_mode: ${messageChatMode}`)
       const { error } = await supabase
         .from('chat_messages')
         .insert([messageToSave])
@@ -449,16 +463,18 @@ export function ChatBot() {
 
     const userInput = inputMessage.toLowerCase().trim()
     const isHumanRequest = !selectedUser && userInput === 'talk to human'
-    const isBackToAI = !selectedUser && (userInput === 'talk to chatbot' || userInput === 'back to ai' || userInput === 'switch to ai')
+    const isBackToAI = !selectedUser && userInput === 'talk to chatbot'
     
-    // Update chat mode based on user input
     let newChatMode = currentChatMode
+    
     if (isHumanRequest) {
       newChatMode = 'human'
       setCurrentChatMode('human')
+      setHasShownHumanNotification(false)
     } else if (isBackToAI) {
       newChatMode = 'ai'
       setCurrentChatMode('ai')
+      setHasShownHumanNotification(false)
     }
 
     const userMessage: Message = {
@@ -485,51 +501,33 @@ export function ChatBot() {
     await saveMessage(userMessage, userIdentifier)
 
     try {
-      // Only prevent AI from responding - but user can still type messages
-      if (newChatMode === 'human' && !isBackToAI) {
-        // Don't send AI response, but don't block user from typing
-        // Just notify that AI is waiting
-        const waitingMessage: Message = {
+      // Show notification ONLY ONCE when entering human mode
+      if (isHumanRequest && !hasShownHumanNotification) {
+        const notificationMessage: Message = {
           id: generateUniqueId(),
           role: 'assistant',
-          content: `👋 **Human Assistance Mode Active**
-
-I'm currently in human assistance mode and won't respond to your messages.
-
-**Current Status:** Waiting for admin response
-**Your Device:** ${deviceInfo}
-
-💡 **To switch back to me (AI Assistant):** Type "talk to chatbot"
-
-Keep typing your messages - the admin will see them and respond!`,
+          content: `👋 You are now in Human Assistance Mode. An admin can now reply to you anytime. Type "talk to chatbot" to return to AI mode.`,
           created_at: new Date(),
           chatMode: 'human'
         }
-        setMessages(prev => [...prev, waitingMessage])
-        await saveMessage(waitingMessage, userIdentifier)
-      } 
+        setMessages(prev => [...prev, notificationMessage])
+        await saveMessage(notificationMessage, userIdentifier)
+        setHasShownHumanNotification(true)
+      }
+      // Show welcome back when switching to AI mode
       else if (isBackToAI) {
         const aiWelcomeMessage: Message = {
           id: generateUniqueId(),
           role: 'assistant',
-          content: `🤖 **Back to AI Assistant Mode!**
-
-I'm here to help you again with your NORSU-related questions.
-
-**What would you like to know?**
-• "What jobs are available?"
-• "What documents do I need?"
-• "How do I complete my profile?"
-
-💡 **Need human help again?** Type "talk to human" to request admin assistance.`,
+          content: `🤖 You are now back in AI Assistant mode. Type "talk to human" if you need admin help again.`,
           created_at: new Date(),
           chatMode: 'ai'
         }
         setMessages(prev => [...prev, aiWelcomeMessage])
         await saveMessage(aiWelcomeMessage, userIdentifier)
       }
-      else {
-        // Normal AI response (only when in AI mode and not switching)
+      // Normal AI response (only in AI mode and not switching modes)
+      else if (currentChatMode === 'ai' && !isHumanRequest && !isBackToAI) {
         const response = await generateResponse(inputMessage)
         const assistantMessage: Message = {
           id: generateUniqueId(),
@@ -541,8 +539,9 @@ I'm here to help you again with your NORSU-related questions.
         setMessages(prev => [...prev, assistantMessage])
         await saveMessage(assistantMessage, userIdentifier)
       }
+      // In human mode - NO AI RESPONSE
     } catch (error) {
-      console.error('Error generating response:', error)
+      console.error('Error:', error)
     } finally {
       setIsLoading(false)
     }
@@ -550,7 +549,7 @@ I'm here to help you again with your NORSU-related questions.
 
   const handleAdminReply = async () => {
     if (!canReplyToUser()) {
-      alert("⚠️ You can only reply to visitors who have an ACTIVE pending request. They need to type 'talk to human' again to request further assistance.")
+      alert("⚠️ User is not in Human Mode. They need to type 'talk to human' first.")
       return
     }
     
@@ -579,7 +578,7 @@ I'm here to help you again with your NORSU-related questions.
     setMessages(prev => [...prev, adminMessage])
     setAdminReply('')
     
-    // Mark ALL pending requests as resolved for this user
+    // Mark pending requests as resolved (for notification only)
     if (selectedUser.user_email && !selectedUser.is_guest) {
       await supabase
         .from('chat_messages')
@@ -596,6 +595,7 @@ I'm here to help you again with your NORSU-related questions.
         .eq('human_request_status', 'pending')
     }
     
+    // Update selected user to remove pending flag (but keep human mode)
     setSelectedUser(prev => prev ? { ...prev, hasPendingRequest: false } : null)
     
     setTimeout(() => {
@@ -674,7 +674,7 @@ I'm here to help you again with your NORSU-related questions.
           (payload) => {
             console.log('New message received!', payload)
             const newMsg = payload.new as any
-            if (newMsg.role !== 'user') {
+            if (newMsg.role === 'admin') {
               const message: Message = {
                 id: newMsg.id,
                 role: newMsg.role,
@@ -771,18 +771,12 @@ I can help you with:
 📊 **Application Status** - Track your progress
 
 💡 **Need human help?** Type "talk to human" to request admin assistance!
-⚠️ **Note:** Once you request human help, I will stop responding until you type "talk to chatbot" to switch back.
 
 What would you like to know today?`
     }
 
     if (hasIntent(['thank', 'thanks', 'appreciate', 'grateful'])) {
-      return `You're very welcome! 😊 I'm glad I could help.
-
-💡 **Need human help?** Type "talk to human" to request admin assistance!
-💡 **Switch back to AI:** Type "talk to chatbot" if you're in human mode.
-
-Is there anything else you'd like to know?`
+      return `You're very welcome! 😊 I'm glad I could help. Is there anything else you'd like to know?`
     }
 
     if (hasIntent(['requirement', 'need to prepare', 'documents', 'what do i need', 'what are the requirements'])) {
@@ -795,9 +789,7 @@ Is there anything else you'd like to know?`
 ✅ Work Experience (Job Title, Company, Dates)
 ✅ Licenses/Certifications (PRC License, CSC Eligibility)
 
-⚠️ **WARNING:** Incomplete applications will be auto-shortlisted and NOT reviewed!
-
-Need help? Type "talk to human" for assistance.`
+⚠️ **WARNING:** Incomplete applications will be auto-shortlisted and NOT reviewed!`
     }
 
     if (hasIntent(['vacanc', 'job', 'position', 'available', 'openings', 'jobs', 'hiring'])) {
@@ -832,13 +824,11 @@ Check back regularly for new opportunities!`
     return `🤖 **I'm here to help with your NORSU application!**
 
 💡 **Need human help?** Type "talk to human" to request admin assistance!
-⚠️ **Note:** Once you request human help, I will stop responding until you type "talk to chatbot" to switch back.
 
 **Try asking me:**
 • "What jobs are available?"
 • "What documents do I need?"
-• "How do I complete my profile?"
-• "talk to human" (for admin help)`
+• "How do I complete my profile?"`
   }
 
   const filteredUsers = users.filter(user => 
@@ -887,7 +877,7 @@ Check back regularly for new opportunities!`
     )
   }
 
-  // Regular user chat window - INPUT IS ALWAYS ENABLED
+  // Regular user chat window
   if (!isSuperAdmin() && isOpen) {
     return (
       <div className="fixed bottom-4 right-4 sm:bottom-4 sm:right-6 z-[9999] w-[calc(100vw-2rem)] sm:w-[380px] max-w-[380px]">
@@ -912,7 +902,7 @@ Check back regularly for new opportunities!`
                 <h3 className="text-xs sm:text-sm font-semibold">NORSU HR Assistant</h3>
                 <p className="text-[8px] sm:text-[10px] text-white/80">
                   {isLoggedIn ? `Online • ${jobData?.activeJobs || 0} jobs` : `Guest Mode`}
-                  {currentChatMode === 'human' && ` • 👤 Human Mode (AI paused)`}
+                  {currentChatMode === 'human' && ` • 👤 Human Mode`}
                   {currentChatMode === 'ai' && ` • 🤖 AI Mode`}
                 </p>
               </div>
@@ -930,12 +920,6 @@ Check back regularly for new opportunities!`
           {!isMinimized && (
             <>
               <div className="flex-1 overflow-y-auto p-3 space-y-3 bg-gray-50">
-                {currentChatMode === 'human' && (
-                  <div className="bg-yellow-100 border border-yellow-300 rounded-lg p-2 mb-2 text-xs text-yellow-800 flex items-center gap-2">
-                    <UserCog className="w-4 h-4" />
-                    <span>⚠️ You are in <strong>Human Assistance Mode</strong>. I (AI) won't respond to your messages, but you can still type and the admin will see them. Type <strong>"talk to chatbot"</strong> to switch back to AI.</span>
-                  </div>
-                )}
                 {messages.map((msg) => (
                   <div key={msg.id} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
                     <div className={`flex items-start gap-1.5 max-w-[85%] ${msg.role === 'user' ? 'flex-row-reverse' : ''}`}>
@@ -945,7 +929,6 @@ Check back regularly for new opportunities!`
                       }`}>
                         {msg.role === 'user' ? <User className="w-3 h-3 text-blue-600" /> :
                          msg.role === 'admin' ? <Shield className="w-3 h-3 text-white" /> :
-                         msg.chatMode === 'human' ? <UserCog className="w-3 h-3 text-white" /> :
                          <div className="w-5 h-5 bg-white rounded-full flex items-center justify-center p-0.5">
                            <Image 
                              src="/images/norsu.png" 
@@ -958,28 +941,10 @@ Check back regularly for new opportunities!`
                       </div>
                       <div className={`rounded-lg px-3 py-1.5 text-xs sm:text-sm ${
                         msg.role === 'user' ? 'bg-blue-600 text-white' :
-                        msg.role === 'admin' ? 'bg-orange-500 text-white' : 
-                        msg.chatMode === 'human' ? 'bg-yellow-500 text-white' : 'bg-white border border-gray-200'
+                        msg.role === 'admin' ? 'bg-orange-500 text-white' : 'bg-white border border-gray-200'
                       }`}>
                         {msg.role === 'admin' && msg.adminName && (
                           <div className="text-[10px] font-semibold mb-0.5">{msg.adminName} (Admin)</div>
-                        )}
-                        {msg.role === 'assistant' && msg.chatMode === 'human' && (
-                          <div className="text-[10px] font-semibold mb-0.5 flex items-center gap-1">
-                            <UserCog className="w-3 h-3" /> Human Mode (AI Paused)
-                          </div>
-                        )}
-                        {msg.isHumanRequest && msg.humanRequestStatus === 'pending' && (
-                          <div className="text-[10px] font-semibold mb-1 text-yellow-600 flex items-center gap-1">
-                            <AlertTriangle className="w-3 h-3" />
-                            Human Assistance Requested - Admin will respond
-                          </div>
-                        )}
-                        {msg.isHumanRequest && msg.humanRequestStatus === 'resolved' && (
-                          <div className="text-[10px] font-semibold mb-1 text-green-600 flex items-center gap-1">
-                            <CheckCircle className="w-3 h-3" />
-                            Admin has responded to your request
-                          </div>
                         )}
                         <p className="whitespace-pre-wrap break-words">{msg.content}</p>
                         <p className="text-[8px] opacity-70 mt-0.5">
@@ -1014,8 +979,8 @@ Check back regularly for new opportunities!`
                     </>
                   ) : (
                     <>
-                      <button onClick={() => setInputMessage("talk to chatbot")} className="text-[10px] bg-green-100 text-green-700 px-2 py-0.5 rounded-full animate-pulse">🤖 Talk to Chatbot</button>
-                      <div className="text-[10px] bg-yellow-100 text-yellow-700 px-2 py-0.5 rounded-full">💬 Keep typing - admin will see</div>
+                      <button onClick={() => setInputMessage("talk to chatbot")} className="text-[10px] bg-green-100 text-green-700 px-2 py-0.5 rounded-full">🤖 Talk to Chatbot</button>
+                      <div className="text-[10px] bg-yellow-100 text-yellow-700 px-2 py-0.5 rounded-full">💬 Admin can reply anytime</div>
                     </>
                   )}
                   {!isLoggedIn && (
@@ -1031,7 +996,7 @@ Check back regularly for new opportunities!`
                     value={inputMessage}
                     onChange={(e) => setInputMessage(e.target.value)}
                     onKeyPress={handleKeyPress}
-                    placeholder={currentChatMode === 'ai' ? "Ask me anything..." : "Type your message for admin... (AI won't respond)"}
+                    placeholder={currentChatMode === 'ai' ? "Ask me anything..." : "Type your message for admin..."}
                     className="flex-1 px-3 py-2 text-sm bg-gray-100 border rounded-lg focus:outline-none focus:ring-1 focus:ring-blue-500"
                   />
                   <button
@@ -1044,8 +1009,8 @@ Check back regularly for new opportunities!`
                 </div>
                 <p className="text-[8px] text-gray-400 text-center mt-2">
                   {currentChatMode === 'ai' 
-                    ? "💬 Type 'talk to human' for admin help • AI will pause"
-                    : "👤 Human mode active • Type 'talk to chatbot' to return to AI"
+                    ? "💬 Type 'talk to human' for admin help"
+                    : "👤 Human mode active • Admin can reply anytime • Type 'talk to chatbot' to return to AI"
                   }
                 </p>
               </div>
@@ -1058,7 +1023,8 @@ Check back regularly for new opportunities!`
 
   // Super admin button
   if (isSuperAdmin() && !isOpen) {
-    const pendingRequests = users.filter(u => u.hasPendingRequest).length
+    const humanModeUsers = users.filter(u => u.chatMode === 'human').length
+    const pendingRequests = users.filter(u => u.hasPendingRequest === true).length
     
     return (
       <button
@@ -1086,14 +1052,10 @@ Check back regularly for new opportunities!`
           {pendingRequests > 0 && (
             <>
               <span className="absolute -top-1 -right-1 flex h-6 w-6">
-                <span className="absolute inline-flex h-full w-full rounded-full bg-yellow-400 opacity-75 animate-ping"></span>
-                <span className="relative inline-flex items-center justify-center rounded-full h-6 w-6 bg-yellow-500 text-white text-[11px] font-bold border-2 border-white">
+                <span className="absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75 animate-ping"></span>
+                <span className="relative inline-flex items-center justify-center rounded-full h-6 w-6 bg-red-500 text-white text-[11px] font-bold border-2 border-white">
                   {pendingRequests > 9 ? '9+' : pendingRequests}
                 </span>
-              </span>
-              <span className="absolute -bottom-1 -right-1 flex h-3 w-3">
-                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
-                <span className="relative inline-flex rounded-full h-3 w-3 bg-red-500"></span>
               </span>
             </>
           )}
@@ -1104,7 +1066,8 @@ Check back regularly for new opportunities!`
 
   // Super admin chat window
   if (isSuperAdmin() && isOpen) {
-    const pendingCount = users.filter(u => u.hasPendingRequest).length
+    const humanModeCount = users.filter(u => u.chatMode === 'human').length
+    const pendingCount = users.filter(u => u.hasPendingRequest === true).length
     
     return (
       <div className="fixed bottom-4 right-4 sm:bottom-4 sm:right-6 z-[9999] w-[calc(100vw-2rem)] sm:w-[450px] max-w-[450px]">
@@ -1128,12 +1091,12 @@ Check back regularly for new opportunities!`
               <div className="flex-1">
                 <h3 className="text-xs sm:text-sm font-semibold">Admin Dashboard</h3>
                 <p className="text-[8px] sm:text-[10px] text-white/80">
-                  {users.length} total • {pendingCount} pending {pendingCount === 1 ? 'request' : 'requests'}
+                  {users.length} total • {humanModeCount} human mode • {pendingCount} pending
                 </p>
               </div>
               {pendingCount > 0 && (
-                <div className="bg-yellow-500 text-white text-[10px] px-2 py-0.5 rounded-full animate-pulse">
-                  {pendingCount} New!
+                <div className="bg-red-500 text-white text-[10px] px-2 py-0.5 rounded-full animate-pulse">
+                  {pendingCount} Needs Reply!
                 </div>
               )}
             </div>
@@ -1149,7 +1112,7 @@ Check back regularly for new opportunities!`
               >
                 <Users className="w-3 h-3 sm:w-3.5 sm:h-3.5" />
                 {pendingCount > 0 && (
-                  <span className="absolute -top-1 -right-1 w-2 h-2 bg-yellow-500 rounded-full animate-ping"></span>
+                  <span className="absolute -top-1 -right-1 w-2 h-2 bg-red-500 rounded-full animate-ping"></span>
                 )}
               </button>
               <button onClick={(e) => { e.stopPropagation(); setIsMinimized(!isMinimized) }} className="p-1.5 hover:bg-white/20 rounded-md">
@@ -1166,29 +1129,28 @@ Check back regularly for new opportunities!`
               <div className="flex flex-1 overflow-hidden flex-col sm:flex-row">
                 <div className={`flex-1 flex flex-col ${showUserList ? 'border-r border-gray-200' : ''}`}>
                   {selectedUser && (
-                    <div className={`px-3 py-2 border-b ${selectedUser.hasPendingRequest ? 'bg-yellow-50 border-yellow-200' : 'bg-purple-50 border-purple-200'}`}>
+                    <div className={`px-3 py-2 border-b ${selectedUser.chatMode === 'human' ? 'bg-green-50 border-green-200' : 'bg-gray-50 border-gray-200'}`}>
                       <div className="flex justify-between items-center">
                         <div className="flex items-center gap-2">
                           <Shield className="w-4 h-4 text-purple-600" />
                           <span className="text-xs font-semibold">{selectedUser.user_name}</span>
-                          {selectedUser.hasPendingRequest && (
-                            <span className="text-[10px] bg-red-100 text-red-700 px-1.5 py-0.5 rounded-full animate-pulse font-bold">
-                              🔴 NEEDS REPLY
+                          {selectedUser.chatMode === 'human' ? (
+                            <span className="text-[10px] bg-green-100 text-green-700 px-1.5 py-0.5 rounded-full font-bold">
+                              🟢 HUMAN MODE - Can reply anytime
+                            </span>
+                          ) : (
+                            <span className="text-[10px] bg-gray-100 text-gray-700 px-1.5 py-0.5 rounded-full">
+                              🤖 AI MODE - Cannot reply
                             </span>
                           )}
-                          {!selectedUser.hasPendingRequest && selectedUser.is_guest && (
-                            <span className="text-[10px] bg-gray-100 text-gray-700 px-1.5 py-0.5 rounded-full">
-                              No active request
+                          {selectedUser.hasPendingRequest && (
+                            <span className="text-[10px] bg-red-100 text-red-700 px-1.5 py-0.5 rounded-full animate-pulse">
+                              🔴 PENDING REQUEST
                             </span>
                           )}
                           {selectedUser.is_guest && (
                             <span className="text-[10px] bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded-full">
                               Visitor
-                            </span>
-                          )}
-                          {selectedUser.chatMode === 'human' && (
-                            <span className="text-[10px] bg-yellow-100 text-yellow-700 px-1.5 py-0.5 rounded-full">
-                              Human Mode
                             </span>
                           )}
                         </div>
@@ -1226,12 +1188,10 @@ Check back regularly for new opportunities!`
                         <div className={`flex items-start gap-1.5 max-w-[85%] ${msg.role === 'user' ? 'flex-row-reverse' : ''}`}>
                           <div className={`w-6 h-6 rounded-full flex items-center justify-center flex-shrink-0 ${
                             msg.role === 'user' ? 'bg-blue-100' : 
-                            msg.role === 'admin' ? 'bg-purple-500' : 
-                            msg.chatMode === 'human' ? 'bg-yellow-500' : 'bg-gray-600'
+                            msg.role === 'admin' ? 'bg-purple-500' : 'bg-gray-600'
                           }`}>
                             {msg.role === 'user' ? <User className="w-3 h-3 text-blue-600" /> :
                              msg.role === 'admin' ? <Shield className="w-3 h-3 text-white" /> :
-                             msg.chatMode === 'human' ? <UserCog className="w-3 h-3 text-white" /> :
                              <div className="w-5 h-5 bg-white rounded-full flex items-center justify-center p-0.5">
                                <Image 
                                  src="/images/norsu.png" 
@@ -1244,19 +1204,15 @@ Check back regularly for new opportunities!`
                           </div>
                           <div className={`rounded-lg px-3 py-1.5 text-xs sm:text-sm ${
                             msg.role === 'user' ? 'bg-blue-600 text-white' :
-                            msg.role === 'admin' ? 'bg-purple-500 text-white' : 
-                            msg.chatMode === 'human' ? 'bg-yellow-500 text-white' : 'bg-white border border-gray-200'
+                            msg.role === 'admin' ? 'bg-purple-500 text-white' : 'bg-white border border-gray-200'
                           }`}>
                             {msg.role === 'admin' && msg.adminName && (
                               <div className="text-[10px] font-semibold mb-0.5">{msg.adminName} (Admin)</div>
                             )}
-                            {msg.role === 'assistant' && msg.chatMode === 'human' && (
-                              <div className="text-[10px] font-semibold mb-0.5">⚠️ Human Mode (AI disabled - user can still type)</div>
-                            )}
                             {msg.isHumanRequest && msg.humanRequestStatus === 'pending' && (
                               <div className="text-[10px] font-semibold mb-1 text-red-600 bg-red-50 p-1 rounded flex items-center gap-1">
                                 <AlertTriangle className="w-3 h-3" />
-                                🔴 HUMAN ASSISTANCE REQUESTED - REPLY REQUIRED 🔴
+                                🔴 USER REQUESTED HUMAN ASSISTANCE
                               </div>
                             )}
                             <p className="whitespace-pre-wrap break-words">{msg.content}</p>
@@ -1278,19 +1234,19 @@ Check back regularly for new opportunities!`
                   <div className="p-3 bg-white border-t border-gray-200">
                     {selectedUser ? (
                       <>
-                        {selectedUser.hasPendingRequest ? (
+                        {selectedUser.chatMode === 'human' ? (
                           <>
-                            <div className="mb-2 p-2 bg-yellow-50 rounded-lg border border-yellow-200">
-                              <p className="text-[11px] text-yellow-800 flex items-center gap-1">
-                                <AlertTriangle className="w-3 h-3" />
-                                This user has an ACTIVE request for human assistance. You can reply now.
+                            <div className="mb-2 p-2 bg-green-50 rounded-lg border border-green-200">
+                              <p className="text-[11px] text-green-800 flex items-center gap-1">
+                                <UserCog className="w-3 h-3" />
+                                User is in HUMAN mode - You can reply anytime (unlimited replies)
                               </p>
                             </div>
                             <textarea
                               ref={replyInputRef}
                               value={adminReply}
                               onChange={(e) => setAdminReply(e.target.value)}
-                              placeholder={`Reply to ${selectedUser.user_name} as human admin...`}
+                              placeholder={`Reply to ${selectedUser.user_name}...`}
                               rows={3}
                               className="w-full px-3 py-2 text-sm border rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500 resize-none"
                               onKeyPress={(e) => {
@@ -1306,24 +1262,22 @@ Check back regularly for new opportunities!`
                               className="mt-2 w-full bg-gradient-to-r from-purple-600 to-pink-600 text-white py-2 rounded-lg text-sm font-medium hover:from-purple-700 hover:to-pink-700 disabled:opacity-50 flex items-center justify-center gap-2"
                             >
                               <Send className="w-4 h-4" />
-                              Reply as Human Admin
+                              Send Reply
                             </button>
                             <p className="text-[10px] text-gray-400 text-center mt-2">
-                              Press Ctrl+Enter to send
+                              Press Ctrl+Enter to send • You can reply as many times as needed
                             </p>
                           </>
                         ) : (
                           <div className="p-3 bg-gray-50 rounded-lg border border-gray-200 text-center">
-                            <Clock className="w-5 h-5 text-gray-400 mx-auto mb-1" />
+                            <Bot className="w-5 h-5 text-gray-400 mx-auto mb-1" />
                             <p className="text-xs text-gray-600">Cannot reply to this user</p>
                             <p className="text-[10px] text-gray-500 mt-1">
-                              Admin can only reply when user has an ACTIVE "talk to human" request
+                              User is in AI mode. They need to type "talk to human" to switch to human mode.
                             </p>
-                            {!selectedUser.hasPendingRequest && selectedUser.is_guest && (
-                              <p className="text-[10px] text-blue-500 mt-2">
-                                💡 User must type "talk to human" again to request further assistance
-                              </p>
-                            )}
+                            <p className="text-[10px] text-blue-500 mt-2">
+                              💡 You can still see their chat history
+                            </p>
                           </div>
                         )}
                       </>
@@ -1359,9 +1313,9 @@ Check back regularly for new opportunities!`
                       ) : filteredUsers.length === 0 ? (
                         <div className="text-center text-gray-500 text-xs py-4">No visitors yet</div>
                       ) : (
-                        filteredUsers.map((user) => (
+                        filteredUsers.map((user, index) => (
                           <div
-                            key={user.user_email || user.visitorId}
+                            key={`${user.user_email || user.visitorId}_${index}_${user.last_message_time}`}
                             onClick={() => {
                               setSelectedUser(user)
                               setShowUserList(false)
@@ -1370,29 +1324,32 @@ Check back regularly for new opportunities!`
                             }}
                             className={`p-2 cursor-pointer hover:bg-gray-100 ${
                               (selectedUser?.user_email === user.user_email || selectedUser?.visitorId === user.visitorId) ? 'bg-purple-50 border-l-4 border-purple-500' : ''
-                            } ${user.hasPendingRequest ? 'bg-red-50 border-l-4 border-red-500' : ''}`}
+                            } ${user.chatMode === 'human' ? 'bg-green-50 border-l-4 border-green-500' : ''} ${user.hasPendingRequest ? 'border-l-4 border-red-500' : ''}`}
                           >
                             <div className="flex items-center gap-1">
                               {user.hasPendingRequest && <AlertTriangle className="w-3 h-3 text-red-500 animate-pulse" />}
+                              {user.chatMode === 'human' && <UserCog className="w-3 h-3 text-green-500" />}
                               {user.deviceInfo?.includes('Mobile') ? <Smartphone className="w-3 h-3 text-gray-500" /> : 
                                user.deviceInfo?.includes('Tablet') ? <Tablet className="w-3 h-3 text-gray-500" /> : 
                                <Laptop className="w-3 h-3 text-gray-500" />}
                               <span className="text-xs font-medium truncate flex-1">
                                 {user.user_name}
-                                {user.hasPendingRequest && " ✨"}
+                                {user.chatMode === 'human' && " 🟢"}
                               </span>
                               {user.is_guest && <span className="text-[8px] bg-blue-100 text-blue-700 px-1 rounded">Visitor</span>}
-                              {user.chatMode === 'human' && <span className="text-[8px] bg-yellow-100 text-yellow-700 px-1 rounded">Human Mode</span>}
                             </div>
                             <div className="flex items-center gap-1 mt-0.5">
-                              {user.hasPendingRequest && (
+                              {user.hasPendingRequest ? (
                                 <span className="text-[8px] bg-red-100 text-red-700 px-1 rounded font-bold animate-pulse">
                                   NEEDS REPLY
                                 </span>
-                              )}
-                              {!user.hasPendingRequest && user.is_guest && (
+                              ) : user.chatMode === 'human' ? (
+                                <span className="text-[8px] bg-green-100 text-green-700 px-1 rounded">
+                                  HUMAN MODE
+                                </span>
+                              ) : (
                                 <span className="text-[8px] bg-gray-100 text-gray-500 px-1 rounded">
-                                  No request
+                                  AI MODE
                                 </span>
                               )}
                             </div>
